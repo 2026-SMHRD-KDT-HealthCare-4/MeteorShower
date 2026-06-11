@@ -36,24 +36,27 @@ def dist2(a, b):
 
 def get_hand_state(landmarks):
     """(state, fingers) 반환.
-    state   : 'open' / 'fist' / 'partial'
+    state   : 'open' / 'grip' / 'partial'
     fingers : [thumb, index, middle, ring, pinky]  True=extended
+    판정 기준: 엄지 제외, 검지~소지 4개 중 2개 이상 접히면 grip
     """
     wrist = landmarks[0]
 
-    # 손목 기준 거리 비교: dist(wrist, tip) > dist(wrist, pip) → 펴짐
-    # tip/pip 쌍: 엄지(4,3), 검지(8,6), 중지(12,10), 약지(16,14), 소지(20,18)
+    # 엄지 포함 5개 계산 (디버그 표시용)
     pairs = [(4, 3), (8, 6), (12, 10), (16, 14), (20, 18)]
     fingers = [
         dist2(wrist, landmarks[tip_i]) > dist2(wrist, landmarks[pip_i])
         for tip_i, pip_i in pairs
     ]
 
-    ext = sum(fingers)
-    if ext == 5:
+    # 판정은 검지~소지(fingers[1:]) 4개만 사용
+    four = fingers[1:]          # [index, middle, ring, pinky]
+    folded = sum(not f for f in four)   # 접힌 손가락 수
+
+    if folded >= 2:
+        state = "grip"
+    elif folded == 0:
         state = "open"
-    elif ext == 0:
-        state = "fist"
     else:
         state = "partial"
 
@@ -92,7 +95,7 @@ with vision.HandLandmarker.create_from_options(options) as landmarker:
     start_time = time.time()
 
     count = 0
-    # 사이클: None → "open" → "fist" → "open" = +1
+    # 사이클: None → "open" → "grip" → "open" = +1
     phase = None
     state_buf = []          # partial 제외 안정화 버퍼
     confirmed_state = None  # 마지막 확정 상태
@@ -110,7 +113,6 @@ with vision.HandLandmarker.create_from_options(options) as landmarker:
         result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
         raw_state = None
-        debug_fingers = [False] * 5
         if result.hand_landmarks and result.handedness:
             for landmarks, handedness_list in zip(
                 result.hand_landmarks, result.handedness
@@ -120,15 +122,13 @@ with vision.HandLandmarker.create_from_options(options) as landmarker:
                     continue
                 draw_hand(frame, landmarks, handedness)
                 if raw_state is None:       # 첫 번째 유효 손으로만 카운팅
-                    raw_state, debug_fingers = get_hand_state(landmarks)
+                    raw_state, _ = get_hand_state(landmarks)
 
         # ── 상태 안정화 ──────────────────────────────────────
-        if raw_state in ("open", "fist"):
+        if raw_state in ("open", "grip"):
             state_buf.append(raw_state)
         if len(state_buf) > STABLE_FRAMES:
             state_buf.pop(0)
-
-        candidate_state = state_buf[-1] if state_buf else "none"
 
         if (len(state_buf) == STABLE_FRAMES
                 and all(s == state_buf[0] for s in state_buf)):
@@ -138,29 +138,19 @@ with vision.HandLandmarker.create_from_options(options) as landmarker:
 
                 # ── 카운팅 상태 머신 ─────────────────────────
                 if confirmed_state == "open":
-                    if phase == "fist":
-                        count += 1      # 펼침→주먹→펼침 완료
+                    if phase == "grip":
+                        count += 1      # OPEN → GRIP → OPEN 완료
                     phase = "open"
-                elif confirmed_state == "fist" and phase == "open":
-                    phase = "fist"
+                elif confirmed_state == "grip" and phase == "open":
+                    phase = "grip"
 
         # ── HUD ──────────────────────────────────────────────
-        state_label = {"open": "OPEN", "fist": "GRIP"}.get(confirmed_state, "---")
-        finger_str = " ".join(
-            f"{'TIMRP'[i]}:{'O' if v else 'X'}"
-            for i, v in enumerate(debug_fingers)
-        )
+        state_label = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "---")
 
         cv2.putText(frame, f"COUNT: {count}", (20, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 255), 3)
-        cv2.putText(frame, f"STATE:     {state_label}", (20, 95),
+        cv2.putText(frame, f"STATE: {state_label}", (20, 95),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.putText(frame, f"CANDIDATE: {candidate_state}", (20, 120),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 0), 2)
-        cv2.putText(frame, f"PHASE:     {phase}", (20, 145),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 0), 2)
-        cv2.putText(frame, f"FINGERS:   {finger_str}", (20, 170),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 255, 150), 2)
 
         cv2.imshow("Hand Tracking", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
