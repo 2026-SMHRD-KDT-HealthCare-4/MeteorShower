@@ -23,7 +23,7 @@ const records = [
     status: '진료 완료',
     statusColor: 'bg-surface-container-high text-on-surface-variant',
     feedback: '손가락 가동성과 근력이 향상되고 있어요. 특히 쥐는 동작이 훨씬 안정적으로 개선되었습니다...',
-    exercises: [{ name: '태핑 / 2세트 / 5회', icon: 'pan_tool_alt' }],
+    exercises: [{ name: '태핑 / 2세트 / 5회', icon: 'pan_tool_alt', achievement: 75 }],
     featured: false,
   },
   {
@@ -31,10 +31,10 @@ const records = [
     date: '2026.03.22',
     doctor: '김나연 원장',
     specialty: '재활의학과 전문의',
-    status: '처방 갱신',
+    status: '처방 대기',
     statusColor: 'bg-tertiary-fixed text-on-tertiary-fixed',
-    feedback: '전반적인 회복 흐름이 좋아요. 지금 단계에서 강도 조절이 중요해요. 무리하지 않고 천천히 진행해요.',
-    exercises: [{ name: '그립 강화 / 3세트 / 5회', icon: 'brightness_7' }],
+    feedback: '처방 대기 중',
+    exercises: [{ name: '그립 강화 / 3세트 / 5회', icon: 'brightness_7', achievement: 60 }],
     featured: false,
   },
 ];
@@ -89,9 +89,9 @@ export default function MedicalRecords() {
                   </div>
                   <div className="space-y-3">
                     {record.exercises.map((ex, i) => (
-                      <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-outline-variant hover:border-primary/50 transition-colors cursor-pointer group">
+                      <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-outline-variant">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-lg bg-primary/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                          <div className="w-12 h-12 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
                             <span className="material-symbols-outlined">{ex.icon}</span>
                           </div>
                           <div>
@@ -99,12 +99,9 @@ export default function MedicalRecords() {
                             {ex.sets && <p className="text-[12px] text-on-surface-variant">{ex.sets}세트 / {ex.reps}회</p>}
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          {ex.achievement && (
-                            <span className={`px-3 py-1 ${ex.badgeColor} rounded-lg text-label-sm font-semibold`}>목표 달성 {ex.achievement}%</span>
-                          )}
-                          <span className="material-symbols-outlined text-on-surface-variant">chevron_right</span>
-                        </div>
+                        {ex.achievement != null && (
+                          <span className={`px-3 py-1 ${ex.badgeColor} rounded-lg text-label-sm font-semibold`}>목표 달성 {ex.achievement}%</span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -136,14 +133,19 @@ export default function MedicalRecords() {
                 <p className="text-sm text-on-surface-variant line-clamp-3 mb-6">{record.feedback}</p>
                 <div className="border-t border-outline-variant pt-4 space-y-2">
                   {record.exercises.map((ex, i) => (
-                    <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-surface-container-low transition-all">
+                    <div key={i} className="flex items-center justify-between p-2 rounded-lg">
                       <div className="flex items-center gap-3">
                         <span className="material-symbols-outlined text-primary text-xl">{ex.icon}</span>
                         <span className="text-sm text-on-surface">{ex.name}</span>
                       </div>
-                      <span className="material-symbols-outlined text-on-surface-variant text-lg">chevron_right</span>
+                      {ex.achievement != null && (
+                        <span className="text-label-sm font-semibold text-primary">{ex.achievement}%</span>
+                      )}
                     </div>
                   ))}
+                  <div className="pt-2 text-right">
+                    <button className="text-primary text-label-sm font-semibold hover:underline">전체 기록 상세 보기</button>
+                  </div>
                 </div>
               </div>
             ))}

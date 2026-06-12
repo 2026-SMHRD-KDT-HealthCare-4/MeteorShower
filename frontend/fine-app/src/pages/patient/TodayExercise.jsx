@@ -1,29 +1,30 @@
+import { Link } from 'react-router-dom';
 import PatientNavBar from '../../components/PatientNavBar';
 
 const exercises = [
   {
     id: 1,
-    name: '태핑 (Tapping)',
+    name: '왼손 손가락 두드리기',
     sets: 3,
-    reps: 5,
-    duration: '10분',
+    reps: 10,
+    duration: '5분',
     status: 'done',
     progress: 100,
     videoTime: '01:20',
   },
   {
     id: 2,
-    name: '그립 강화',
+    name: '오른손 쥐었다,펴기',
     sets: 3,
     reps: 5,
-    duration: '10분',
+    duration: '5분',
     status: 'done',
     progress: 100,
     videoTime: '01:45',
   },
   {
     id: 3,
-    name: '손가락 신전 스트레칭',
+    name: '손가락 스트레칭',
     sets: 2,
     reps: 3,
     duration: '8분',
@@ -51,7 +52,7 @@ function ExerciseCard({ ex }) {
     <div
       className={`bg-surface-container-lowest rounded-xl p-4 flex flex-col md:flex-row gap-gutter items-center transition-shadow duration-300
         ${isInProgress ? 'border-2 border-primary/20 shadow-md relative overflow-hidden' : 'border border-outline-variant hover:shadow-md'}
-        ${ex.status === 'waiting' ? 'opacity-70' : ''}
+        ${isDone || ex.status === 'waiting' ? 'opacity-60' : ''}
       `}
     >
       {isInProgress && <div className="absolute top-0 left-0 w-1 h-full bg-primary" />}
@@ -107,12 +108,15 @@ function ExerciseCard({ ex }) {
       <div className="w-full md:w-auto">
         {isDone ? (
           <button className="w-full md:w-32 h-12 border border-primary text-primary text-label-md rounded-lg hover:bg-primary/5 transition-colors">
-            다시 보기
+            운동 완료
           </button>
         ) : (
-          <button className="w-full md:w-32 h-12 bg-primary text-white text-label-md rounded-lg shadow-sm hover:bg-primary-container transition-all active:scale-95">
+          <Link
+            to="/patient/exercise/session"
+            className="w-full md:w-32 h-12 bg-primary text-white text-label-md rounded-lg shadow-sm hover:bg-primary-container transition-all active:scale-95 flex items-center justify-center"
+          >
             운동 시작
-          </button>
+          </Link>
         )}
       </div>
     </div>
@@ -133,34 +137,64 @@ export default function TodayExercise() {
           <div className="flex justify-between items-start">
             <div>
               <h1 className="text-headline-lg font-display font-bold text-primary mb-1">김망나뇽님 안녕하세요!</h1>
-              <p className="text-body-md text-on-surface-variant">오늘의 맞춤형 재활 훈련이 준비되었습니다.</p>
             </div>
             <div className="hidden md:flex items-center gap-stack-sm bg-surface-container-low px-4 py-2 rounded-xl">
               <span className="material-symbols-outlined text-primary">local_fire_department</span>
-              <span className="text-label-md text-primary font-semibold">12일 연속 훈련 중</span>
+              <span className="text-label-md text-primary font-semibold">OO일 연속 훈련 중</span>
             </div>
           </div>
         </header>
 
         {/* Progress Bento */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-gutter mb-stack-lg">
-          <div className="md:col-span-2 bg-primary-container text-on-primary-container p-stack-lg rounded-xl flex flex-col justify-between relative overflow-hidden shadow-sm">
+          <div className="md:col-span-2 bg-primary-container text-on-primary-container p-4 md:p-stack-lg rounded-xl flex flex-col gap-3 md:gap-6 relative overflow-hidden shadow-sm">
             <div className="relative z-10">
-              <h2 className="text-title-md font-display font-bold mb-2">오늘의 목표 달성률</h2>
-              <div className="flex items-baseline gap-2 mb-4">
-                <span className="text-display-lg font-display font-bold">85%</span>
-                <span className="text-label-md opacity-80">전일 대비 +5%</span>
-              </div>
-              <div className="w-full bg-white/20 h-3 rounded-full overflow-hidden">
-                <div className="bg-primary-fixed-dim h-full w-[85%] transition-all duration-1000 ease-out" />
+              {/* 오늘 달성률 */}
+              <h2 className="text-label-lg md:text-title-md font-display font-bold mb-2">오늘 운동 달성률</h2>
+              <div className="flex items-center gap-3">
+                <span className="text-headline-lg md:text-display-lg font-display font-bold shrink-0">85%</span>
+                <div className="flex-1 bg-white/20 h-2 md:h-3 rounded-full overflow-hidden">
+                  <div className="bg-primary-fixed-dim h-full w-[85%] transition-all duration-1000 ease-out" />
+                </div>
               </div>
             </div>
+
+            {/* 주간 달성률 */}
+            <div className="relative z-10">
+              <h3 className="text-label-lg md:text-title-md font-display font-bold mb-2 md:mb-3">주간 운동 달성률</h3>
+              <div className="flex gap-2 items-end h-16 md:h-24">
+                {[
+                  { day: '월', rate: 100 },
+                  { day: '화', rate: 80 },
+                  { day: '수', rate: 60 },
+                  { day: '목', rate: 85 },
+                  { day: '금', rate: 40 },
+                  { day: '토', rate: 0 },
+                  { day: '일', rate: 0 },
+                ].map(({ day, rate }) => (
+                  <div key={day} className="flex-1 flex flex-col items-center gap-1 h-full">
+                    <span className="text-xs opacity-70 shrink-0">{rate > 0 ? `${rate}%` : ''}</span>
+                    <div className="flex-1 w-full flex items-end">
+                      <div
+                        className="w-full rounded-t-md transition-all duration-700"
+                        style={{
+                          height: rate > 0 ? `${rate}%` : '4px',
+                          background: rate > 0 ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)',
+                        }}
+                      />
+                    </div>
+                    <span className="text-label-sm font-semibold shrink-0">{day}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="absolute -right-4 -bottom-4 opacity-10">
               <span className="material-symbols-outlined text-[160px]" style={{ fontVariationSettings: "'FILL' 1" }}>rebase_edit</span>
             </div>
           </div>
 
-          <div className="bg-surface-container-lowest border border-outline-variant p-stack-lg rounded-xl flex flex-col items-center justify-center text-center shadow-sm">
+          <div className="hidden md:flex bg-surface-container-lowest border border-outline-variant p-stack-lg rounded-xl flex-col items-center justify-center text-center shadow-sm">
             <div className="relative w-32 h-32 mb-4">
               <svg className="w-full h-full" viewBox="0 0 128 128">
                 <circle className="text-surface-container-highest stroke-current" cx="64" cy="64" fill="transparent" r="56" strokeWidth="8" />
@@ -182,7 +216,6 @@ export default function TodayExercise() {
                 <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">완료 항목</span>
               </div>
             </div>
-            <p className="text-label-md text-on-surface-variant">마지막 한 단계가 남았습니다!</p>
           </div>
         </section>
 
@@ -192,7 +225,6 @@ export default function TodayExercise() {
             <span className="material-symbols-outlined text-primary">format_list_bulleted</span>
             오늘의 운동 루틴
           </h3>
-          <button className="text-primary text-label-md font-medium hover:underline">전체보기</button>
         </div>
 
         <div className="space-y-stack-md">
@@ -200,18 +232,6 @@ export default function TodayExercise() {
             <ExerciseCard key={ex.id} ex={ex} />
           ))}
         </div>
-
-        {/* Tip */}
-        <section className="mt-stack-lg p-stack-lg bg-surface-container-low rounded-xl border border-outline-variant/30 flex flex-col md:flex-row items-center gap-gutter text-center md:text-left">
-          <div className="bg-primary/10 p-4 rounded-full">
-            <span className="material-symbols-outlined text-primary text-3xl">lightbulb</span>
-          </div>
-          <div className="flex-grow">
-            <h5 className="text-title-md font-display font-bold text-primary mb-1">전문가 팁</h5>
-            <p className="text-body-md text-on-surface-variant">운동 전후로 3분간 가볍게 손을 털어주면 혈액순환을 도와 재활 효과를 높일 수 있습니다.</p>
-          </div>
-          <button className="text-label-md text-primary border-b border-primary/30 hover:border-primary transition-all">더 많은 팁 보기</button>
-        </section>
       </main>
     </div>
   );
