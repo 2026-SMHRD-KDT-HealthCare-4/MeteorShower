@@ -46,16 +46,15 @@ EXERCISES = [
     {
         "name":         "full_fist",
         "guide_path":   os.path.join(_BASE, "guide_data", "full_fist.json"),
-        "target_count": 10,   # 세트당 목표 횟수
-        "target_set":   3,    # 목표 세트 수
+        "target_count": 7,  # TODO: DB 처방값으로 교체 예정
+        "target_set":   2,   # TODO: DB 처방값으로 교체 예정
     },
-    # 운동 추가 예시:
-    # {
-    #     "name":         "finger_extension",
-    #     "guide_path":   os.path.join(_BASE, "guide_data", "finger_extension.json"),
-    #     "target_count": 10,
-    #     "target_set":   3,
-    # },
+    {
+        "name":         "tapping",
+        "guide_path":   os.path.join(_BASE, "guide_data", "tapping.json"),
+        "target_count": 7,  # TODO: DB 처방값으로 교체 예정
+        "target_set":   2,   # TODO: DB 처방값으로 교체 예정
+    },
 ]
 
 
