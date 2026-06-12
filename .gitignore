@@ -177,3 +177,4 @@ pyrightconfig.json
 
 # custom ignore rules
 guide_videos
+test_ws.py

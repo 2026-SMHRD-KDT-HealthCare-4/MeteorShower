@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import queue
 import time
 import urllib.request
 
@@ -34,11 +35,11 @@ STABLE_FRAMES   = 3
 TARGET_COUNT    = 10     # 의사 처방 목표 횟수 (테스트 하드코딩)
 TARGET_ROM      = 0.8    # 목표 가동범위 정규화값 (테스트 하드코딩)
 CAPTURE_DIR     = os.path.join(os.path.dirname(__file__), "captures")
-GUIDE_FPS       = 30.0   # 가이드 애니메이션 속도
-GUIDE_SCALE     = 900    # 정규화 좌표 → 픽셀 배율
-MAX_DTW_DIST    = 0.3    # 이 DTW 거리에서 일치율 0%
-DTW_INTERVAL    = 30     # N 프레임마다 DTW 계산
-PATIENT_BUF_MAX = 30     # 환자 버퍼 최대 크기
+GUIDE_FPS       = 30.0
+GUIDE_SCALE     = 900
+MAX_DTW_DIST    = 0.3
+DTW_INTERVAL    = 30
+PATIENT_BUF_MAX = 30
 
 GUIDE_PATH = os.path.join(os.path.dirname(__file__), "guide_data", "full_fist.json")
 
@@ -52,7 +53,6 @@ else:
 
 
 # ── 유틸 ──────────────────────────────────────────────────────
-
 
 def dist2(a, b):
     return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
@@ -69,20 +69,14 @@ def normalize_landmarks(landmarks):
 
 # ── 손 상태 판별 ───────────────────────────────────────────────
 
-
 def get_hand_state(landmarks):
-    """(state, fingers) 반환.
-    state   : 'open' / 'grip' / 'partial'
-    fingers : [thumb, index, middle, ring, pinky]  True=extended
-    """
     wrist = landmarks[0]
     pairs = [(4, 3), (8, 6), (12, 10), (16, 14), (20, 18)]
     fingers = [
         dist2(wrist, landmarks[tip_i]) > dist2(wrist, landmarks[pip_i])
         for tip_i, pip_i in pairs
     ]
-    folded = sum(not f for f in fingers[1:])   # 검지~소지 4개 기준
-
+    folded = sum(not f for f in fingers[1:])
     if folded >= 2:
         state = "grip"
     elif folded == 0:
@@ -94,9 +88,8 @@ def get_hand_state(landmarks):
 
 # ── ROM / 캡처 ────────────────────────────────────────────────
 
-
 def compute_rom(landmarks):
-    """손목(0) 기준 검지~소지 끝(8,12,16,20) 평균 거리 반환 (정규화 좌표 단위)."""
+    """손목(0) 기준 검지~소지 끝(8,12,16,20) 평균 거리."""
     wrist = landmarks[0]
     tips = [landmarks[i] for i in [8, 12, 16, 20]]
     return float(np.mean([
@@ -106,7 +99,6 @@ def compute_rom(landmarks):
 
 
 def save_capture(frame, label="overload"):
-    """과부하 직전 프레임을 CAPTURE_DIR에 저장."""
     os.makedirs(CAPTURE_DIR, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
     path = os.path.join(CAPTURE_DIR, f"capture_{label}_{ts}.jpg")
@@ -116,30 +108,20 @@ def save_capture(frame, label="overload"):
 
 # ── DTW 유사도 ─────────────────────────────────────────────────
 
-
 def compute_dtw_similarity(patient_buf):
-    """환자 버퍼(최근 N프레임) vs guide_np 전체 시퀀스 DTW 비교.
-    일치율(0~100) 반환. 데이터 부족 또는 guide 없으면 None.
-    """
     if guide_np is None or len(patient_buf) < 2:
         return None
-
     seq1 = np.array(patient_buf, dtype=np.float32)  # (m, 21, 3)
     seq2 = guide_np                                   # (n, 21, 3)
     m, n = len(seq1), len(seq2)
-
-    # 프레임 간 평균 유클리드 거리 행렬: (m, n)
     diff = seq1[:, np.newaxis] - seq2[np.newaxis]    # (m, n, 21, 3)
-    frame_dist = np.sqrt((diff ** 2).sum(axis=3)).mean(axis=2)  # (m, n)
-
-    # DTW DP
+    frame_dist = np.sqrt((diff ** 2).sum(axis=3)).mean(axis=2)
     dtw = np.full((m + 1, n + 1), np.inf)
     dtw[0, 0] = 0.0
     for i in range(1, m + 1):
         for j in range(1, n + 1):
             cost = frame_dist[i - 1, j - 1]
             dtw[i, j] = cost + min(dtw[i-1, j], dtw[i, j-1], dtw[i-1, j-1])
-
     dtw_dist = dtw[m, n] / (m + n)
     return max(0.0, 1.0 - dtw_dist / MAX_DTW_DIST) * 100
 
@@ -152,13 +134,11 @@ def draw_animated_guide(frame, guide_frame_idx):
     h, w = frame.shape[:2]
     cx, cy = w // 2, h // 2 + 225
     guide_frame = guide_np[guide_frame_idx]
-
     pts = [
         (int(cx + rel[0] * GUIDE_SCALE),
          int(cy + rel[1] * GUIDE_SCALE))
         for rel in guide_frame
     ]
-
     for s_idx, e_idx in HAND_CONNECTIONS:
         cv2.line(frame, pts[s_idx], pts[e_idx], (255, 0, 0), 3)
 
@@ -168,12 +148,11 @@ def draw_hand(frame, landmarks, handedness):
     for s_idx, e_idx in HAND_CONNECTIONS:
         s, e = landmarks[s_idx], landmarks[e_idx]
         cv2.line(frame,
-                (int(s.x * w), int(s.y * h)),
-                (int(e.x * w), int(e.y * h)),
-                (0, 200, 0), 2)
+                 (int(s.x * w), int(s.y * h)),
+                 (int(e.x * w), int(e.y * h)),
+                 (0, 200, 0), 2)
     for lm in landmarks:
         cv2.circle(frame, (int(lm.x * w), int(lm.y * h)), 5, (0, 0, 255), -1)
-
     wrist = landmarks[0]
     flipped = "Right" if handedness.category_name == "Left" else "Left"
     label = f"{flipped} {handedness.score:.2f}"
@@ -181,9 +160,10 @@ def draw_hand(frame, landmarks, handedness):
                 (int(wrist.x * w), int(wrist.y * h) - 10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-# ── 메인 루프 ─────────────────────────────────────────────────
 
-options = vision.HandLandmarkerOptions(
+# ── MediaPipe 옵션 (임포트 시 1회 생성) ───────────────────────
+
+_options = vision.HandLandmarkerOptions(
     base_options=python.BaseOptions(model_asset_path=MODEL_PATH),
     running_mode=vision.RunningMode.VIDEO,
     num_hands=2,
@@ -192,154 +172,183 @@ options = vision.HandLandmarkerOptions(
     min_tracking_confidence=0.5,
 )
 
-with vision.HandLandmarker.create_from_options(options) as landmarker:
-    cap = cv2.VideoCapture(0)
-    loop_start = time.time()
 
-    count         = 0
-    phase         = None
-    state_buf     = []
-    confirmed_state = None
-    patient_buf   = []     # normalize_landmarks 결과 누적 [(21,3), ...]
-    dtw_counter   = 0
-    similarity    = None
+# ── 메인 트래킹 함수 ───────────────────────────────────────────
 
-    # 과부하 감지 상태
-    target_count          = TARGET_COUNT  # 현재 유효 목표 횟수 (조정 가능)
-    overload_stage        = 0             # 0=정상 / 1=1단계(횟수조정) / 2=세션종료
-    overload_count_marker = -1            # 1단계 발동 시점의 count 값
-    session_end_at        = None          # 2단계 화면 표시 시작 시간
+def run_tracking(q: queue.Queue = None):
+    """카메라 트래킹 루프.
+    q 가 전달되면 매 프레임 결과를 JSON 직렬화 가능한 dict로 큐에 push.
+    단독 실행(python hand_tracking.py)도 q=None 으로 정상 동작.
+    """
+    with vision.HandLandmarker.create_from_options(_options) as landmarker:
+        cap = cv2.VideoCapture(0)
+        loop_start = time.time()
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+        count           = 0
+        phase           = None
+        state_buf       = []
+        confirmed_state = None
+        patient_buf     = []
+        dtw_counter     = 0
+        similarity      = None
 
-        # flip 후 MediaPipe에 전달 → Left/Right 화면과 일치
-        frame = cv2.flip(frame, 1)
-        timestamp_ms = int((time.time() - loop_start) * 1000)
+        target_count          = TARGET_COUNT
+        overload_stage        = 0
+        overload_count_marker = -1
+        session_end_at        = None
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        result = landmarker.detect_for_video(mp_image, timestamp_ms)
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        # ── 1. 랜드마크 수집 ──────────────────────────────────
-        raw_state      = None
-        first_landmarks = None
-        valid_hands    = []
-        if result.hand_landmarks and result.handedness:
-            for landmarks, handedness_list in zip(
-                result.hand_landmarks, result.handedness
-            ):
-                handedness = handedness_list[0]
-                if handedness.score < 0.5:
-                    continue
-                valid_hands.append((landmarks, handedness))
-                if raw_state is None:
-                    raw_state, _ = get_hand_state(landmarks)
-                    first_landmarks = landmarks
+            # flip 후 MediaPipe에 전달 → Left/Right 화면과 일치
+            frame = cv2.flip(frame, 1)
+            timestamp_ms = int((time.time() - loop_start) * 1000)
 
-        # ── 2. 환자 버퍼 업데이트 ────────────────────────────
-        if first_landmarks is not None:
-            patient_buf.append(normalize_landmarks(first_landmarks))
-            if len(patient_buf) > PATIENT_BUF_MAX:
-                patient_buf.pop(0)
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
-        # ── 3. DTW (DTW_INTERVAL 프레임마다) ─────────────────
-        dtw_counter += 1
-        if dtw_counter >= DTW_INTERVAL:
-            dtw_counter = 0
-            similarity = compute_dtw_similarity(patient_buf)
+            # ── 1. 랜드마크 수집 ──────────────────────────────────
+            raw_state       = None
+            first_landmarks = None
+            valid_hands     = []
+            if result.hand_landmarks and result.handedness:
+                for landmarks, handedness_list in zip(
+                    result.hand_landmarks, result.handedness
+                ):
+                    handedness = handedness_list[0]
+                    if handedness.score < 0.5:
+                        continue
+                    valid_hands.append((landmarks, handedness))
+                    if raw_state is None:
+                        raw_state, _ = get_hand_state(landmarks)
+                        first_landmarks = landmarks
 
-        # ── 4. 가이드 프레임 인덱스 (시간 기반 루프) ──────────
-        if guide_np is not None:
-            elapsed = time.time() - loop_start
-            guide_frame_idx = int(elapsed * GUIDE_FPS) % len(guide_np)
-        else:
-            guide_frame_idx = 0
+            # ── 2. 환자 버퍼 업데이트 ────────────────────────────
+            if first_landmarks is not None:
+                patient_buf.append(normalize_landmarks(first_landmarks))
+                if len(patient_buf) > PATIENT_BUF_MAX:
+                    patient_buf.pop(0)
 
-        # ── 5. 렌더링: 가이드(아래) → 환자(위) ───────────────
-        draw_animated_guide(frame, guide_frame_idx)
-        for landmarks, handedness in valid_hands:
-            draw_hand(frame, landmarks, handedness)
+            # ── 3. DTW ───────────────────────────────────────────
+            dtw_counter += 1
+            if dtw_counter >= DTW_INTERVAL:
+                dtw_counter = 0
+                similarity = compute_dtw_similarity(patient_buf)
 
-        # ── 상태 안정화 & 카운팅 ─────────────────────────────
-        if raw_state in ("open", "grip"):
-            state_buf.append(raw_state)
-        if len(state_buf) > STABLE_FRAMES:
-            state_buf.pop(0)
-
-        if (len(state_buf) == STABLE_FRAMES
-                and all(s == state_buf[0] for s in state_buf)):
-            new_state = state_buf[0]
-            if new_state != confirmed_state:
-                confirmed_state = new_state
-                if confirmed_state == "open":
-                    if phase == "grip":
-                        count += 1          # OPEN → GRIP → OPEN 완료
-                    phase = "open"
-                elif confirmed_state == "grip" and phase == "open":
-                    phase = "grip"
-
-        # ── 과부하 감지 ───────────────────────────────────────
-        current_rom = compute_rom(first_landmarks) if first_landmarks else 0.0
-        rom_over    = (current_rom > TARGET_ROM)
-        count_over  = (count >= target_count)
-
-        if overload_stage == 0 and (count_over or rom_over):
-            save_capture(frame)
-            overload_stage        = 1
-            overload_count_marker = count
-
-        elif overload_stage == 1 and count > overload_count_marker:
-            save_capture(frame)
-            overload_stage = 2
-
-        if overload_stage == 2:
-            if session_end_at is None:
-                session_end_at = time.time()
-            elif time.time() - session_end_at > 3.0:
-                break   # 3초 표시 후 루프 종료
-
-        # ── HUD ──────────────────────────────────────────────
-        state_label = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "---")
-
-        cv2.putText(frame, f"COUNT: {count}", (20, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 255), 3)
-        cv2.putText(frame, f"STATE: {state_label}", (20, 95),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-        if similarity is not None:
-            if similarity >= 80:
-                sig_color = (0, 220, 0)
-            elif similarity >= 50:
-                sig_color = (0, 200, 255)
+            # ── 4. 가이드 프레임 인덱스 ──────────────────────────
+            if guide_np is not None:
+                elapsed = time.time() - loop_start
+                guide_frame_idx = int(elapsed * GUIDE_FPS) % len(guide_np)
             else:
-                sig_color = (0, 0, 220)
-            match_text = f"{similarity:.0f}%"
-            (tw, _), _ = cv2.getTextSize(match_text, cv2.FONT_HERSHEY_SIMPLEX, 2.0, 3)
-            tx = (frame.shape[1] - tw) // 2
-            cv2.putText(frame, match_text, (tx, 65),
-                        cv2.FONT_HERSHEY_SIMPLEX, 2.0, sig_color, 3)
-            cv2.circle(frame, (tx + tw + 22, 50), 14, sig_color, -1)
+                guide_frame_idx = 0
 
-        # ── 과부하 경고 오버레이 ──────────────────────────────
-        if overload_stage == 1:
-            cv2.putText(frame, "! OVERLOAD: COUNT ADJUSTED",
-                        (20, frame.shape[0] - 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-        elif overload_stage == 2:
-            overlay = frame.copy()
-            cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]),
-                          (0, 0, 180), -1)
-            cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
-            cv2.putText(frame, "! SESSION END",
-                        (frame.shape[1] // 2 - 170, frame.shape[0] // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 255), 4)
+            # ── 5. 렌더링: 가이드(아래) → 환자(위) ───────────────
+            draw_animated_guide(frame, guide_frame_idx)
+            for landmarks, handedness in valid_hands:
+                draw_hand(frame, landmarks, handedness)
 
-        cv2.imshow("Hand Tracking", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+            # ── 상태 안정화 & 카운팅 ─────────────────────────────
+            if raw_state in ("open", "grip"):
+                state_buf.append(raw_state)
+            if len(state_buf) > STABLE_FRAMES:
+                state_buf.pop(0)
 
-    cap.release()
-    cv2.destroyAllWindows()
+            if (len(state_buf) == STABLE_FRAMES
+                    and all(s == state_buf[0] for s in state_buf)):
+                new_state = state_buf[0]
+                if new_state != confirmed_state:
+                    confirmed_state = new_state
+                    if confirmed_state == "open":
+                        if phase == "grip":
+                            count += 1      # OPEN → GRIP → OPEN 완료
+                        phase = "open"
+                    elif confirmed_state == "grip" and phase == "open":
+                        phase = "grip"
+
+            # ── 과부하 감지 ───────────────────────────────────────
+            current_rom = compute_rom(first_landmarks) if first_landmarks else 0.0
+            count_over  = (count >= target_count)
+            rom_over    = (current_rom > TARGET_ROM)
+
+            if overload_stage == 0 and (count_over or rom_over):
+                save_capture(frame)
+                overload_stage        = 1
+                overload_count_marker = count
+
+            elif overload_stage == 1 and count > overload_count_marker:
+                save_capture(frame)
+                overload_stage = 2
+
+            if overload_stage == 2:
+                if session_end_at is None:
+                    session_end_at = time.time()
+                elif time.time() - session_end_at > 3.0:
+                    break
+
+            # ── 큐 전송 (WebSocket 서버와 연동) ───────────────────
+            if q is not None:
+                state_label = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "")
+                if similarity is not None:
+                    signal = "green" if similarity >= 80 else ("yellow" if similarity >= 50 else "red")
+                else:
+                    signal = "gray"
+
+                payload = {
+                    "landmarks": [[lm.x, lm.y, lm.z] for lm in first_landmarks]
+                                 if first_landmarks is not None else [],
+                    "count":      count,
+                    "state":      state_label,
+                    "similarity": round(similarity, 1) if similarity is not None else None,
+                    "signal":     signal,
+                    "overload":   overload_stage >= 1,
+                    "session_end": overload_stage == 2,
+                }
+                try:
+                    q.put_nowait(payload)
+                except queue.Full:
+                    pass    # 오래된 프레임 드롭
+
+            # ── HUD ──────────────────────────────────────────────
+            state_label = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "---")
+
+            cv2.putText(frame, f"COUNT: {count}", (20, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 255), 3)
+            cv2.putText(frame, f"STATE: {state_label}", (20, 95),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            if similarity is not None:
+                sig_color = (0, 220, 0) if similarity >= 80 else (
+                    (0, 200, 255) if similarity >= 50 else (0, 0, 220))
+                match_text = f"{similarity:.0f}%"
+                (tw, _), _ = cv2.getTextSize(match_text, cv2.FONT_HERSHEY_SIMPLEX, 2.0, 3)
+                tx = (frame.shape[1] - tw) // 2
+                cv2.putText(frame, match_text, (tx, 65),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2.0, sig_color, 3)
+                cv2.circle(frame, (tx + tw + 22, 50), 14, sig_color, -1)
+
+            if overload_stage == 1:
+                cv2.putText(frame, "! OVERLOAD: COUNT ADJUSTED",
+                            (20, frame.shape[0] - 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            elif overload_stage == 2:
+                overlay = frame.copy()
+                cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]),
+                              (0, 0, 180), -1)
+                cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
+                cv2.putText(frame, "! SESSION END",
+                            (frame.shape[1] // 2 - 170, frame.shape[0] // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 255), 4)
+
+            cv2.imshow("Hand Tracking", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    run_tracking()
