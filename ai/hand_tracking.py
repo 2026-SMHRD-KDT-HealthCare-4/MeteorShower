@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 import urllib.request
@@ -30,6 +31,9 @@ HAND_CONNECTIONS = [
 ]
 
 STABLE_FRAMES   = 3
+TARGET_COUNT    = 10     # 의사 처방 목표 횟수 (테스트 하드코딩)
+TARGET_ROM      = 0.8    # 목표 가동범위 정규화값 (테스트 하드코딩)
+CAPTURE_DIR     = os.path.join(os.path.dirname(__file__), "captures")
 GUIDE_FPS       = 30.0   # 가이드 애니메이션 속도
 GUIDE_SCALE     = 900    # 정규화 좌표 → 픽셀 배율
 MAX_DTW_DIST    = 0.3    # 이 DTW 거리에서 일치율 0%
@@ -86,6 +90,28 @@ def get_hand_state(landmarks):
     else:
         state = "partial"
     return state, fingers
+
+
+# ── ROM / 캡처 ────────────────────────────────────────────────
+
+
+def compute_rom(landmarks):
+    """손목(0) 기준 검지~소지 끝(8,12,16,20) 평균 거리 반환 (정규화 좌표 단위)."""
+    wrist = landmarks[0]
+    tips = [landmarks[i] for i in [8, 12, 16, 20]]
+    return float(np.mean([
+        math.sqrt((t.x - wrist.x) ** 2 + (t.y - wrist.y) ** 2)
+        for t in tips
+    ]))
+
+
+def save_capture(frame, label="overload"):
+    """과부하 직전 프레임을 CAPTURE_DIR에 저장."""
+    os.makedirs(CAPTURE_DIR, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(CAPTURE_DIR, f"capture_{label}_{ts}.jpg")
+    cv2.imwrite(path, frame)
+    print(f"capture saved: {path}")
 
 
 # ── DTW 유사도 ─────────────────────────────────────────────────
@@ -178,6 +204,12 @@ with vision.HandLandmarker.create_from_options(options) as landmarker:
     dtw_counter   = 0
     similarity    = None
 
+    # 과부하 감지 상태
+    target_count          = TARGET_COUNT  # 현재 유효 목표 횟수 (조정 가능)
+    overload_stage        = 0             # 0=정상 / 1=1단계(횟수조정) / 2=세션종료
+    overload_count_marker = -1            # 1단계 발동 시점의 count 값
+    session_end_at        = None          # 2단계 화면 표시 시작 시간
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -249,6 +281,26 @@ with vision.HandLandmarker.create_from_options(options) as landmarker:
                 elif confirmed_state == "grip" and phase == "open":
                     phase = "grip"
 
+        # ── 과부하 감지 ───────────────────────────────────────
+        current_rom = compute_rom(first_landmarks) if first_landmarks else 0.0
+        rom_over    = (current_rom > TARGET_ROM)
+        count_over  = (count >= target_count)
+
+        if overload_stage == 0 and (count_over or rom_over):
+            save_capture(frame)
+            overload_stage        = 1
+            overload_count_marker = count
+
+        elif overload_stage == 1 and count > overload_count_marker:
+            save_capture(frame)
+            overload_stage = 2
+
+        if overload_stage == 2:
+            if session_end_at is None:
+                session_end_at = time.time()
+            elif time.time() - session_end_at > 3.0:
+                break   # 3초 표시 후 루프 종료
+
         # ── HUD ──────────────────────────────────────────────
         state_label = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "---")
 
@@ -270,6 +322,20 @@ with vision.HandLandmarker.create_from_options(options) as landmarker:
             cv2.putText(frame, match_text, (tx, 65),
                         cv2.FONT_HERSHEY_SIMPLEX, 2.0, sig_color, 3)
             cv2.circle(frame, (tx + tw + 22, 50), 14, sig_color, -1)
+
+        # ── 과부하 경고 오버레이 ──────────────────────────────
+        if overload_stage == 1:
+            cv2.putText(frame, "! OVERLOAD: COUNT ADJUSTED",
+                        (20, frame.shape[0] - 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        elif overload_stage == 2:
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]),
+                          (0, 0, 180), -1)
+            cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
+            cv2.putText(frame, "! SESSION END",
+                        (frame.shape[1] // 2 - 170, frame.shape[0] // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 255), 4)
 
         cv2.imshow("Hand Tracking", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
