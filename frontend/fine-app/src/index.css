@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Inter', 'Noto Sans KR', sans-serif;
+    background-color: #f9f9f6;
+    color: #1a1c1a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Manrope', sans-serif;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #f9f9f6;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #bec8c8;
+    border-radius: 10px;
+  }
+}
+
+@layer components {
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    display: inline-block;
+    vertical-align: middle;
+    line-height: 1;
+  }
+
+  .card {
+    @apply bg-surface-container-lowest rounded-xl border border-outline-variant shadow-card;
+  }
+
+  .btn-primary {
+    @apply bg-primary-container text-white font-semibold rounded-xl px-6 h-14 flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all shadow-md;
+  }
+
+  .btn-secondary {
+    @apply border border-primary-container text-primary-container font-semibold rounded-xl px-6 h-14 flex items-center justify-center gap-2 hover:bg-primary-fixed transition-all;
+  }
+
+  .input-field {
+    @apply w-full h-14 px-4 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-primary-container focus:border-primary-container transition-all outline-none;
+  }
+
+  .nav-link {
+    @apply text-on-surface-variant hover:text-primary transition-colors text-label-md font-medium;
+  }
+
+  .nav-link-active {
+    @apply text-primary border-b-2 border-primary pb-1 font-bold text-label-md;
+  }
+}
