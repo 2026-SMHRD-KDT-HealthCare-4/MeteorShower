@@ -32,8 +32,7 @@ HAND_CONNECTIONS = [
 ]
 
 STABLE_FRAMES   = 3
-TARGET_COUNT    = 10     # 의사 처방 목표 횟수 (테스트 하드코딩)
-TARGET_ROM      = 0.8    # 목표 가동범위 정규화값 (테스트 하드코딩)
+TARGET_ROM      = 0.8    # 과부하 ROM 임계값 (테스트 하드코딩)
 CAPTURE_DIR     = os.path.join(os.path.dirname(__file__), "captures")
 GUIDE_FPS       = 30.0
 GUIDE_SCALE     = 900
@@ -41,15 +40,36 @@ MAX_DTW_DIST    = 0.3
 DTW_INTERVAL    = 30
 PATIENT_BUF_MAX = 30
 
-GUIDE_PATH = os.path.join(os.path.dirname(__file__), "guide_data", "full_fist.json")
+# ── 운동 목록 ─────────────────────────────────────────────────
+_BASE = os.path.dirname(__file__)
+EXERCISES = [
+    {
+        "name":         "full_fist",
+        "guide_path":   os.path.join(_BASE, "guide_data", "full_fist.json"),
+        "target_count": 10,   # 세트당 목표 횟수
+        "target_set":   3,    # 목표 세트 수
+    },
+    # 운동 추가 예시:
+    # {
+    #     "name":         "finger_extension",
+    #     "guide_path":   os.path.join(_BASE, "guide_data", "finger_extension.json"),
+    #     "target_count": 10,
+    #     "target_set":   3,
+    # },
+]
 
-if os.path.exists(GUIDE_PATH):
-    with open(GUIDE_PATH) as _f:
-        guide_np = np.array(json.load(_f), dtype=np.float32)   # (N, 21, 3)
-    print(f"guide data loaded: {len(guide_np)} frames")
-else:
-    guide_np = None
-    print(f"[WARN] guide data not found: {GUIDE_PATH}")
+
+# ── 가이드 로드 ────────────────────────────────────────────────
+
+def _load_guide(guide_path: str):
+    """Exercise guide JSON → ndarray (N, 21, 3). 파일 없으면 None."""
+    if not os.path.exists(guide_path):
+        print(f"[WARN] guide not found: {guide_path}")
+        return None
+    with open(guide_path) as f:
+        arr = np.array(json.load(f), dtype=np.float32)
+    print(f"guide loaded: {os.path.basename(guide_path)}  ({len(arr)} frames)")
+    return arr
 
 
 # ── 유틸 ──────────────────────────────────────────────────────
@@ -59,7 +79,6 @@ def dist2(a, b):
 
 
 def normalize_landmarks(landmarks):
-    """손목(0번) 기준 상대 좌표 ndarray (21, 3) 반환."""
     wrist = landmarks[0]
     return np.array(
         [[lm.x - wrist.x, lm.y - wrist.y, lm.z - wrist.z] for lm in landmarks],
@@ -89,7 +108,6 @@ def get_hand_state(landmarks):
 # ── ROM / 캡처 ────────────────────────────────────────────────
 
 def compute_rom(landmarks):
-    """손목(0) 기준 검지~소지 끝(8,12,16,20) 평균 거리."""
     wrist = landmarks[0]
     tips = [landmarks[i] for i in [8, 12, 16, 20]]
     return float(np.mean([
@@ -108,7 +126,8 @@ def save_capture(frame, label="overload"):
 
 # ── DTW 유사도 ─────────────────────────────────────────────────
 
-def compute_dtw_similarity(patient_buf):
+def compute_dtw_similarity(patient_buf, guide_np):
+    """환자 버퍼 vs guide_np 전체 시퀀스 DTW 비교. 일치율(0~100) or None."""
     if guide_np is None or len(patient_buf) < 2:
         return None
     seq1 = np.array(patient_buf, dtype=np.float32)  # (m, 21, 3)
@@ -122,22 +141,20 @@ def compute_dtw_similarity(patient_buf):
         for j in range(1, n + 1):
             cost = frame_dist[i - 1, j - 1]
             dtw[i, j] = cost + min(dtw[i-1, j], dtw[i, j-1], dtw[i-1, j-1])
-    dtw_dist = dtw[m, n] / (m + n)
-    return max(0.0, 1.0 - dtw_dist / MAX_DTW_DIST) * 100
+    return max(0.0, 1.0 - dtw[m, n] / (m + n) / MAX_DTW_DIST) * 100
 
 
 # ── 그리기 ────────────────────────────────────────────────────
 
-def draw_animated_guide(frame, guide_frame_idx):
+def draw_animated_guide(frame, guide_frame_idx, guide_np):
     if guide_np is None:
         return
     h, w = frame.shape[:2]
     cx, cy = w // 2, h // 2 + 225
-    guide_frame = guide_np[guide_frame_idx]
+    gf = guide_np[guide_frame_idx % len(guide_np)]
     pts = [
-        (int(cx + rel[0] * GUIDE_SCALE),
-         int(cy + rel[1] * GUIDE_SCALE))
-        for rel in guide_frame
+        (int(cx + rel[0] * GUIDE_SCALE), int(cy + rel[1] * GUIDE_SCALE))
+        for rel in gf
     ]
     for s_idx, e_idx in HAND_CONNECTIONS:
         cv2.line(frame, pts[s_idx], pts[e_idx], (255, 0, 0), 3)
@@ -155,13 +172,12 @@ def draw_hand(frame, landmarks, handedness):
         cv2.circle(frame, (int(lm.x * w), int(lm.y * h)), 5, (0, 0, 255), -1)
     wrist = landmarks[0]
     flipped = "Right" if handedness.category_name == "Left" else "Left"
-    label = f"{flipped} {handedness.score:.2f}"
-    cv2.putText(frame, label,
+    cv2.putText(frame, f"{flipped} {handedness.score:.2f}",
                 (int(wrist.x * w), int(wrist.y * h) - 10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
 
-# ── MediaPipe 옵션 (임포트 시 1회 생성) ───────────────────────
+# ── MediaPipe 옵션 ─────────────────────────────────────────────
 
 _options = vision.HandLandmarkerOptions(
     base_options=python.BaseOptions(model_asset_path=MODEL_PATH),
@@ -176,14 +192,16 @@ _options = vision.HandLandmarkerOptions(
 # ── 메인 트래킹 함수 ───────────────────────────────────────────
 
 def run_tracking(q: queue.Queue = None):
-    """카메라 트래킹 루프.
-    q 가 전달되면 매 프레임 결과를 JSON 직렬화 가능한 dict로 큐에 push.
-    단독 실행(python hand_tracking.py)도 q=None 으로 정상 동작.
-    """
     with vision.HandLandmarker.create_from_options(_options) as landmarker:
         cap = cv2.VideoCapture(0)
         loop_start = time.time()
 
+        # ── 운동 진행 상태 ────────────────────────────────────
+        current_exercise_idx = 0
+        current_set          = 1
+        current_guide_np     = _load_guide(EXERCISES[0]["guide_path"])
+
+        # ── 공통 트래킹 상태 ─────────────────────────────────
         count           = 0
         phase           = None
         state_buf       = []
@@ -192,15 +210,21 @@ def run_tracking(q: queue.Queue = None):
         dtw_counter     = 0
         similarity      = None
 
-        target_count          = TARGET_COUNT
+        # ── 과부하 상태 ──────────────────────────────────────
         overload_stage        = 0
         overload_count_marker = -1
         session_end_at        = None
+
+        # ── 세션 완료 상태 ────────────────────────────────────
+        session_complete    = False
+        session_complete_at = None
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
+
+            ex = EXERCISES[current_exercise_idx]
 
             # flip 후 MediaPipe에 전달 → Left/Right 화면과 일치
             frame = cv2.flip(frame, 1)
@@ -210,7 +234,7 @@ def run_tracking(q: queue.Queue = None):
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
-            # ── 1. 랜드마크 수집 ──────────────────────────────────
+            # ── 1. 랜드마크 수집 ──────────────────────────────
             raw_state       = None
             first_landmarks = None
             valid_hands     = []
@@ -226,31 +250,29 @@ def run_tracking(q: queue.Queue = None):
                         raw_state, _ = get_hand_state(landmarks)
                         first_landmarks = landmarks
 
-            # ── 2. 환자 버퍼 업데이트 ────────────────────────────
+            # ── 2. 환자 버퍼 업데이트 ────────────────────────
             if first_landmarks is not None:
                 patient_buf.append(normalize_landmarks(first_landmarks))
                 if len(patient_buf) > PATIENT_BUF_MAX:
                     patient_buf.pop(0)
 
-            # ── 3. DTW ───────────────────────────────────────────
+            # ── 3. DTW ───────────────────────────────────────
             dtw_counter += 1
             if dtw_counter >= DTW_INTERVAL:
                 dtw_counter = 0
-                similarity = compute_dtw_similarity(patient_buf)
+                similarity = compute_dtw_similarity(patient_buf, current_guide_np)
 
-            # ── 4. 가이드 프레임 인덱스 ──────────────────────────
-            if guide_np is not None:
-                elapsed = time.time() - loop_start
-                guide_frame_idx = int(elapsed * GUIDE_FPS) % len(guide_np)
-            else:
-                guide_frame_idx = 0
+            # ── 4. 가이드 프레임 인덱스 ──────────────────────
+            elapsed = time.time() - loop_start
+            guide_n = len(current_guide_np) if current_guide_np is not None else 1
+            guide_frame_idx = int(elapsed * GUIDE_FPS) % guide_n
 
-            # ── 5. 렌더링: 가이드(아래) → 환자(위) ───────────────
-            draw_animated_guide(frame, guide_frame_idx)
+            # ── 5. 렌더링 ────────────────────────────────────
+            draw_animated_guide(frame, guide_frame_idx, current_guide_np)
             for landmarks, handedness in valid_hands:
                 draw_hand(frame, landmarks, handedness)
 
-            # ── 상태 안정화 & 카운팅 ─────────────────────────────
+            # ── 상태 안정화 & 카운팅 ─────────────────────────
             if raw_state in ("open", "grip"):
                 state_buf.append(raw_state)
             if len(state_buf) > STABLE_FRAMES:
@@ -264,16 +286,44 @@ def run_tracking(q: queue.Queue = None):
                     if confirmed_state == "open":
                         if phase == "grip":
                             count += 1      # OPEN → GRIP → OPEN 완료
+
+                            # ── 과부하(카운트 초과) 체크: 리셋 전 ─────
+                            if overload_stage == 0 and count > ex["target_count"]:
+                                save_capture(frame)
+                                overload_stage        = 1
+                                overload_count_marker = count
+
+                            # ── 세트 완료 체크 ─────────────────────────
+                            elif count >= ex["target_count"] and overload_stage == 0:
+                                current_set += 1
+                                count = 0
+                                phase = None
+                                state_buf.clear()
+                                confirmed_state = None
+                                patient_buf.clear()
+                                similarity = None
+
+                                # ── 운동 완료 체크 ──────────────────────
+                                if current_set > ex["target_set"]:
+                                    current_exercise_idx += 1
+                                    current_set = 1
+
+                                    if current_exercise_idx >= len(EXERCISES):
+                                        session_complete    = True
+                                        session_complete_at = time.time()
+                                    else:
+                                        current_guide_np = _load_guide(
+                                            EXERCISES[current_exercise_idx]["guide_path"]
+                                        )
+
                         phase = "open"
                     elif confirmed_state == "grip" and phase == "open":
                         phase = "grip"
 
-            # ── 과부하 감지 ───────────────────────────────────────
+            # ── 과부하 감지 (ROM 기반) ────────────────────────
             current_rom = compute_rom(first_landmarks) if first_landmarks else 0.0
-            count_over  = (count >= target_count)
-            rom_over    = (current_rom > TARGET_ROM)
 
-            if overload_stage == 0 and (count_over or rom_over):
+            if overload_stage == 0 and current_rom > TARGET_ROM:
                 save_capture(frame)
                 overload_stage        = 1
                 overload_count_marker = count
@@ -288,59 +338,85 @@ def run_tracking(q: queue.Queue = None):
                 elif time.time() - session_end_at > 3.0:
                     break
 
-            # ── 큐 전송 (WebSocket 서버와 연동) ───────────────────
-            if q is not None:
-                state_label = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "")
-                if similarity is not None:
-                    signal = "green" if similarity >= 80 else ("yellow" if similarity >= 50 else "red")
-                else:
-                    signal = "gray"
-
+            # ── 큐 전송 ───────────────────────────────────────
+            if q is not None and not session_complete:
+                ex_now     = EXERCISES[current_exercise_idx] \
+                             if current_exercise_idx < len(EXERCISES) else ex
+                state_lbl  = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "")
+                signal     = (
+                    "green"  if (similarity or 0) >= 80 else
+                    "yellow" if (similarity or 0) >= 50 else "red"
+                ) if similarity is not None else "gray"
                 payload = {
-                    "landmarks": [[lm.x, lm.y, lm.z] for lm in first_landmarks]
-                                 if first_landmarks is not None else [],
-                    "count":      count,
-                    "state":      state_label,
-                    "similarity": round(similarity, 1) if similarity is not None else None,
-                    "signal":     signal,
-                    "overload":   overload_stage >= 1,
-                    "session_end": overload_stage == 2,
+                    "landmarks":   [[lm.x, lm.y, lm.z] for lm in first_landmarks]
+                                   if first_landmarks is not None else [],
+                    "count":       count,
+                    "state":       state_lbl,
+                    "similarity":  round(similarity, 1) if similarity is not None else None,
+                    "signal":      signal,
+                    "overload":    overload_stage >= 1,
+                    "session_end": overload_stage == 2 or session_complete,
+                    "exercise":    ex_now["name"],
+                    "set":         current_set,
+                    "total_sets":  ex_now["target_set"],
                 }
                 try:
                     q.put_nowait(payload)
                 except queue.Full:
-                    pass    # 오래된 프레임 드롭
+                    pass
 
-            # ── HUD ──────────────────────────────────────────────
-            state_label = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "---")
+            # ── HUD ──────────────────────────────────────────
+            state_lbl     = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "---")
+            ex_now        = EXERCISES[current_exercise_idx] \
+                            if current_exercise_idx < len(EXERCISES) else ex
+            progress_text = (
+                f"{ex_now['name']}  "
+                f"{current_set}set/{ex_now['target_set']}set  "
+                f"{count}rep/{ex_now['target_count']}rep"
+            )
 
             cv2.putText(frame, f"COUNT: {count}", (20, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 255), 3)
-            cv2.putText(frame, f"STATE: {state_label}", (20, 95),
+            cv2.putText(frame, f"STATE: {state_lbl}", (20, 95),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(frame, progress_text, (20, 130),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 255, 180), 2)
 
             if similarity is not None:
-                sig_color = (0, 220, 0) if similarity >= 80 else (
-                    (0, 200, 255) if similarity >= 50 else (0, 0, 220))
-                match_text = f"{similarity:.0f}%"
-                (tw, _), _ = cv2.getTextSize(match_text, cv2.FONT_HERSHEY_SIMPLEX, 2.0, 3)
+                sc = (0, 220, 0) if similarity >= 80 else (
+                     (0, 200, 255) if similarity >= 50 else (0, 0, 220))
+                mt = f"{similarity:.0f}%"
+                (tw, _), _ = cv2.getTextSize(mt, cv2.FONT_HERSHEY_SIMPLEX, 2.0, 3)
                 tx = (frame.shape[1] - tw) // 2
-                cv2.putText(frame, match_text, (tx, 65),
-                            cv2.FONT_HERSHEY_SIMPLEX, 2.0, sig_color, 3)
-                cv2.circle(frame, (tx + tw + 22, 50), 14, sig_color, -1)
+                cv2.putText(frame, mt, (tx, 65),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2.0, sc, 3)
+                cv2.circle(frame, (tx + tw + 22, 50), 14, sc, -1)
 
+            # 과부하 경고
             if overload_stage == 1:
                 cv2.putText(frame, "! OVERLOAD: COUNT ADJUSTED",
                             (20, frame.shape[0] - 50),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
             elif overload_stage == 2:
-                overlay = frame.copy()
-                cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]),
-                              (0, 0, 180), -1)
-                cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
+                ov = frame.copy()
+                cv2.rectangle(ov, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 180), -1)
+                cv2.addWeighted(ov, 0.4, frame, 0.6, 0, frame)
                 cv2.putText(frame, "! SESSION END",
                             (frame.shape[1] // 2 - 170, frame.shape[0] // 2),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 255), 4)
+
+            # 세션 완료
+            if session_complete:
+                ov = frame.copy()
+                cv2.rectangle(ov, (0, 0), (frame.shape[1], frame.shape[0]), (0, 100, 0), -1)
+                cv2.addWeighted(ov, 0.35, frame, 0.65, 0, frame)
+                cv2.putText(frame, "SESSION COMPLETE!",
+                            (frame.shape[1] // 2 - 220, frame.shape[0] // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 100), 4)
+                if session_complete_at and time.time() - session_complete_at > 3.0:
+                    cv2.imshow("Hand Tracking", frame)
+                    cv2.waitKey(1)
+                    break
 
             cv2.imshow("Hand Tracking", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -348,6 +424,9 @@ def run_tracking(q: queue.Queue = None):
 
         cap.release()
         cv2.destroyAllWindows()
+
+        if session_complete:
+            print("All exercises completed. Session complete.")
 
 
 if __name__ == "__main__":

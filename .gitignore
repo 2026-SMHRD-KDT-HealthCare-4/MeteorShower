@@ -178,3 +178,6 @@ pyrightconfig.json
 # custom ignore rules
 guide_videos
 test_ws.py
+ai/captures/*
+!ai/captures/.gitkeep
+

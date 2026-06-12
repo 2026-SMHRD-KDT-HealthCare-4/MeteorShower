@@ -105,7 +105,10 @@ async def websocket_endpoint(websocket: WebSocket):
         "similarity":  78.3,             // null 가능
         "signal":      "green",          // green / yellow / red / gray
         "overload":    false,
-        "session_end": false
+        "session_end": false,
+        "exercise":    "full_fist",      // 현재 운동 이름
+        "set":         2,                // 현재 세트 번호 (1-indexed)
+        "total_sets":  3                 // 총 세트 수
     }
     """
     await manager.connect(websocket)
