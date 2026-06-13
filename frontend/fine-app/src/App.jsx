@@ -12,6 +12,8 @@ import DoctorSignup from './pages/doctor/DoctorSignup';
 import DoctorPatientList from './pages/doctor/DoctorPatientList';
 import WeeklyReport from './pages/doctor/WeeklyReport';
 import ProgressReport from './pages/doctor/ProgressReport';
+import DoctorProfile from './pages/doctor/DoctorProfile';
+import DailyReport from './pages/doctor/DailyReport';
 
 export default function App() {
   return (
@@ -34,6 +36,8 @@ export default function App() {
         <Route path="/doctor/patients" element={<DoctorPatientList />} />
         <Route path="/doctor/report/weekly" element={<WeeklyReport />} />
         <Route path="/doctor/report/progress" element={<ProgressReport />} />
+        <Route path="/doctor/profile" element={<DoctorProfile />} />
+        <Route path="/doctor/report/daily" element={<DailyReport />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
