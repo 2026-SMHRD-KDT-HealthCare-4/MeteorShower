@@ -252,7 +252,7 @@ _options = vision.HandLandmarkerOptions(
 
 def run_tracking(q: queue.Queue = None):
     with vision.HandLandmarker.create_from_options(_options) as landmarker:
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         loop_start          = time.time()
         guide_elapsed_start = loop_start   # 운동 전환 시 리셋됨
 
