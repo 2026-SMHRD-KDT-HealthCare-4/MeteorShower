@@ -5,14 +5,36 @@ import logo from '../../assets/logo.png';
 
 export default function PatientLogin() {
   const navigate = useNavigate();
+  const [id, setId] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [touched, setTouched] = useState({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  const errors = {};
+  if (!id) errors.id = '아이디를 입력하세요';
+  if (!password) errors.password = '비밀번호를 입력하세요';
+
+  const show = (field) => (touched[field] || submitAttempted) && errors[field];
+  const handleBlur = (field) => setTouched((p) => ({ ...p, [field]: true }));
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setSubmitAttempted(true);
+    setLoginError('');
+    if (Object.keys(errors).length > 0) return;
+
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      navigate('/patient/exercise');
+      // TODO: 실제 API 호출로 교체
+      if (id === 'patient' && password === 'patient123!') {
+        navigate('/patient/exercise');
+      } else {
+        setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');
+      }
     }, 1000);
   };
 
@@ -42,8 +64,9 @@ export default function PatientLogin() {
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* 아이디 */}
+            <div className="space-y-1.5">
               <label className="block text-label-lg font-semibold text-on-surface-variant ml-1" htmlFor="username">아이디</label>
               <div className="relative group">
                 <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-primary-container transition-colors">person</span>
@@ -51,22 +74,45 @@ export default function PatientLogin() {
                   id="username"
                   type="text"
                   placeholder="아이디를 입력하세요"
-                  className="w-full h-14 pl-12 pr-4 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-primary-container focus:border-primary-container transition-all outline-none text-body-md"
+                  value={id}
+                  onChange={(e) => { setId(e.target.value); setLoginError(''); }}
+                  onBlur={() => handleBlur('id')}
+                  className={`w-full h-14 pl-12 pr-4 rounded-xl border bg-surface-container-lowest focus:ring-2 focus:ring-primary-container focus:border-primary-container transition-all outline-none text-body-md ${show('id') ? 'border-red-400' : 'border-outline-variant'}`}
                 />
               </div>
+              {show('id') && (
+                <p className="text-label-sm text-red-500 ml-1">{errors.id}</p>
+              )}
             </div>
 
-            <div className="space-y-2">
+            {/* 비밀번호 */}
+            <div className="space-y-1.5">
               <label className="block text-label-lg font-semibold text-on-surface-variant ml-1" htmlFor="password">비밀번호</label>
               <div className="relative group">
                 <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-primary-container transition-colors">lock</span>
                 <input
                   id="password"
-                  type="password"
+                  type={showPw ? 'text' : 'password'}
                   placeholder="••••••••"
-                  className="w-full h-14 pl-12 pr-4 rounded-xl border border-outline-variant bg-surface-container-lowest focus:ring-2 focus:ring-primary-container focus:border-primary-container transition-all outline-none text-body-md"
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setLoginError(''); }}
+                  onBlur={() => handleBlur('password')}
+                  className={`w-full h-14 pl-12 pr-12 rounded-xl border bg-surface-container-lowest focus:ring-2 focus:ring-primary-container focus:border-primary-container transition-all outline-none text-body-md ${show('password') ? 'border-red-400' : 'border-outline-variant'}`}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-outline transition-colors"
+                  tabIndex={-1}
+                >
+                  <span className="material-symbols-outlined text-xl">
+                    {showPw ? 'visibility_off' : 'visibility'}
+                  </span>
+                </button>
               </div>
+              {show('password') && (
+                <p className="text-label-sm text-red-500 ml-1">{errors.password}</p>
+              )}
             </div>
 
             <div className="flex items-center justify-between">
@@ -74,8 +120,15 @@ export default function PatientLogin() {
                 <input type="checkbox" className="w-6 h-6 rounded-lg border-outline-variant accent-primary-container" />
                 <span className="text-label-md text-on-surface-variant group-hover:text-on-surface transition-colors">로그인 상태 유지</span>
               </label>
-              <a href="#" className="text-label-md text-primary-container hover:underline">비밀번호 찾기</a>
             </div>
+
+            {/* 로그인 오류 메시지 */}
+            {loginError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
+                <span className="material-symbols-outlined text-red-500 text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
+                <p className="text-label-md text-red-600">{loginError}</p>
+              </div>
+            )}
 
             <button
               type="submit"

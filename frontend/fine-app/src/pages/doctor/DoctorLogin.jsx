@@ -5,16 +5,41 @@ import logo from '../../assets/logo.png';
 
 export default function DoctorLogin() {
   const navigate = useNavigate();
+  const [id, setId] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [touched, setTouched] = useState({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  const errors = {};
+  if (!id) errors.id = '아이디를 입력하세요';
+  if (!password) errors.password = '비밀번호를 입력하세요';
+
+  const show = (field) => (touched[field] || submitAttempted) && errors[field];
+  const handleBlur = (field) => setTouched((p) => ({ ...p, [field]: true }));
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setSubmitAttempted(true);
+    setLoginError('');
+    if (Object.keys(errors).length > 0) return;
+
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      navigate('/doctor/patients');
+      // TODO: 실제 API 호출로 교체
+      if (id === 'doctor' && password === 'doctor123!') {
+        navigate('/doctor/patients');
+      } else {
+        setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');
+      }
     }, 1000);
   };
+
+  const inputBorder = (field) =>
+    show(field) ? { borderColor: '#ef4444' } : { borderColor: '#c1c6d6' };
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: '#fbf9f8' }}>
@@ -38,8 +63,9 @@ export default function DoctorLogin() {
             <p className="text-body-md" style={{ color: '#414754' }}>의료진 전용 포털</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* 아이디 */}
+            <div className="space-y-1.5">
               <label className="block text-label-lg font-semibold ml-1" style={{ color: '#414754' }} htmlFor="doc-username">아이디</label>
               <div className="relative group">
                 <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-blue-600 transition-colors" style={{ color: '#727785' }}>person</span>
@@ -47,24 +73,48 @@ export default function DoctorLogin() {
                   id="doc-username"
                   type="text"
                   placeholder="아이디를 입력하세요"
+                  value={id}
+                  onChange={(e) => { setId(e.target.value); setLoginError(''); }}
+                  onBlur={() => handleBlur('id')}
                   className="w-full h-14 pl-12 pr-4 rounded-xl border bg-white focus:ring-2 focus:ring-blue-600 transition-all outline-none text-body-md"
-                  style={{ borderColor: '#c1c6d6' }}
+                  style={inputBorder('id')}
                 />
               </div>
+              {show('id') && (
+                <p className="text-label-sm text-red-500 ml-1">{errors.id}</p>
+              )}
             </div>
 
-            <div className="space-y-2">
+            {/* 비밀번호 */}
+            <div className="space-y-1.5">
               <label className="block text-label-lg font-semibold ml-1" style={{ color: '#414754' }} htmlFor="doc-password">비밀번호</label>
               <div className="relative group">
                 <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-blue-600 transition-colors" style={{ color: '#727785' }}>lock</span>
                 <input
                   id="doc-password"
-                  type="password"
+                  type={showPw ? 'text' : 'password'}
                   placeholder="••••••••"
-                  className="w-full h-14 pl-12 pr-4 rounded-xl border bg-white focus:ring-2 focus:ring-blue-600 transition-all outline-none text-body-md"
-                  style={{ borderColor: '#c1c6d6' }}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setLoginError(''); }}
+                  onBlur={() => handleBlur('password')}
+                  className="w-full h-14 pl-12 pr-12 rounded-xl border bg-white focus:ring-2 focus:ring-blue-600 transition-all outline-none text-body-md"
+                  style={inputBorder('password')}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 transition-colors"
+                  style={{ color: '#727785' }}
+                  tabIndex={-1}
+                >
+                  <span className="material-symbols-outlined text-xl">
+                    {showPw ? 'visibility_off' : 'visibility'}
+                  </span>
+                </button>
               </div>
+              {show('password') && (
+                <p className="text-label-sm text-red-500 ml-1">{errors.password}</p>
+              )}
             </div>
 
             <div className="flex items-center justify-between">
@@ -72,8 +122,15 @@ export default function DoctorLogin() {
                 <input type="checkbox" className="w-6 h-6 rounded-lg" style={{ accentColor: '#005bbf' }} />
                 <span className="text-label-md text-on-surface-variant">로그인 상태 유지</span>
               </label>
-              <a href="#" className="text-label-md hover:underline" style={{ color: '#005bbf' }}>비밀번호 찾기</a>
             </div>
+
+            {/* 로그인 오류 메시지 */}
+            {loginError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
+                <span className="material-symbols-outlined text-red-500 text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>error</span>
+                <p className="text-label-md text-red-600">{loginError}</p>
+              </div>
+            )}
 
             <button
               type="submit"
@@ -89,10 +146,14 @@ export default function DoctorLogin() {
             </button>
           </form>
 
-          <div className="mt-8 pt-8 border-t text-center" style={{ borderColor: '#c1c6d6' }}>
+          <div className="mt-8 pt-8 border-t border-outline-variant text-center space-y-4">
             <p className="text-label-md text-on-surface-variant">
-              접근 권한이 없으신가요?{' '}
-              <a href="#" className="font-bold hover:underline" style={{ color: '#005bbf' }}>관리자 문의</a>
+              아이디가 없으신가요?{' '}
+              <Link to="/doctor/signup" className="text-[#1a73e8] font-bold hover:underline ml-1">의사 회원가입</Link>
+            </p>
+            <p className="text-label-md text-on-surface-variant">
+              환자이신가요?{' '}
+              <Link to="/patient/login" className="text-primary-container font-bold hover:underline ml-1">환자 로그인</Link>
             </p>
           </div>
         </div>
@@ -104,11 +165,6 @@ export default function DoctorLogin() {
             인증된 의료진만 접근 가능합니다. 승인되지 않은 접근 시도는 모니터링되며 기록됩니다.
           </p>
         </div>
-
-        <p className="text-label-md text-on-surface-variant">
-          환자이신가요?{' '}
-          <Link to="/patient/login" className="text-primary-container font-bold hover:underline">환자 로그인</Link>
-        </p>
       </main>
 
       <Footer />
