@@ -11,6 +11,8 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from landmark_utils import compute_guide_scale, normalize_to_guide_scale
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
@@ -37,7 +39,9 @@ TARGET_ROM      = 0.8    # 과부하 ROM 임계값 (테스트 하드코딩)
 CAPTURE_DIR     = os.path.join(os.path.dirname(__file__), "captures")
 GUIDE_FPS       = 30.0
 GUIDE_SCALE     = 900
-MAX_DTW_DIST    = 0.3
+MAX_DTW_DIST    = 0.162
+WINDOW_STRETCH  = 2      # 환자버퍼 길이 대비 가이드 비교 구간의 최대 배수
+WINDOW_STRIDE   = 10     # 비교 구간 시작 위치 탐색 간격(프레임)
 DTW_INTERVAL    = 30
 PATIENT_BUF_MAX = 30
 
@@ -78,14 +82,6 @@ def _load_guide(guide_path: str):
 
 def dist2(a, b):
     return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
-
-
-def normalize_landmarks(landmarks):
-    wrist = landmarks[0]
-    return np.array(
-        [[lm.x - wrist.x, lm.y - wrist.y, lm.z - wrist.z] for lm in landmarks],
-        dtype=np.float32,
-    )
 
 
 # ── 손 상태 판별 ───────────────────────────────────────────────
@@ -161,12 +157,8 @@ def save_capture(frame, label="overload"):
 
 # ── DTW 유사도 ─────────────────────────────────────────────────
 
-def compute_dtw_similarity(patient_buf, guide_np):
-    """환자 버퍼 vs guide_np 전체 시퀀스 DTW 비교. 일치율(0~100) or None."""
-    if guide_np is None or len(patient_buf) < 2:
-        return None
-    seq1 = np.array(patient_buf, dtype=np.float32)  # (m, 21, 3)
-    seq2 = guide_np                                   # (n, 21, 3)
+def _dtw_avg_dist(seq1, seq2):
+    """seq1 (m,21,3) vs seq2 (n,21,3) DTW 누적거리 dtw[m,n] / (m+n)."""
     m, n = len(seq1), len(seq2)
     diff = seq1[:, np.newaxis] - seq2[np.newaxis]    # (m, n, 21, 3)
     frame_dist = np.sqrt((diff ** 2).sum(axis=3)).mean(axis=2)
@@ -176,7 +168,39 @@ def compute_dtw_similarity(patient_buf, guide_np):
         for j in range(1, n + 1):
             cost = frame_dist[i - 1, j - 1]
             dtw[i, j] = cost + min(dtw[i-1, j], dtw[i, j-1], dtw[i-1, j-1])
-    return max(0.0, 1.0 - dtw[m, n] / (m + n) / MAX_DTW_DIST) * 100
+    return dtw[m, n] / (m + n)
+
+
+def compute_dtw_similarity(patient_buf, guide_np):
+    """환자 버퍼 vs guide_np 비교. 일치율(0~100) or None.
+
+    guide_np 전체(n프레임)와 직접 비교하면 환자의 짧은 버퍼(m프레임)가 가이드의
+    아무 구간에나 elastic하게 끼워맞춰져 변별력이 떨어진다. 그래서 길이
+    m*WINDOW_STRETCH 이하의 로컬 구간들로 가이드를 슬라이딩하며 가장 거리가
+    작은 구간을 찾는다 (open-begin). 가이드 애니메이션 재생 위상과는 무관하게
+    동작한다.
+    """
+    if guide_np is None or len(patient_buf) < 2:
+        return None
+    seq1 = np.array(patient_buf, dtype=np.float32)  # (m, 21, 3)
+    m = len(seq1)
+    n_total = len(guide_np)
+
+    window_len = min(n_total, m * WINDOW_STRETCH)
+
+    if window_len >= n_total:
+        starts = [0]
+    else:
+        starts = list(range(0, n_total - window_len + 1, WINDOW_STRIDE))
+        if starts[-1] != n_total - window_len:
+            starts.append(n_total - window_len)
+
+    best_avg = min(
+        _dtw_avg_dist(seq1, guide_np[s:s + window_len])
+        for s in starts
+    )
+    similarity = max(0.0, 1.0 - best_avg / MAX_DTW_DIST) * 100
+    return similarity
 
 
 # ── 그리기 ────────────────────────────────────────────────────
@@ -236,6 +260,7 @@ def run_tracking(q: queue.Queue = None):
         current_exercise_idx = 0
         current_set          = 1
         current_guide_np     = _load_guide(EXERCISES[0]["guide_path"])
+        current_guide_scale  = compute_guide_scale(current_guide_np)
 
         # ── 공통 트래킹 상태 ─────────────────────────────────
         count           = 0
@@ -245,6 +270,7 @@ def run_tracking(q: queue.Queue = None):
         patient_buf     = []
         dtw_counter     = 0
         similarity      = None
+        similarity_buf  = []
 
         # ── 과부하 상태 ──────────────────────────────────────
         overload_stage        = 0
@@ -301,7 +327,9 @@ def run_tracking(q: queue.Queue = None):
 
             # ── 2. 환자 버퍼 업데이트 ────────────────────────
             if first_landmarks is not None:
-                patient_buf.append(normalize_landmarks(first_landmarks))
+                patient_buf.append(
+                    normalize_to_guide_scale(first_landmarks, current_guide_scale)
+                )
                 if len(patient_buf) > PATIENT_BUF_MAX:
                     patient_buf.pop(0)
 
@@ -309,7 +337,12 @@ def run_tracking(q: queue.Queue = None):
             dtw_counter += 1
             if dtw_counter >= DTW_INTERVAL:
                 dtw_counter = 0
-                similarity = compute_dtw_similarity(patient_buf, current_guide_np)
+                raw_similarity = compute_dtw_similarity(patient_buf, current_guide_np)
+                if raw_similarity is not None:
+                    similarity_buf.append(raw_similarity)
+                    if len(similarity_buf) > 3:
+                        similarity_buf.pop(0)
+                    similarity = sum(similarity_buf) / len(similarity_buf)
 
             # ── 4. 가이드 프레임 인덱스 (루프 상단에서 이미 계산됨) ──
 
@@ -350,6 +383,7 @@ def run_tracking(q: queue.Queue = None):
 
                     if should_count:
                         count += 1
+
 
                         # ── 과부하(카운트 초과) 체크: 리셋 전 ─────
                         if overload_stage == 0 and count > ex["target_count"]:

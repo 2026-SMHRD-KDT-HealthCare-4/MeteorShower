@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 diagnose_dtw.py)",
+      "Bash(python3 hand_tracking.py)"
+    ]
+  }
+}
