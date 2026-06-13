@@ -32,6 +32,7 @@ HAND_CONNECTIONS = [
 ]
 
 STABLE_FRAMES   = 3
+TAP_THRESHOLDS  = {8: 0.06, 12: 0.07, 16: 0.09, 20: 0.09}   # 손가락별 임계값
 TARGET_ROM      = 0.8    # 과부하 ROM 임계값 (테스트 하드코딩)
 CAPTURE_DIR     = os.path.join(os.path.dirname(__file__), "captures")
 GUIDE_FPS       = 30.0
@@ -46,14 +47,16 @@ EXERCISES = [
     {
         "name":         "full_fist",
         "guide_path":   os.path.join(_BASE, "guide_data", "full_fist.json"),
-        "target_count": 7,  # TODO: DB 처방값으로 교체 예정
+        "target_count": 7,   # TODO: DB 처방값으로 교체 예정
         "target_set":   2,   # TODO: DB 처방값으로 교체 예정
+        "count_type":   "grip",
     },
     {
         "name":         "tapping",
         "guide_path":   os.path.join(_BASE, "guide_data", "tapping.json"),
-        "target_count": 7,  # TODO: DB 처방값으로 교체 예정
+        "target_count": 7,   # TODO: DB 처방값으로 교체 예정
         "target_set":   2,   # TODO: DB 처방값으로 교체 예정
+        "count_type":   "tap",
     },
 ]
 
@@ -102,6 +105,39 @@ def get_hand_state(landmarks):
     else:
         state = "partial"
     return state, fingers
+
+
+def get_guide_tap_finger(guide_frame):
+    """가이드 프레임(wrist-normalized)에서 손가락별 임계값 이하인 손가락 중
+    엄지(4)와 가장 가까운 손가락 끝 인덱스. 없으면 None."""
+    thumb      = guide_frame[4]
+    min_dist   = float("inf")
+    tap_finger = None
+    for tip_i in [8, 12, 16, 20]:
+        tip  = guide_frame[tip_i]
+        dist = math.sqrt(float(
+            (thumb[0] - tip[0]) ** 2 +
+            (thumb[1] - tip[1]) ** 2 +
+            (thumb[2] - tip[2]) ** 2
+        ))
+        if dist < TAP_THRESHOLDS[tip_i] and dist < min_dist:
+            min_dist   = dist
+            tap_finger = tip_i
+    return tap_finger
+
+
+def get_tap_state(landmarks, guide_tap_finger):
+    """가이드가 지정한 손가락이 해당 손가락의 임계값 이하면 TAP."""
+    if guide_tap_finger is None:
+        return "open"
+    thumb = landmarks[4]
+    tip   = landmarks[guide_tap_finger]
+    dist  = math.sqrt(
+        (thumb.x - tip.x) ** 2 +
+        (thumb.y - tip.y) ** 2 +
+        (thumb.z - tip.z) ** 2
+    )
+    return "tap" if dist < TAP_THRESHOLDS[guide_tap_finger] else "open"
 
 
 # ── ROM / 캡처 ────────────────────────────────────────────────
@@ -193,7 +229,8 @@ _options = vision.HandLandmarkerOptions(
 def run_tracking(q: queue.Queue = None):
     with vision.HandLandmarker.create_from_options(_options) as landmarker:
         cap = cv2.VideoCapture(0)
-        loop_start = time.time()
+        loop_start          = time.time()
+        guide_elapsed_start = loop_start   # 운동 전환 시 리셋됨
 
         # ── 운동 진행 상태 ────────────────────────────────────
         current_exercise_idx = 0
@@ -223,7 +260,17 @@ def run_tracking(q: queue.Queue = None):
             if not ret:
                 break
 
-            ex = EXERCISES[current_exercise_idx]
+            ex         = EXERCISES[current_exercise_idx]
+            count_type = ex.get("count_type", "grip")
+
+            # 가이드 프레임 인덱스 (tap 판정에도 필요하므로 루프 상단에서 계산)
+            guide_n          = len(current_guide_np) if current_guide_np is not None else 1
+            guide_frame_idx  = int((time.time() - guide_elapsed_start) * GUIDE_FPS) % guide_n
+            guide_tap_finger = (
+                get_guide_tap_finger(current_guide_np[guide_frame_idx])
+                if count_type == "tap" and current_guide_np is not None
+                else None
+            )
 
             # flip 후 MediaPipe에 전달 → Left/Right 화면과 일치
             frame = cv2.flip(frame, 1)
@@ -246,7 +293,10 @@ def run_tracking(q: queue.Queue = None):
                         continue
                     valid_hands.append((landmarks, handedness))
                     if raw_state is None:
-                        raw_state, _ = get_hand_state(landmarks)
+                        if count_type == "tap":
+                            raw_state = get_tap_state(landmarks, guide_tap_finger)
+                        else:
+                            raw_state, _ = get_hand_state(landmarks)
                         first_landmarks = landmarks
 
             # ── 2. 환자 버퍼 업데이트 ────────────────────────
@@ -261,10 +311,7 @@ def run_tracking(q: queue.Queue = None):
                 dtw_counter = 0
                 similarity = compute_dtw_similarity(patient_buf, current_guide_np)
 
-            # ── 4. 가이드 프레임 인덱스 ──────────────────────
-            elapsed = time.time() - loop_start
-            guide_n = len(current_guide_np) if current_guide_np is not None else 1
-            guide_frame_idx = int(elapsed * GUIDE_FPS) % guide_n
+            # ── 4. 가이드 프레임 인덱스 (루프 상단에서 이미 계산됨) ──
 
             # ── 5. 렌더링 ────────────────────────────────────
             draw_animated_guide(frame, guide_frame_idx, current_guide_np)
@@ -272,7 +319,8 @@ def run_tracking(q: queue.Queue = None):
                 draw_hand(frame, landmarks, handedness)
 
             # ── 상태 안정화 & 카운팅 ─────────────────────────
-            if raw_state in ("open", "grip"):
+            valid_states = ("open", "tap") if count_type == "tap" else ("open", "grip")
+            if raw_state in valid_states:
                 state_buf.append(raw_state)
             if len(state_buf) > STABLE_FRAMES:
                 state_buf.pop(0)
@@ -282,42 +330,56 @@ def run_tracking(q: queue.Queue = None):
                 new_state = state_buf[0]
                 if new_state != confirmed_state:
                     confirmed_state = new_state
-                    if confirmed_state == "open":
-                        if phase == "grip":
-                            count += 1      # OPEN → GRIP → OPEN 완료
+                    should_count    = False
 
-                            # ── 과부하(카운트 초과) 체크: 리셋 전 ─────
-                            if overload_stage == 0 and count > ex["target_count"]:
-                                save_capture(frame)
-                                overload_stage        = 1
-                                overload_count_marker = count
+                    # ── 운동 타입별 페이즈 전환 & 카운트 트리거 ─────
+                    if count_type == "grip":
+                        if confirmed_state == "open":
+                            if phase == "grip":
+                                should_count = True   # OPEN→GRIP→OPEN 완료
+                            phase = "open"
+                        elif confirmed_state == "grip" and phase == "open":
+                            phase = "grip"
+                    else:  # tap
+                        if confirmed_state == "tap":
+                            if phase == "open":
+                                should_count = True   # TAP→OPEN→TAP 완료
+                            phase = "tap"
+                        elif confirmed_state == "open" and phase == "tap":
+                            phase = "open"
 
-                            # ── 세트 완료 체크 ─────────────────────────
-                            elif count >= ex["target_count"] and overload_stage == 0:
-                                current_set += 1
-                                count = 0
-                                phase = None
-                                state_buf.clear()
-                                confirmed_state = None
-                                patient_buf.clear()
-                                similarity = None
+                    if should_count:
+                        count += 1
 
-                                # ── 운동 완료 체크 ──────────────────────
-                                if current_set > ex["target_set"]:
-                                    current_exercise_idx += 1
-                                    current_set = 1
+                        # ── 과부하(카운트 초과) 체크: 리셋 전 ─────
+                        if overload_stage == 0 and count > ex["target_count"]:
+                            save_capture(frame)
+                            overload_stage        = 1
+                            overload_count_marker = count
 
-                                    if current_exercise_idx >= len(EXERCISES):
-                                        session_complete    = True
-                                        session_complete_at = time.time()
-                                    else:
-                                        current_guide_np = _load_guide(
-                                            EXERCISES[current_exercise_idx]["guide_path"]
-                                        )
+                        # ── 세트 완료 체크 ─────────────────────────
+                        elif count >= ex["target_count"] and overload_stage == 0:
+                            current_set += 1
+                            count = 0
+                            phase = None
+                            state_buf.clear()
+                            confirmed_state = None
+                            patient_buf.clear()
+                            similarity = None
 
-                        phase = "open"
-                    elif confirmed_state == "grip" and phase == "open":
-                        phase = "grip"
+                            # ── 운동 완료 체크 ──────────────────────
+                            if current_set > ex["target_set"]:
+                                current_exercise_idx += 1
+                                current_set = 1
+
+                                if current_exercise_idx >= len(EXERCISES):
+                                    session_complete    = True
+                                    session_complete_at = time.time()
+                                else:
+                                    current_guide_np    = _load_guide(
+                                        EXERCISES[current_exercise_idx]["guide_path"]
+                                    )
+                                    guide_elapsed_start = time.time()
 
             # ── 과부하 감지 (ROM 기반) ────────────────────────
             current_rom = compute_rom(first_landmarks) if first_landmarks else 0.0
@@ -341,7 +403,7 @@ def run_tracking(q: queue.Queue = None):
             if q is not None and not session_complete:
                 ex_now     = EXERCISES[current_exercise_idx] \
                              if current_exercise_idx < len(EXERCISES) else ex
-                state_lbl  = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "")
+                state_lbl  = {"open": "OPEN", "grip": "GRIP", "tap": "TAP"}.get(confirmed_state, "")
                 signal     = (
                     "green"  if (similarity or 0) >= 80 else
                     "yellow" if (similarity or 0) >= 50 else "red"
@@ -365,7 +427,7 @@ def run_tracking(q: queue.Queue = None):
                     pass
 
             # ── HUD ──────────────────────────────────────────
-            state_lbl     = {"open": "OPEN", "grip": "GRIP"}.get(confirmed_state, "---")
+            state_lbl     = {"open": "OPEN", "grip": "GRIP", "tap": "TAP"}.get(confirmed_state, "---")
             ex_now        = EXERCISES[current_exercise_idx] \
                             if current_exercise_idx < len(EXERCISES) else ex
             progress_text = (
