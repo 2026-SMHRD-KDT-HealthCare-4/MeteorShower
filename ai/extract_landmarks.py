@@ -7,6 +7,8 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from landmark_utils import translate_to_wrist
+
 BASE_DIR   = os.path.dirname(__file__)
 MODEL_PATH = os.path.join(BASE_DIR, "hand_landmarker.task")
 MODEL_URL  = (
@@ -78,12 +80,10 @@ for ex in EXERCISES:
                 skipped += 1
                 continue
 
-            wrist        = landmarks[0]
+            coords       = translate_to_wrist(landmarks)
             frame_coords = [
-                [round(lm.x - wrist.x, 6),
-                 round(lm.y - wrist.y, 6),
-                 round(lm.z - wrist.z, 6)]
-                for lm in landmarks
+                [round(float(x), 6), round(float(y), 6), round(float(z), 6)]
+                for x, y, z in coords
             ]
             frames_data.append(frame_coords)
 

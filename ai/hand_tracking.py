@@ -11,6 +11,8 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from landmark_utils import compute_guide_scale, normalize_to_guide_scale
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
@@ -75,14 +77,6 @@ def _load_guide(guide_path: str):
 
 def dist2(a, b):
     return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
-
-
-def normalize_landmarks(landmarks):
-    wrist = landmarks[0]
-    return np.array(
-        [[lm.x - wrist.x, lm.y - wrist.y, lm.z - wrist.z] for lm in landmarks],
-        dtype=np.float32,
-    )
 
 
 # ── 손 상태 판별 ───────────────────────────────────────────────
@@ -199,6 +193,7 @@ def run_tracking(q: queue.Queue = None):
         current_exercise_idx = 0
         current_set          = 1
         current_guide_np     = _load_guide(EXERCISES[0]["guide_path"])
+        current_guide_scale  = compute_guide_scale(current_guide_np)
 
         # ── 공통 트래킹 상태 ─────────────────────────────────
         count           = 0
@@ -251,7 +246,9 @@ def run_tracking(q: queue.Queue = None):
 
             # ── 2. 환자 버퍼 업데이트 ────────────────────────
             if first_landmarks is not None:
-                patient_buf.append(normalize_landmarks(first_landmarks))
+                patient_buf.append(
+                    normalize_to_guide_scale(first_landmarks, current_guide_scale)
+                )
                 if len(patient_buf) > PATIENT_BUF_MAX:
                     patient_buf.pop(0)
 
@@ -314,6 +311,7 @@ def run_tracking(q: queue.Queue = None):
                                         current_guide_np = _load_guide(
                                             EXERCISES[current_exercise_idx]["guide_path"]
                                         )
+                                        current_guide_scale = compute_guide_scale(current_guide_np)
 
                         phase = "open"
                     elif confirmed_state == "grip" and phase == "open":
