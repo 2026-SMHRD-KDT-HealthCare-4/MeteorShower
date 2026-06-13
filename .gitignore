@@ -181,3 +181,4 @@ test_ws.py
 ai/captures/*
 !ai/captures/.gitkeep
 
+.claude/
