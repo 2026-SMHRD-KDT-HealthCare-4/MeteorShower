@@ -6,3 +6,6 @@ mediapipe
 numpy
 openai
 python-dotenv
+asyncpg
+sqlalchemy
+psycopg2-binary
