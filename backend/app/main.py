@@ -1,5 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from routers import health, ws
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -10,6 +14,5 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+app.include_router(health.router)
+app.include_router(ws.router)
