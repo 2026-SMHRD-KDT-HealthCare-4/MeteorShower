@@ -59,3 +59,33 @@ def normalize_to_guide_scale(landmarks, guide_scale):
     scale = max(float(palm_scale(coords)), _MIN_SCALE)
     ratio = guide_scale / scale
     return coords * ratio
+
+
+def extract_features_full_fist(coords):
+    """(21, 3) wrist-relative coords → (5,) feature vector.
+
+    손목(0) 기준 각 손가락 끝까지의 3D 거리.
+    주먹: 5개 값 모두 작음.
+    V표시: 검지(8)·중지(12) 거리만 크고 나머지 작음 → 패턴 다름.
+    """
+    tips = [4, 8, 12, 16, 20]   # 엄지, 검지, 중지, 약지, 새끼 끝
+    return np.array(
+        [np.linalg.norm(coords[i]) for i in tips],
+        dtype=np.float32
+    )
+
+
+def extract_features_tapping(coords):
+    """(21, 3) wrist-relative coords → (8,) feature vector.
+
+    앞 4개: 엄지끝(4) 기준 각 손가락끝(8,12,16,20)까지의 3D 거리.
+    뒤 4개: 손목(0, 원점) 기준 각 손가락끝(8,12,16,20)까지의 3D 거리.
+    검지+엄지 탭: 앞쪽은 첫 번째 값만 작음, 뒤쪽은 탭한 손가락만 작고
+    나머지는 펴져 있어 큼.
+    그립: 앞쪽 4개 모두 작고, 뒤쪽 4개도 모두 작음 → 탭 패턴과 다름.
+    """
+    thumb = coords[4]
+    tips  = [8, 12, 16, 20]
+    thumb_dists = [np.linalg.norm(coords[i] - thumb) for i in tips]
+    wrist_dists = [np.linalg.norm(coords[i]) for i in tips]
+    return np.array(thumb_dists + wrist_dists, dtype=np.float32)
