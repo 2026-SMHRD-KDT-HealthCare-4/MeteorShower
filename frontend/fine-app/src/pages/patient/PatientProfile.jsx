@@ -25,13 +25,16 @@ const MOCK_HOSPITAL = {
 
 // YYYY-MM-DD 형식
 const MOCK_SCHEDULE = [
+  { date: '2026-06-01', type: 'exercise', status: 'missed' },
   { date: '2026-06-03', type: 'exercise', status: 'done' },
   { date: '2026-06-05', type: 'exercise', status: 'done' },
+  { date: '2026-06-06', type: 'exercise', status: 'missed' },
   { date: '2026-06-08', type: 'exercise', status: 'done' },
   { date: '2026-06-10', type: 'exercise', status: 'done' },
+  { date: '2026-06-11', type: 'exercise', status: 'missed' },
   { date: '2026-06-12', type: 'exercise', status: 'done' },
   { date: '2026-06-13', type: 'hospital', status: 'done' },
-  { date: '2026-06-14', type: 'exercise', status: 'upcoming' },
+  { date: '2026-06-14', type: 'exercise', status: 'missed' },
   { date: '2026-06-16', type: 'exercise', status: 'upcoming' },
   { date: '2026-06-18', type: 'exercise', status: 'upcoming' },
   { date: '2026-06-20', type: 'exercise', status: 'upcoming' },
@@ -48,40 +51,76 @@ const MONTH_NAMES = ['1월','2월','3월','4월','5월','6월','7월','8월','9�
 const DAY_NAMES  = ['월','화','수','목','금','토','일'];
 
 // ── 개인정보 카드 ─────────────────────────────────────────────────────────
+const roInputCls =
+  'w-full h-10 px-3 rounded-lg border border-outline-variant bg-surface-container text-on-surface-variant text-body-md outline-none cursor-not-allowed text-sm';
+const editCls =
+  'w-full h-10 px-3 rounded-lg border border-primary bg-surface-container-lowest text-on-surface text-body-md outline-none focus:ring-2 focus:ring-primary-container transition-all text-sm';
+
+function Field({ label, children }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-label-sm font-semibold text-on-surface-variant">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function formatPhone(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+const PHONE_RE = /^01[0-9]-\d{4}-\d{4}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function ProfileCard() {
   const [phone, setPhone]                   = useState(MOCK_PROFILE.phone);
   const [guardianEmail, setGuardianEmail]   = useState(MOCK_PROFILE.guardianEmail);
   const [guardianConsent, setGuardianConsent] = useState(MOCK_PROFILE.guardianConsent);
   const [saved, setSaved]                   = useState(false);
+  const [errors, setErrors]                 = useState({});
 
   const isDirty =
     phone !== MOCK_PROFILE.phone ||
     guardianEmail !== MOCK_PROFILE.guardianEmail ||
     guardianConsent !== MOCK_PROFILE.guardianConsent;
 
+  const validate = () => {
+    const next = {};
+    if (!PHONE_RE.test(phone)) next.phone = '전화번호를 정확히 입력해 주세요';
+    if (!EMAIL_RE.test(guardianEmail)) next.email = '올바른 이메일 형식을 입력해 주세요';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
   const handleSave = () => {
+    if (!validate()) return;
     // TODO: API PATCH 호출
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const roInputCls =
-    'w-full h-10 px-3 rounded-lg border border-outline-variant bg-surface-container text-on-surface-variant text-body-md outline-none cursor-not-allowed text-sm';
-  const editCls =
-    'w-full h-10 px-3 rounded-lg border border-primary bg-surface-container-lowest text-on-surface text-body-md outline-none focus:ring-2 focus:ring-primary-container transition-all text-sm';
+  const handlePhoneChange = (e) => {
+    setPhone(formatPhone(e.target.value));
+    if (errors.phone) setErrors((prev) => ({ ...prev, phone: undefined }));
+  };
 
-  const Field = ({ label, children }) => (
-    <div className="space-y-1">
-      <p className="text-label-sm font-semibold text-on-surface-variant">{label}</p>
-      {children}
-    </div>
-  );
+  const handleEmailChange = (e) => {
+    const val = e.target.value.replace(/[^a-zA-Z0-9@._\-+]/g, '');
+    setGuardianEmail(val);
+    if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+  };
+
+  const editErrCls =
+    'w-full h-10 px-3 rounded-lg border border-error bg-surface-container-lowest text-on-surface text-body-md outline-none focus:ring-2 focus:ring-error-container transition-all text-sm';
 
   return (
-    <section className="flex flex-col gap-6">
+    <section className="flex flex-col gap-6 h-full">
       <h1 className="text-headline-lg font-display font-bold text-on-surface">개인 정보</h1>
 
-      <div className="bg-surface-container-lowest rounded-xl shadow-card border border-outline-variant p-6 space-y-5">
+      <div className="bg-surface-container-lowest rounded-xl shadow-card border border-outline-variant p-6 flex flex-col flex-1 gap-5">
         <div className="grid grid-cols-2 gap-4">
           <Field label="아이디">
             <input readOnly value={MOCK_PROFILE.id} className={roInputCls} />
@@ -97,15 +136,19 @@ function ProfileCard() {
           </Field>
 
           {/* 수정 가능 필드 */}
-          <Field label={<span>연락처 <span className="text-primary text-[10px] font-normal">수정 가능</span></span>}>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className={editCls}
-              placeholder="010-0000-0000"
-            />
-          </Field>
+          <div>
+            <Field label={<span>연락처 <span className="text-primary text-[10px] font-normal">수정 가능</span></span>}>
+              <input
+                type="tel"
+                value={phone}
+                onChange={handlePhoneChange}
+                className={errors.phone ? editErrCls : editCls}
+                placeholder="010-0000-0000"
+                maxLength={13}
+              />
+            </Field>
+            <p className="text-[11px] text-error h-4 mt-0.5">{errors.phone ?? ''}</p>
+          </div>
           <Field label="수술 부위">
             <input readOnly value={MOCK_PROFILE.surgeryPart} className={roInputCls} />
           </Field>
@@ -120,15 +163,18 @@ function ProfileCard() {
           </Field>
         </div>
 
-        <Field label={<span>보호자 이메일 <span className="text-primary text-[10px] font-normal">수정 가능</span></span>}>
-          <input
-            type="email"
-            value={guardianEmail}
-            onChange={(e) => setGuardianEmail(e.target.value)}
-            className={editCls}
-            placeholder="guardian@email.com"
-          />
-        </Field>
+        <div>
+          <Field label={<span>보호자 이메일 <span className="text-primary text-[10px] font-normal">수정 가능</span></span>}>
+            <input
+              type="email"
+              value={guardianEmail}
+              onChange={handleEmailChange}
+              className={errors.email ? editErrCls : editCls}
+              placeholder="guardian@email.com"
+            />
+          </Field>
+          <p className="text-[11px] text-error h-4 mt-0.5">{errors.email ?? ''}</p>
+        </div>
 
         {/* 보호자 동의 */}
         <label className="flex items-center gap-3 pt-1 cursor-pointer select-none">
@@ -149,7 +195,7 @@ function ProfileCard() {
         </label>
 
         {/* 저장 버튼 */}
-        <div className="flex justify-end pt-1">
+        <div className="flex justify-end pt-1 mt-auto">
           <button
             onClick={handleSave}
             disabled={!isDirty}
@@ -240,20 +286,21 @@ function ScheduleCalendar() {
             const dateKey = `${calYear}-${String(calMonth).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
             const events  = scheduleMap[dateKey] || [];
 
-            const hasDoneEx      = events.some((e) => e.type === 'exercise' && e.status === 'done');
-            const hasUpcomingEx  = events.some((e) => e.type === 'exercise' && e.status === 'upcoming');
-            const hasDoneHosp    = events.some((e) => e.type === 'hospital'  && e.status === 'done');
+            const hasDoneEx       = events.some((e) => e.type === 'exercise' && e.status === 'done');
+            const hasUpcomingEx   = events.some((e) => e.type === 'exercise' && e.status === 'upcoming');
+            const hasMissedEx     = events.some((e) => e.type === 'exercise' && e.status === 'missed');
+            const hasDoneHosp     = events.some((e) => e.type === 'hospital'  && e.status === 'done');
             const hasUpcomingHosp = events.some((e) => e.type === 'hospital' && e.status === 'upcoming');
 
             let circleCls = '';
-            if      (hasUpcomingHosp) circleCls = 'bg-orange-500 text-white';
-            else if (hasUpcomingEx)   circleCls = 'bg-primary text-white';
-            else if (hasDoneEx || hasDoneHosp) circleCls = 'bg-inverse-surface text-inverse-on-surface';
+            if      (hasUpcomingHosp)           circleCls = 'bg-orange-500 text-white';
+            else if (hasUpcomingEx)             circleCls = 'bg-primary text-white';
+            else if (hasMissedEx)               circleCls = 'bg-red-500 text-white';
+            else if (hasDoneEx || hasDoneHosp)  circleCls = 'bg-inverse-surface text-inverse-on-surface';
 
             const hasCircle = !!circleCls;
             // 진료 + 운동이 같은날이면 운동 원 아래 주황 점 표시
             const showHospDot = hasUpcomingHosp && hasUpcomingEx;
-            const showDot = showHospDot;
 
             return (
               <div key={day} className="h-11 flex flex-col items-center justify-center gap-0.5">
@@ -262,7 +309,7 @@ function ScheduleCalendar() {
                 >
                   {day}
                 </div>
-                {showDot && <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />}
+                {showHospDot && <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />}
               </div>
             );
           })}
@@ -285,6 +332,10 @@ function ScheduleCalendar() {
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-primary" />
             <span className="text-on-surface-variant">운동 예정일</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500" />
+            <span className="text-on-surface-variant">운동 미수행일</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-orange-500" />
@@ -331,7 +382,7 @@ export default function PatientProfile() {
       <main className="max-w-7xl mx-auto px-container-padding-mobile md:px-container-padding-desktop py-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
           {/* 왼쪽: 개인정보 */}
-          <div className="lg:col-span-5">
+          <div className="lg:col-span-5 flex flex-col">
             <ProfileCard />
           </div>
 
