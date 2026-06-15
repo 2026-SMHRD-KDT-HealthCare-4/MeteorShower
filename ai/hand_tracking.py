@@ -271,6 +271,7 @@ def run_tracking(q: queue.Queue = None):
         dtw_counter     = 0
         similarity      = None
         similarity_buf  = []
+        no_hand_counter = 0
 
         # ── 과부하 상태 ──────────────────────────────────────
         overload_stage        = 0
@@ -327,11 +328,19 @@ def run_tracking(q: queue.Queue = None):
 
             # ── 2. 환자 버퍼 업데이트 ────────────────────────
             if first_landmarks is not None:
+                no_hand_counter = 0   # ← 손 검출되면 즉시 리셋
                 patient_buf.append(
                     normalize_to_guide_scale(first_landmarks, current_guide_scale)
                 )
                 if len(patient_buf) > PATIENT_BUF_MAX:
                     patient_buf.pop(0)
+            else:
+                no_hand_counter += 1   # ← 미검출 프레임 카운트
+                if no_hand_counter >= PATIENT_BUF_MAX:
+                    patient_buf.clear()
+                    similarity      = None
+                    similarity_buf.clear()
+                    no_hand_counter = 0
 
             # ── 3. DTW ───────────────────────────────────────
             dtw_counter += 1
