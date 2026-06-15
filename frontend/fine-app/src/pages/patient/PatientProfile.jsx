@@ -245,7 +245,7 @@ function ScheduleCalendar() {
   const prevMonthDays = new Date(calYear, calMonth - 1, 0).getDate();
 
   const pad = (d, str) => (
-    <div key={str} className="h-11 flex items-center justify-center text-label-md text-outline/40">{d}</div>
+    <div key={str} className="h-12 flex items-center justify-center text-label-md text-outline/40">{d}</div>
   );
 
   return (
@@ -289,27 +289,22 @@ function ScheduleCalendar() {
             const hasDoneEx       = events.some((e) => e.type === 'exercise' && e.status === 'done');
             const hasUpcomingEx   = events.some((e) => e.type === 'exercise' && e.status === 'upcoming');
             const hasMissedEx     = events.some((e) => e.type === 'exercise' && e.status === 'missed');
-            const hasDoneHosp     = events.some((e) => e.type === 'hospital'  && e.status === 'done');
             const hasUpcomingHosp = events.some((e) => e.type === 'hospital' && e.status === 'upcoming');
 
-            let circleCls = '';
-            if      (hasUpcomingHosp)           circleCls = 'bg-orange-500 text-white';
-            else if (hasUpcomingEx)             circleCls = 'bg-primary text-white';
-            else if (hasMissedEx)               circleCls = 'bg-red-500 text-white';
-            else if (hasDoneEx || hasDoneHosp)  circleCls = 'bg-inverse-surface text-inverse-on-surface';
-
-            const hasCircle = !!circleCls;
-            // 진료 + 운동이 같은날이면 운동 원 아래 주황 점 표시
-            const showHospDot = hasUpcomingHosp && hasUpcomingEx;
+            // 운동 상태에 따른 원 스타일 (우선순위: 예정 > 미수행 > 완료)
+            let circleCls = 'text-on-surface';
+            if      (hasUpcomingEx) circleCls = 'border-2 border-primary text-primary';
+            else if (hasMissedEx)   circleCls = 'border-2 border-red-500 text-red-500';
+            else if (hasDoneEx)     circleCls = 'bg-inverse-surface text-inverse-on-surface';
 
             return (
-              <div key={day} className="h-11 flex flex-col items-center justify-center gap-0.5">
-                <div className={`w-9 h-9 flex items-center justify-center rounded-full text-label-md transition-all
-                  ${hasCircle ? circleCls : 'text-on-surface hover:bg-surface-container cursor-default'}`}
-                >
+              <div key={day} className="h-12 flex flex-col items-center justify-center gap-0.5">
+                <div className={`w-9 h-9 flex items-center justify-center rounded-full text-label-md transition-all ${circleCls}`}>
                   {day}
                 </div>
-                {showHospDot && <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />}
+                {hasUpcomingHosp && (
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                )}
               </div>
             );
           })}
@@ -324,22 +319,22 @@ function ScheduleCalendar() {
         </div>
 
         {/* 범례 */}
-        <div className="flex flex-wrap gap-4 mt-6 pt-5 border-t border-outline-variant text-label-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-inverse-surface" />
-            <span className="text-on-surface-variant">운동 수행 완료</span>
+        <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 pt-5 border-t border-outline-variant text-label-sm">
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-full bg-inverse-surface" />
+            <span className="text-on-surface-variant">운동 완료</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-primary" />
-            <span className="text-on-surface-variant">운동 예정일</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-full border-2 border-primary" />
+            <span className="text-on-surface-variant">운동 예정</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500" />
-            <span className="text-on-surface-variant">운동 미수행일</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-full border-2 border-red-500" />
+            <span className="text-on-surface-variant">운동 미수행</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-orange-500" />
-            <span className="text-on-surface-variant">병원 진료 예정일</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-orange-500 mx-1" />
+            <span className="text-on-surface-variant">진료 예정</span>
           </div>
         </div>
       </div>
