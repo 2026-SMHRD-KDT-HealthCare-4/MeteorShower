@@ -11,7 +11,10 @@ import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
-from landmark_utils import compute_guide_scale, normalize_to_guide_scale
+from landmark_utils import (
+    compute_guide_scale, normalize_to_guide_scale,
+    extract_features_full_fist, extract_features_tapping,
+)
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
 MODEL_URL = (
@@ -54,7 +57,8 @@ EXERCISES = [
         "target_count": 7,   # TODO: DB 처방값으로 교체 예정
         "target_set":   2,   # TODO: DB 처방값으로 교체 예정
         "count_type":   "grip",
-        "max_dtw_dist": 0.162,
+        "max_dtw_dist": 0.25,
+        "feature_fn":   extract_features_full_fist,
     },
     {
         "name":         "tapping",
@@ -63,6 +67,7 @@ EXERCISES = [
         "target_set":   2,   # TODO: DB 처방값으로 교체 예정
         "count_type":   "tap",
         "max_dtw_dist": 0.32,
+        "feature_fn":   extract_features_tapping,
     },
 ]
 
@@ -78,6 +83,17 @@ def _load_guide(guide_path: str):
         arr = np.array(json.load(f), dtype=np.float32)
     print(f"guide loaded: {os.path.basename(guide_path)}  ({len(arr)} frames)")
     return arr
+
+
+def _load_guide_features(guide_path, feature_fn):
+    """가이드 json → 특징 벡터 시퀀스 (N, D).
+
+    draw_animated_guide 등 애니메이션용 원본 (N,21,3)은 _load_guide로 별도 로드한다.
+    """
+    arr = _load_guide(guide_path)
+    if arr is None:
+        return None
+    return np.array([feature_fn(frame) for frame in arr], dtype=np.float32)
 
 
 # ── 유틸 ──────────────────────────────────────────────────────
@@ -160,10 +176,19 @@ def save_capture(frame, label="overload"):
 # ── DTW 유사도 ─────────────────────────────────────────────────
 
 def _dtw_avg_dist(seq1, seq2):
-    """seq1 (m,21,3) vs seq2 (n,21,3) DTW 누적거리 dtw[m,n] / (m+n)."""
+    """seq1 (m,*F) vs seq2 (n,*F) DTW 누적거리 dtw[m,n] / (m+n).
+
+    F는 임의의 trailing shape(예: 랜드마크 (21,3) 또는 특징 벡터 (K,)).
+    마지막 축을 좌표/요소 차원으로 보고 L2 노름을 구한 뒤, 남는 그룹 축이
+    있으면(예: 21개 랜드마크) 그 축에 대해 평균낸다.
+    """
     m, n = len(seq1), len(seq2)
-    diff = seq1[:, np.newaxis] - seq2[np.newaxis]    # (m, n, 21, 3)
-    frame_dist = np.sqrt((diff ** 2).sum(axis=3)).mean(axis=2)
+    diff = seq1[:, np.newaxis] - seq2[np.newaxis]          # (m, n, *F)
+    point_dist = np.sqrt((diff ** 2).sum(axis=-1))         # (m, n, *F[:-1])
+    if point_dist.ndim > 2:
+        frame_dist = point_dist.reshape(m, n, -1).mean(axis=-1)
+    else:
+        frame_dist = point_dist
     dtw = np.full((m + 1, n + 1), np.inf)
     dtw[0, 0] = 0.0
     for i in range(1, m + 1):
@@ -261,8 +286,13 @@ def run_tracking(q: queue.Queue = None):
         # ── 운동 진행 상태 ────────────────────────────────────
         current_exercise_idx = 0
         current_set          = 1
-        current_guide_np     = _load_guide(EXERCISES[0]["guide_path"])
-        current_guide_scale  = compute_guide_scale(current_guide_np)
+        ex0                  = EXERCISES[current_exercise_idx]
+        current_guide_raw    = _load_guide(ex0["guide_path"])           # 애니메이션용 (N,21,3)
+        current_guide_np     = _load_guide_features(                     # DTW용 (N,D)
+            ex0["guide_path"], ex0["feature_fn"]
+        )
+        current_guide_scale  = compute_guide_scale(current_guide_raw)
+        current_feature_fn   = ex0["feature_fn"]
 
         # ── 공통 트래킹 상태 ─────────────────────────────────
         count           = 0
@@ -293,11 +323,11 @@ def run_tracking(q: queue.Queue = None):
             count_type = ex.get("count_type", "grip")
 
             # 가이드 프레임 인덱스 (tap 판정에도 필요하므로 루프 상단에서 계산)
-            guide_n          = len(current_guide_np) if current_guide_np is not None else 1
+            guide_n          = len(current_guide_raw) if current_guide_raw is not None else 1
             guide_frame_idx  = int((time.time() - guide_elapsed_start) * GUIDE_FPS) % guide_n
             guide_tap_finger = (
-                get_guide_tap_finger(current_guide_np[guide_frame_idx])
-                if count_type == "tap" and current_guide_np is not None
+                get_guide_tap_finger(current_guide_raw[guide_frame_idx])
+                if count_type == "tap" and current_guide_raw is not None
                 else None
             )
 
@@ -331,9 +361,8 @@ def run_tracking(q: queue.Queue = None):
             # ── 2. 환자 버퍼 업데이트 ────────────────────────
             if first_landmarks is not None:
                 no_hand_counter = 0   # ← 손 검출되면 즉시 리셋
-                patient_buf.append(
-                    normalize_to_guide_scale(first_landmarks, current_guide_scale)
-                )
+                coords = normalize_to_guide_scale(first_landmarks, current_guide_scale)
+                patient_buf.append(current_feature_fn(coords))
                 if len(patient_buf) > PATIENT_BUF_MAX:
                     patient_buf.pop(0)
             else:
@@ -360,7 +389,7 @@ def run_tracking(q: queue.Queue = None):
             # ── 4. 가이드 프레임 인덱스 (루프 상단에서 이미 계산됨) ──
 
             # ── 5. 렌더링 ────────────────────────────────────
-            draw_animated_guide(frame, guide_frame_idx, current_guide_np)
+            draw_animated_guide(frame, guide_frame_idx, current_guide_raw)
             for landmarks, handedness in valid_hands:
                 draw_hand(frame, landmarks, handedness)
 
@@ -413,6 +442,8 @@ def run_tracking(q: queue.Queue = None):
                             confirmed_state = None
                             patient_buf.clear()
                             similarity = None
+                            similarity_buf.clear()
+                            no_hand_counter = 0
 
                             # ── 운동 완료 체크 ──────────────────────
                             if current_set > ex["target_set"]:
@@ -423,9 +454,13 @@ def run_tracking(q: queue.Queue = None):
                                     session_complete    = True
                                     session_complete_at = time.time()
                                 else:
-                                    current_guide_np    = _load_guide(
-                                        EXERCISES[current_exercise_idx]["guide_path"]
+                                    ex_new              = EXERCISES[current_exercise_idx]
+                                    current_guide_raw   = _load_guide(ex_new["guide_path"])
+                                    current_guide_np    = _load_guide_features(
+                                        ex_new["guide_path"], ex_new["feature_fn"]
                                     )
+                                    current_guide_scale = compute_guide_scale(current_guide_raw)
+                                    current_feature_fn  = ex_new["feature_fn"]
                                     guide_elapsed_start = time.time()
 
             # ── 과부하 감지 (ROM 기반) ────────────────────────
