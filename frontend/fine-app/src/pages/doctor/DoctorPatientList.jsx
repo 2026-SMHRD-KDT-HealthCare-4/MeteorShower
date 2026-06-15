@@ -200,25 +200,25 @@ export default function DoctorPatientList() {
             </div>
             <div className="flex gap-3 flex-wrap">
               <button
-                onClick={() => navigate('/doctor/report/daily')}
+                onClick={() => navigate('/doctor/patient/info')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-doctor-primary text-white font-semibold text-label-md hover:opacity-90 transition-opacity shadow-md"
               >
-                <span className="material-symbols-outlined text-sm">today</span>
-                일일 레포트
+                <span className="material-symbols-outlined text-sm">person</span>
+                환자 정보
               </button>
               <button
-                onClick={() => navigate('/doctor/report/weekly')}
+                onClick={() => navigate('/doctor/report/daily')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-md hover:bg-doctor-primary hover:text-white transition-all"
               >
-                <span className="material-symbols-outlined text-sm">bar_chart</span>
-                주간 레포트
+                <span className="material-symbols-outlined text-sm">today</span>
+                일일 리포트
               </button>
               <button
                 onClick={() => navigate('/doctor/report/progress')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-md hover:bg-doctor-primary hover:text-white transition-all"
               >
-                <span className="material-symbols-outlined text-sm">assignment</span>
-                진행 레포트
+                <span className="material-symbols-outlined text-sm">bar_chart</span>
+                누적 리포트
               </button>
             </div>
           </section>

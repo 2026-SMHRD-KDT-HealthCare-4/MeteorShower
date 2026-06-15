@@ -10,8 +10,8 @@ import PatientProfile from './pages/patient/PatientProfile';
 import DoctorLogin from './pages/doctor/DoctorLogin';
 import DoctorSignup from './pages/doctor/DoctorSignup';
 import DoctorPatientList from './pages/doctor/DoctorPatientList';
-import WeeklyReport from './pages/doctor/WeeklyReport';
 import ProgressReport from './pages/doctor/ProgressReport';
+import PatientInfo from './pages/doctor/PatientInfo';
 import DoctorProfile from './pages/doctor/DoctorProfile';
 import DailyReport from './pages/doctor/DailyReport';
 
@@ -34,8 +34,8 @@ export default function App() {
         <Route path="/doctor/login" element={<DoctorLogin />} />
         <Route path="/doctor/signup" element={<DoctorSignup />} />
         <Route path="/doctor/patients" element={<DoctorPatientList />} />
-        <Route path="/doctor/report/weekly" element={<WeeklyReport />} />
         <Route path="/doctor/report/progress" element={<ProgressReport />} />
+        <Route path="/doctor/patient/info" element={<PatientInfo />} />
         <Route path="/doctor/profile" element={<DoctorProfile />} />
         <Route path="/doctor/report/daily" element={<DailyReport />} />
 
