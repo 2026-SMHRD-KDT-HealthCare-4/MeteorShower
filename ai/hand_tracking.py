@@ -54,6 +54,7 @@ EXERCISES = [
         "target_count": 7,   # TODO: DB 처방값으로 교체 예정
         "target_set":   2,   # TODO: DB 처방값으로 교체 예정
         "count_type":   "grip",
+        "max_dtw_dist": 0.162,
     },
     {
         "name":         "tapping",
@@ -61,6 +62,7 @@ EXERCISES = [
         "target_count": 7,   # TODO: DB 처방값으로 교체 예정
         "target_set":   2,   # TODO: DB 처방값으로 교체 예정
         "count_type":   "tap",
+        "max_dtw_dist": 0.32,
     },
 ]
 
@@ -171,7 +173,7 @@ def _dtw_avg_dist(seq1, seq2):
     return dtw[m, n] / (m + n)
 
 
-def compute_dtw_similarity(patient_buf, guide_np):
+def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST):
     """환자 버퍼 vs guide_np 비교. 일치율(0~100) or None.
 
     guide_np 전체(n프레임)와 직접 비교하면 환자의 짧은 버퍼(m프레임)가 가이드의
@@ -199,7 +201,7 @@ def compute_dtw_similarity(patient_buf, guide_np):
         _dtw_avg_dist(seq1, guide_np[s:s + window_len])
         for s in starts
     )
-    similarity = max(0.0, 1.0 - best_avg / MAX_DTW_DIST) * 100
+    similarity = max(0.0, 1.0 - best_avg / max_dtw_dist) * 100
     return similarity
 
 
@@ -346,7 +348,9 @@ def run_tracking(q: queue.Queue = None):
             dtw_counter += 1
             if dtw_counter >= DTW_INTERVAL:
                 dtw_counter = 0
-                raw_similarity = compute_dtw_similarity(patient_buf, current_guide_np)
+                raw_similarity = compute_dtw_similarity(
+                    patient_buf, current_guide_np, ex["max_dtw_dist"]
+                )
                 if raw_similarity is not None:
                     similarity_buf.append(raw_similarity)
                     if len(similarity_buf) > 3:
