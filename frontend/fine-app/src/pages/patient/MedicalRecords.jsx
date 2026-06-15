@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import PatientNavBar from '../../components/PatientNavBar';
 
 const records = [
@@ -22,8 +23,11 @@ const records = [
     specialty: '재활의학과 전문의',
     status: '진료 완료',
     statusColor: 'bg-surface-container-high text-on-surface-variant',
-    feedback: '손가락 가동성과 근력이 향상되고 있어요. 특히 쥐는 동작이 훨씬 안정적으로 개선되었습니다...',
-    exercises: [{ name: '태핑 / 2세트 / 5회', icon: 'pan_tool_alt', achievement: 75 }],
+    feedback: '손가락 가동성과 근력이 전반적으로 향상되고 있어요. 특히 쥐는 동작이 훨씬 안정적으로 개선되었으며, 손가락 각 마디의 독립적인 움직임도 눈에 띄게 좋아졌습니다. 태핑 훈련을 통해 반응 속도와 리듬감이 개선되고 있고, 그립 강화 운동으로 일상적인 쥐기 동작에서의 안정성도 높아졌습니다. 앞으로도 꾸준히 운동 루틴을 유지해 주시면 더욱 빠른 기능 회복을 기대할 수 있습니다.',
+    exercises: [
+      { name: '태핑 (Tapping)', sets: 2, reps: 5, achievement: 75, icon: 'pan_tool_alt', badgeColor: 'bg-surface-container-high text-primary' },
+      { name: '손가락 굴신 운동', sets: 3, reps: 10, achievement: 68, icon: 'back_hand', badgeColor: 'bg-surface-container-high text-primary' },
+    ],
     featured: false,
   },
   {
@@ -38,6 +42,60 @@ const records = [
     featured: false,
   },
 ];
+
+function SmallRecordCard({ record }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-card p-6 transition-all duration-200">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-outline text-xl">calendar_today</span>
+          <span className="text-label-md font-medium text-on-surface">{record.date}</span>
+        </div>
+        <span className={`px-2 py-0.5 ${record.statusColor} rounded text-[11px] font-bold`}>{record.status}</span>
+      </div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center">
+          <span className="material-symbols-outlined text-primary-container text-sm">person</span>
+        </div>
+        <div className="text-sm">
+          <p className="font-bold text-on-surface">{record.doctor}</p>
+          <p className="text-on-surface-variant">{record.specialty}</p>
+        </div>
+      </div>
+      <p className={`text-sm text-on-surface-variant mb-6 ${expanded ? '' : 'line-clamp-2'}`}>{record.feedback}</p>
+      <div className="border-t border-outline-variant pt-4 space-y-2">
+        {(expanded ? record.exercises : record.exercises.slice(0, 1)).map((ex, i) => (
+          <div key={i} className="flex items-center justify-between p-2 rounded-lg">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-primary text-xl">{ex.icon}</span>
+              <div>
+                <span className="text-sm text-on-surface">{ex.name}</span>
+                {expanded && ex.sets && <p className="text-[12px] text-on-surface-variant">{ex.sets}세트 / {ex.reps}회</p>}
+              </div>
+            </div>
+            {ex.achievement != null && (
+              <span className="text-label-sm font-semibold text-primary">{ex.achievement}%</span>
+            )}
+          </div>
+        ))}
+        {!expanded && record.exercises.length > 1 && (
+          <p className="text-[11px] text-on-surface-variant pl-2">외 {record.exercises.length - 1}개 운동</p>
+        )}
+        <div className="pt-2 text-right">
+          <button
+            className="text-primary text-label-sm font-semibold hover:underline flex items-center gap-1 ml-auto"
+            onClick={() => setExpanded(!expanded)}
+          >
+            상세 보기
+            <span className={`material-symbols-outlined text-base transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>expand_more</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function MedicalRecords() {
   return (
@@ -85,7 +143,6 @@ export default function MedicalRecords() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h4 className="text-label-md font-semibold text-primary uppercase tracking-wider">처방 운동</h4>
-                    <button className="text-primary text-label-sm font-semibold hover:underline">전체 기록 상세 보기</button>
                   </div>
                   <div className="space-y-3">
                     {record.exercises.map((ex, i) => (
@@ -113,41 +170,7 @@ export default function MedicalRecords() {
           {/* Other records */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {records.filter((r) => !r.featured).map((record) => (
-              <div key={record.id} className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-card p-6 hover:-translate-y-1 hover:shadow-card-hover transition-all duration-200 cursor-pointer">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-outline text-xl">calendar_today</span>
-                    <span className="text-label-md font-medium text-on-surface">{record.date}</span>
-                  </div>
-                  <span className={`px-2 py-0.5 ${record.statusColor} rounded text-[11px] font-bold`}>{record.status}</span>
-                </div>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center">
-                    <span className="material-symbols-outlined text-primary-container text-sm">person</span>
-                  </div>
-                  <div className="text-sm">
-                    <p className="font-bold text-on-surface">{record.doctor}</p>
-                    <p className="text-on-surface-variant">{record.specialty}</p>
-                  </div>
-                </div>
-                <p className="text-sm text-on-surface-variant line-clamp-3 mb-6">{record.feedback}</p>
-                <div className="border-t border-outline-variant pt-4 space-y-2">
-                  {record.exercises.map((ex, i) => (
-                    <div key={i} className="flex items-center justify-between p-2 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-primary text-xl">{ex.icon}</span>
-                        <span className="text-sm text-on-surface">{ex.name}</span>
-                      </div>
-                      {ex.achievement != null && (
-                        <span className="text-label-sm font-semibold text-primary">{ex.achievement}%</span>
-                      )}
-                    </div>
-                  ))}
-                  <div className="pt-2 text-right">
-                    <button className="text-primary text-label-sm font-semibold hover:underline">전체 기록 상세 보기</button>
-                  </div>
-                </div>
-              </div>
+              <SmallRecordCard key={record.id} record={record} />
             ))}
           </div>
 
