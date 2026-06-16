@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import handBg from '../../assets/hand-ex2.jpg';
+import handImg from '../../assets/hand-ex.png';
 
 function HandGuide() {
   const joints = [
@@ -84,22 +86,24 @@ export default function ExerciseSession() {
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0c1a1a]">
 
-      {/* 배경 링 패턴 (카메라 화면 시뮬레이션) */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        {[500, 380, 260, 140].map((r, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full border border-teal-400/10"
-            style={{ width: r, height: r }}
-          />
-        ))}
-        <div className="absolute w-48 h-48 rounded-full bg-teal-500/5 blur-2xl" />
-      </div>
+      {/* 배경 이미지 (좌우 반전) */}
+      <img
+        src={handBg}
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ transform: 'scaleX(-1)' }}
+      />
+      {/* 배경 어둡게 */}
+      <div className="absolute inset-0 bg-black/40" />
 
-      {/* 손 가이드라인 오버레이 */}
+      {/* 손 이미지 + 가이드라인 오버레이 */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-56 h-80 opacity-75">
-          <HandGuide />
+        <div className="relative w-[480px] h-[720px]">
+          <img
+            src={handImg}
+            alt="hand"
+            className="absolute inset-0 w-full h-full object-contain opacity-90"
+          />
         </div>
       </div>
 
