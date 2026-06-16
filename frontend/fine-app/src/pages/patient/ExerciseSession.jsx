@@ -112,7 +112,7 @@ export default function ExerciseSession() {
         {/* CURRENT PHASE */}
         <div className="bg-black/45 backdrop-blur-md rounded-xl p-4 border border-white/10">
           <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-1.5">Current Phase</p>
-          <h3 className="text-white font-bold text-base mb-1">태핑 (Tapping)</h3>
+          <h3 className="text-white font-bold text-base mb-1">오른손 두드리기</h3>
           <p className="text-gray-300 text-xs leading-relaxed">손가락 마디의 유연성과 조절 능력을 강화하는 운동입니다.</p>
         </div>
 
@@ -175,7 +175,7 @@ export default function ExerciseSession() {
           {/* 운동명 */}
           <div className="min-w-0">
             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Current Phase</p>
-            <p className="text-white font-bold text-sm truncate">태핑 (Tapping)</p>
+            <p className="text-white font-bold text-sm truncate">오른손 두드리기</p>
           </div>
 
           {/* 구분선 */}

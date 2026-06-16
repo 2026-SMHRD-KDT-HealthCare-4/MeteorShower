@@ -8,10 +8,10 @@ const MOCK_USER = {
 };
 
 const INITIAL_EXERCISES = [
-  { id: 1, name: '왼손 손가락 두드리기', sets: 3, reps: 10, duration: '5분', status: 'done',        videoTime: '01:20' },
-  { id: 2, name: '오른손 쥐었다 펴기',   sets: 3, reps: 5,  duration: '5분', status: 'done',        videoTime: '01:45' },
-  { id: 3, name: '손가락 스트레칭',      sets: 2, reps: 3,  duration: '8분', status: 'in_progress', videoTime: '01:30' },
-  { id: 4, name: '손목 회전 스트레칭',   sets: 2, reps: 3,  duration: '10분', status: 'waiting',    videoTime: '01:10' },
+  { id: 1, name: '오른손 두드리기',  sets: 3, reps: 10, duration: '5분', status: 'done',        videoTime: '01:20' },
+  { id: 2, name: '왼손 두드리기',    sets: 3, reps: 10, duration: '5분', status: 'done',        videoTime: '01:20' },
+  { id: 3, name: '오른손 쥐었다펴기', sets: 2, reps: 10, duration: '5분', status: 'in_progress', videoTime: '01:45' },
+  { id: 4, name: '왼손 쥐었다펴기',  sets: 2, reps: 10, duration: '5분', status: 'waiting',     videoTime: '01:45' },
 ];
 
 // in_progress → waiting → done 순서로 정렬
