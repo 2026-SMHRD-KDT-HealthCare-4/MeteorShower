@@ -268,6 +268,7 @@ export default function PatientInfo() {
     currentPrescriptionData ? currentPrescriptionData.exercises : defaultPrescription
   );
   const [aiAdjust, setAiAdjust] = useState(true);
+  const [aiJustSaved, setAiJustSaved] = useState(false);
   const [schedule, setSchedule] = useState({});
   const [justSaved, setJustSaved] = useState(false);
   const [selectedSession, setSelectedSession] = useState(0);
@@ -675,15 +676,38 @@ export default function PatientInfo() {
                 </p>
               )}
             </div>
-            {!isEditing && currentPrescriptionData && (
-              <button
-                onClick={handleEditStart}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">edit</span>
-                처방 수정
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {/* AI 난이도 조절 토글 — 항상 표시, 즉시 저장 */}
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base text-[#1a73e8]">auto_awesome</span>
+                <span className="text-label-md text-on-surface font-medium">AI 난이도 조절</span>
+                <button
+                  onClick={() => {
+                    setAiAdjust((v) => !v);
+                    setAiJustSaved(true);
+                    setTimeout(() => setAiJustSaved(false), 2000);
+                  }}
+                  className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${aiAdjust ? 'bg-doctor-primary' : 'bg-outline-variant'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${aiAdjust ? 'translate-x-[22px]' : 'translate-x-0'}`} />
+                </button>
+                {aiJustSaved && (
+                  <span className="flex items-center gap-1 text-label-sm text-[#34a853] font-semibold">
+                    <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                    저장됨
+                  </span>
+                )}
+              </div>
+              {!isEditing && currentPrescriptionData && (
+                <button
+                  onClick={handleEditStart}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">edit</span>
+                  처방 수정
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── 조회 모드 ── */}
@@ -765,19 +789,6 @@ export default function PatientInfo() {
           {/* ── 편집 모드 ── */}
           {isEditing && (
             <>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-base text-[#1a73e8]">auto_awesome</span>
-                  <span className="text-label-md text-on-surface font-medium">AI 난이도 조절</span>
-                  <button
-                    onClick={() => setAiAdjust((v) => !v)}
-                    className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${aiAdjust ? 'bg-doctor-primary' : 'bg-outline-variant'}`}
-                  >
-                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${aiAdjust ? 'translate-x-[22px]' : 'translate-x-0'}`} />
-                  </button>
-                </div>
-              </div>
-
               <div className="overflow-x-auto">
                 <table className="w-full text-left border border-outline-variant rounded-xl overflow-hidden min-w-[520px]">
                   <thead>
