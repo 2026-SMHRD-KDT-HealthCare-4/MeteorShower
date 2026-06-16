@@ -48,10 +48,6 @@ export default function DoctorLogin() {
           <Link to="/">
             <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
           </Link>
-          <div className="flex gap-4">
-            <button className="text-on-surface-variant font-medium hover:bg-surface-container-low transition-colors px-3 py-1 rounded-lg text-body-md">Language</button>
-            <button className="text-on-surface-variant font-medium hover:bg-surface-container-low transition-colors px-3 py-1 rounded-lg text-body-md">Support</button>
-          </div>
         </div>
       </header>
 

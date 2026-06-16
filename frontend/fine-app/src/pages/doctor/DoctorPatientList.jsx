@@ -106,6 +106,7 @@ export default function DoctorPatientList() {
             )}
           </div>
           <button
+            onClick={() => navigate('/doctor/patient/register')}
             className="text-white px-6 py-3 rounded-xl text-label-md font-semibold flex items-center gap-2 shadow-md hover:opacity-90 transition-opacity"
             style={{ background: '#1a73e8' }}
           >

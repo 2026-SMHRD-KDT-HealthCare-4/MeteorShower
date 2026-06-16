@@ -193,11 +193,56 @@ const exerciseResults = [
   { name: '소지 (Pinky)', value: 75, warn: false },
 ];
 
+const ROM_DAILY = [
+  { key: 'thumb',  label: '엄지 (Thumb)',
+    joints: [
+      { name: 'MCP', ref: 50.0, max: 45.2, min: 28.5 },
+      { name: 'IP',  ref: 80.0, max: 73.0, min: 54.0 },
+      { name: 'DIP', ref: 60.0, max: 55.5, min: 38.0 },
+    ],
+  },
+  { key: 'index',  label: '검지 (Index)',
+    joints: [
+      { name: 'MCP', ref: 90.0, max: 85.5, min: 62.0 },
+      { name: 'PIP', ref: 100.0, max: 95.0, min: 70.0 },
+      { name: 'DIP', ref: 80.0, max: 72.5, min: 51.0 },
+    ],
+  },
+  { key: 'middle', label: '중지 (Middle)',
+    joints: [
+      { name: 'MCP', ref: 90.0, max: 88.0, min: 65.0 },
+      { name: 'PIP', ref: 100.0, max: 98.5, min: 72.0 },
+      { name: 'DIP', ref: 80.0, max: 76.0, min: 55.0 },
+    ],
+  },
+  { key: 'ring',   label: '약지 (Ring)',
+    joints: [
+      { name: 'MCP', ref: 90.0, max: 65.0, min: 40.0 },
+      { name: 'PIP', ref: 100.0, max: 72.0, min: 45.0 },
+      { name: 'DIP', ref: 80.0, max: 58.0, min: 35.0 },
+    ],
+  },
+  { key: 'pinky',  label: '소지 (Pinky)',
+    joints: [
+      { name: 'MCP', ref: 90.0, max: 80.0, min: 58.0 },
+      { name: 'PIP', ref: 100.0, max: 88.0, min: 65.0 },
+      { name: 'DIP', ref: 80.0, max: 70.0, min: 50.0 },
+    ],
+  },
+];
+
 const defaultPrescription = [
-  { name: '태핑 (Tapping)',   sets: 3, reps: 10, enabled: false },
-  { name: '굴곡 (Flexion)',   sets: 3, reps: 10, enabled: false },
-  { name: '신전 (Extension)', sets: 2, reps: 8,  enabled: false },
-  { name: '그립 (Grip)',      sets: 2, reps: 10, enabled: false },
+  { name: '오른손 태핑 (Tapping)', sets: 3, reps: 10, enabled: false },
+  { name: '왼손 태핑 (Tapping)',   sets: 3, reps: 10, enabled: false },
+  { name: '오른손 그립 (Grip)',    sets: 2, reps: 10, enabled: false },
+  { name: '왼손 그립 (Grip)',      sets: 2, reps: 10, enabled: false },
+];
+
+const sessionPhotos = [
+  { id: 1, time: '10:23', label: '운동 시작', gradient: 'from-sky-300 to-blue-500' },
+  { id: 2, time: '10:31', label: '태핑 동작', gradient: 'from-emerald-300 to-green-500' },
+  { id: 3, time: '10:38', label: '그립 동작', gradient: 'from-violet-300 to-purple-500' },
+  { id: 4, time: '10:45', label: '운동 완료', gradient: 'from-amber-300 to-orange-500' },
 ];
 
 const defaultOpinion =
@@ -212,6 +257,9 @@ export default function DailyReport() {
 
   const [opinion, setOpinion]               = useState(defaultOpinion);
   const [editingOpinion, setEditingOpinion] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto]   = useState(null);
+  const [showRomDetail, setShowRomDetail]   = useState(false);
+  const [romFingerIdx, setRomFingerIdx]     = useState(0);
   const [prescription, setPrescription]     = useState(defaultPrescription);
   const [aiAdjust, setAiAdjust]             = useState(true);
   const [schedule, setSchedule]             = useState({});
@@ -259,18 +307,89 @@ export default function DailyReport() {
     <div className="min-h-screen bg-background">
       <DoctorNavBar />
 
+      {/* 라이트박스 */}
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <div
+            className="relative max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`w-full aspect-[4/3] bg-gradient-to-br ${lightboxPhoto.gradient} flex items-center justify-center`}>
+              <span className="material-symbols-outlined text-white/40 text-[120px]" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
+            </div>
+            <div className="bg-white px-5 py-4 flex items-center justify-between">
+              <div>
+                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.label}</p>
+                <p className="text-label-sm text-on-surface-variant mt-0.5">촬영 시각: {lightboxPhoto.time} · 2026년 2월 15일 세션</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {sessionPhotos.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setLightboxPhoto(p)}
+                    className={`w-2.5 h-2.5 rounded-full transition-all ${p.id === lightboxPhoto.id ? 'bg-doctor-primary scale-125' : 'bg-outline-variant hover:bg-outline'}`}
+                  />
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => setLightboxPhoto(null)}
+              className="absolute top-3 right-3 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
+            >
+              <span className="material-symbols-outlined text-white text-base">close</span>
+            </button>
+            <button
+              onClick={() => {
+                const idx = sessionPhotos.findIndex((p) => p.id === lightboxPhoto.id);
+                setLightboxPhoto(sessionPhotos[(idx - 1 + sessionPhotos.length) % sessionPhotos.length]);
+              }}
+              className="absolute left-3 top-1/3 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
+            >
+              <span className="material-symbols-outlined text-white text-base">chevron_left</span>
+            </button>
+            <button
+              onClick={() => {
+                const idx = sessionPhotos.findIndex((p) => p.id === lightboxPhoto.id);
+                setLightboxPhoto(sessionPhotos[(idx + 1) % sessionPhotos.length]);
+              }}
+              className="absolute right-3 top-1/3 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
+            >
+              <span className="material-symbols-outlined text-white text-base">chevron_right</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="max-w-[1100px] mx-auto px-4 md:px-8 py-8 space-y-6">
 
         {/* ── 헤더 ── */}
         <div className="flex items-center justify-between">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/doctor/patients')}
             className="flex items-center gap-2 text-on-surface-variant hover:text-doctor-primary transition-colors"
           >
             <span className="material-symbols-outlined">arrow_back</span>
             <span className="text-label-md font-medium">Back to Dashboard</span>
           </button>
-          <p className="text-label-sm text-on-surface-variant">Issue Date: 2026.02.15</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => navigate('/doctor/patient/info')}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
+            >
+              <span className="material-symbols-outlined text-sm">person</span>
+              환자 정보
+            </button>
+            <button
+              onClick={() => navigate('/doctor/report/progress')}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-doctor-primary text-white font-semibold text-label-sm hover:opacity-90 transition-opacity shadow-sm"
+            >
+              <span className="material-symbols-outlined text-sm">bar_chart</span>
+              누적 리포트
+            </button>
+          </div>
         </div>
 
         <div>
@@ -303,10 +422,23 @@ export default function DailyReport() {
 
           {/* AI 상세 평가 */}
           <section className="lg:col-span-7 bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-5">
-            <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
-              <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>analytics</span>
-              상세 평가 결과 (AI 분석)
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
+                <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>analytics</span>
+                상세 평가 결과 (AI 분석)
+              </h2>
+              <button
+                onClick={() => setShowRomDetail((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-label-sm font-semibold border transition-colors
+                  ${showRomDetail
+                    ? 'bg-doctor-primary text-white border-doctor-primary'
+                    : 'border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe]'
+                  }`}
+              >
+                <span className="material-symbols-outlined text-sm">straighten</span>
+                ROM 상세보기
+              </button>
+            </div>
 
             {/* Overall + Accuracy */}
             <div className="flex items-center gap-4 sm:gap-6 p-4 bg-[#f0f6ff] rounded-xl">
@@ -343,6 +475,67 @@ export default function DailyReport() {
               ))}
             </div>
 
+            {/* ROM 상세 패널 */}
+            {showRomDetail && (
+              <div className="border border-outline-variant rounded-xl overflow-hidden">
+                {/* 손가락 탭 */}
+                <div className="flex overflow-x-auto border-b border-outline-variant">
+                  {ROM_DAILY.map((f, i) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setRomFingerIdx(i)}
+                      className={`flex-shrink-0 px-4 py-2.5 text-label-sm font-semibold transition-colors border-r border-outline-variant last:border-0
+                        ${romFingerIdx === i
+                          ? 'bg-doctor-primary text-white'
+                          : 'bg-surface-container-low text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
+                        }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                {/* 관절 데이터 테이블 */}
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-[#f8fafe] border-b border-outline-variant">
+                      <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-left">관절</th>
+                      <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">기준값 (ROM)</th>
+                      <th className="px-4 py-2.5 text-label-sm font-bold text-[#1a73e8] text-center">최댓값</th>
+                      <th className="px-4 py-2.5 text-label-sm font-bold text-[#005bbf] text-center">최솟값</th>
+                      <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">상태</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ROM_DAILY[romFingerIdx].joints.map((j) => {
+                      const warn = j.max < j.ref * 0.85;
+                      return (
+                        <tr key={j.name} className="border-b border-outline-variant last:border-0 hover:bg-surface-container-lowest transition-colors">
+                          <td className="px-4 py-3 text-label-md font-bold text-on-surface">{j.name}</td>
+                          <td className="px-4 py-3 text-center text-label-md text-on-surface-variant">{j.ref}°</td>
+                          <td className="px-4 py-3 text-center text-label-md font-bold" style={{ color: warn ? '#ba1a1a' : '#1a73e8' }}>{j.max}°</td>
+                          <td className="px-4 py-3 text-center text-label-md font-semibold text-[#005bbf]">{j.min}°</td>
+                          <td className="px-4 py-3 text-center">
+                            {warn ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-error bg-error-container px-2 py-0.5 rounded-full">
+                                <span className="material-symbols-outlined text-xs" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>주의
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-doctor-primary bg-[#e8f0fe] px-2 py-0.5 rounded-full">
+                                <span className="material-symbols-outlined text-xs" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>정상
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="px-4 py-2 bg-surface-container-low border-t border-outline-variant">
+                  <p className="text-[11px] text-on-surface-variant">기준값: 의사가 입력한 목표 ROM · 최댓값/최솟값: 금일 세션 측정 결과</p>
+                </div>
+              </div>
+            )}
+
             {/* 운동 시간 + 통증 */}
             <div className="grid grid-cols-2 gap-3 pt-1">
               <div className="flex items-start gap-2 sm:gap-3 p-3 bg-surface-container-low rounded-xl">
@@ -365,28 +558,40 @@ export default function DailyReport() {
 
           {/* 관찰 기록 */}
           <section className="lg:col-span-5 bg-white border border-outline-variant rounded-2xl p-6 shadow-card flex flex-col gap-4">
-            <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
-              <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>photo_camera</span>
-              관찰 기록
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
+                <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>photo_camera</span>
+                치료 중 촬영 사진
+              </h2>
+              <span className="text-label-sm text-on-surface-variant">{sessionPhotos.length}장</span>
+            </div>
+
             <div className="grid grid-cols-2 gap-3 flex-1">
-              {[0, 1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="aspect-square bg-surface-container rounded-xl border-2 border-dashed border-outline-variant flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-doctor-primary hover:bg-[#f0f6ff] transition-all group"
+              {sessionPhotos.map((photo) => (
+                <button
+                  key={photo.id}
+                  onClick={() => setLightboxPhoto(photo)}
+                  className="relative aspect-square rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95"
                 >
-                  <span className="material-symbols-outlined text-outline group-hover:text-doctor-primary text-3xl transition-colors">add_photo_alternate</span>
-                  <span className="text-label-sm text-outline group-hover:text-doctor-primary text-center transition-colors">Add Photo</span>
-                </div>
+                  <div className={`absolute inset-0 bg-gradient-to-br ${photo.gradient}`} />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-30 group-hover:opacity-20 transition-opacity">
+                    <span className="material-symbols-outlined text-white text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
+                  </div>
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2.5 py-1.5 flex items-center justify-between">
+                    <span className="text-white text-[11px] font-semibold">{photo.label}</span>
+                    <span className="text-white/80 text-[10px]">{photo.time}</span>
+                  </div>
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="material-symbols-outlined text-white text-base drop-shadow">open_in_full</span>
+                  </div>
+                </button>
               ))}
             </div>
-            <div>
-              <label className="text-label-sm text-on-surface-variant font-semibold">캡션 (Caption)</label>
-              <textarea
-                rows={2}
-                placeholder="사진에 대한 설명을 입력하세요..."
-                className="w-full mt-1 px-3 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface resize-none focus:outline-none focus:ring-2 focus:ring-doctor-primary transition-all placeholder:text-outline"
-              />
+
+            <div className="text-label-sm text-on-surface-variant flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm">info</span>
+              사진을 클릭하면 크게 볼 수 있습니다
             </div>
           </section>
         </div>
