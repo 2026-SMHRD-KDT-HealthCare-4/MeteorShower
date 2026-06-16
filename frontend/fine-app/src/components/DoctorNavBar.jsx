@@ -69,7 +69,6 @@ export default function DoctorNavBar() {
   const [showProfile, setShowProfile]   = useState(false);
   const [showNotif, setShowNotif]       = useState(false);
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-  const [aiApproval, setAiApproval]     = useState(true);
   const profileRef = useRef(null);
   const notifRef   = useRef(null);
 
@@ -216,27 +215,6 @@ export default function DoctorNavBar() {
 
                 {/* Info rows */}
                 <div className="px-5 py-4 space-y-3">
-                  {/* AI toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-base text-[#1a73e8]">auto_awesome</span>
-                      <span className="text-label-md text-on-surface font-medium">AI 난이도 조절 승인</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {aiApproval && (
-                        <span className="material-symbols-outlined text-[#34a853] text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                      )}
-                      <button
-                        onClick={() => setAiApproval((v) => !v)}
-                        className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${aiApproval ? 'bg-doctor-primary' : 'bg-outline-variant'}`}
-                      >
-                        <span
-                          className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${aiApproval ? 'translate-x-[22px]' : 'translate-x-0'}`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
                   {/* Stats row */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <div className="bg-[#f0f6ff] rounded-xl p-3 text-center">
