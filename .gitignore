@@ -181,4 +181,5 @@ test_ws.py
 ai/captures/*
 !ai/captures/.gitkeep
 
-.claude/
+package-lock.json
+frontend/package-lock.json
