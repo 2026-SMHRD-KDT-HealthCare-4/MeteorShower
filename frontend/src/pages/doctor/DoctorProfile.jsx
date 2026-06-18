@@ -6,8 +6,6 @@ export default function DoctorProfile() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     id: 'test',
-    password: '',
-    passwordConfirm: '',
     email: '1111@naver.com',
     phone: '010-0000-0000',
     name: '김나연',
@@ -24,14 +22,15 @@ export default function DoctorProfile() {
     alert('저장되었습니다.');
   };
 
-  const fields = [
-    { label: '아이디', name: 'id', type: 'text', placeholder: '아이디를 입력하세요' },
-    { label: '비밀번호', name: 'password', type: 'password', placeholder: '비밀번호를 입력하세요' },
-    { label: '비밀번호 확인', name: 'passwordConfirm', type: 'password', placeholder: '비밀번호를 다시 입력하세요' },
+  const readOnlyFields = [
+    { label: '아이디', name: 'id' },
+    { label: '이름', name: 'name' },
+    { label: '소속', name: 'hospital' },
+  ];
+
+  const editableFields = [
     { label: '이메일', name: 'email', type: 'email', placeholder: '이메일을 입력하세요' },
     { label: '전화번호', name: 'phone', type: 'tel', placeholder: '010-0000-0000' },
-    { label: '이름', name: 'name', type: 'text', placeholder: '이름을 입력하세요' },
-    { label: '소속', name: 'hospital', type: 'text', placeholder: '소속 병원을 입력하세요', icon: 'local_hospital' },
   ];
 
   return (
@@ -60,12 +59,31 @@ export default function DoctorProfile() {
 
           {/* Form */}
           <form onSubmit={handleSave} className="px-8 py-6 space-y-4">
-            {fields.map((f) => (
+            {/* 변경 불가 필드 */}
+            {readOnlyFields.map((f) => (
               <div key={f.name} className="flex items-center gap-4">
                 <label className="w-28 flex-shrink-0 text-label-md font-semibold text-on-surface-variant text-right">
                   {f.label}
                 </label>
-                <div className="flex-1 relative">
+                <div className="flex-1">
+                  <input
+                    name={f.name}
+                    type="text"
+                    value={form[f.name]}
+                    readOnly
+                    className="w-full px-4 py-2.5 border border-outline-variant rounded-xl text-body-md text-on-surface bg-surface-container cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            ))}
+
+            {/* 변경 가능 필드 */}
+            {editableFields.map((f) => (
+              <div key={f.name} className="flex items-center gap-4">
+                <label className="w-28 flex-shrink-0 text-label-md font-semibold text-on-surface-variant text-right">
+                  {f.label}
+                </label>
+                <div className="flex-1">
                   <input
                     name={f.name}
                     type={f.type}
@@ -74,11 +92,6 @@ export default function DoctorProfile() {
                     placeholder={f.placeholder}
                     className="w-full px-4 py-2.5 border border-outline-variant rounded-xl text-body-md text-on-surface bg-surface-container-lowest focus:outline-none focus:ring-2 focus:ring-doctor-primary transition-all placeholder:text-outline"
                   />
-                  {f.icon && (
-                    <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-outline text-lg">
-                      {f.icon}
-                    </span>
-                  )}
                 </div>
               </div>
             ))}

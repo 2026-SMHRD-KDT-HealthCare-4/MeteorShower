@@ -72,6 +72,7 @@ export default function PatientRegister() {
   const [surgery, setSurgery]     = useState('');
   const [surgeryDate, setSurgeryDate] = useState('');
   const [rehabStart, setRehabStart]   = useState('');
+  const [stage, setStage]         = useState('');
   const [done, setDone]           = useState(false);
   const [rom, setRom]             = useState({});
 
@@ -82,7 +83,7 @@ export default function PatientRegister() {
   const handleSearch = () => {
     setSearched(true);
     setPatient(null);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setRom({});
+    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setRom({});
     const found = registeredPatients.filter(
       (p) =>
         p.id.toLowerCase().includes(query.toLowerCase()) ||
@@ -95,7 +96,7 @@ export default function PatientRegister() {
   /* 목록에서 환자 선택 */
   const handleSelect = (p) => {
     setPatient(p);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setRom({});
+    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setRom({});
   };
 
   /* 제출 */
@@ -126,6 +127,7 @@ export default function PatientRegister() {
               { label: '수술명', value: surgery },
               { label: '수술 시기', value: surgeryDate },
               { label: '재활 시작', value: rehabStart },
+              { label: '진행 단계', value: stage },
             ].map((r) => (
               <div key={r.label} className="flex justify-between text-label-md border-b border-outline-variant pb-1.5 last:border-0">
                 <span className="text-on-surface-variant">{r.label}</span>
@@ -367,6 +369,15 @@ export default function PatientRegister() {
                     type="date"
                     value={rehabStart}
                     onChange={(e) => setRehabStart(e.target.value)}
+                    className={inputCls}
+                  />
+                </Field>
+
+                <Field label="진행 단계">
+                  <input
+                    value={stage}
+                    onChange={(e) => setStage(e.target.value)}
+                    placeholder="예: 손가락 굽히기 운동 1단계"
                     className={inputCls}
                   />
                 </Field>
