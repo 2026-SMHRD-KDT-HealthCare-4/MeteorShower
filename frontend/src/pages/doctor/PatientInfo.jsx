@@ -264,6 +264,9 @@ const currentRomData = null;
 
 export default function PatientInfo() {
   const navigate = useNavigate();
+  const [nextAppointment, setNextAppointment] = useState('2026-03-15');
+  const [editingAppointment, setEditingAppointment] = useState(false);
+  const [appointmentInput, setAppointmentInput] = useState('2026-03-15');
   const [prescription, setPrescription] = useState(
     currentPrescriptionData ? currentPrescriptionData.exercises : defaultPrescription
   );
@@ -441,6 +444,48 @@ export default function PatientInfo() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* 진료 예정일 — 편집 가능 */}
+          <div className="border-t border-outline-variant flex">
+            <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
+              진료 예정일
+            </div>
+            {editingAppointment ? (
+              <div className="flex-1 px-4 py-2 flex items-center gap-3 flex-wrap">
+                <input
+                  type="date"
+                  value={appointmentInput}
+                  onChange={(e) => setAppointmentInput(e.target.value)}
+                  className="border border-outline-variant rounded-xl px-3 py-2 text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary"
+                />
+                <button
+                  onClick={() => { setNextAppointment(appointmentInput); setEditingAppointment(false); }}
+                  className="px-4 py-2 bg-doctor-primary text-white rounded-xl text-label-sm font-semibold hover:opacity-90 transition-opacity"
+                >
+                  저장
+                </button>
+                <button
+                  onClick={() => { setAppointmentInput(nextAppointment); setEditingAppointment(false); }}
+                  className="px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-sm font-semibold hover:bg-surface-container transition-colors"
+                >
+                  취소
+                </button>
+              </div>
+            ) : (
+              <div className="flex-1 min-w-0 px-4 py-3 flex items-center justify-between gap-2">
+                <span className="text-body-md text-on-surface">
+                  {nextAppointment ? nextAppointment.replace(/-/g, '.') : '미정'}
+                </span>
+                <button
+                  onClick={() => { setAppointmentInput(nextAppointment); setEditingAppointment(true); }}
+                  className="flex items-center gap-1 text-label-sm text-doctor-primary hover:underline font-semibold flex-shrink-0"
+                >
+                  <span className="material-symbols-outlined text-sm">edit_calendar</span>
+                  변경
+                </button>
+              </div>
+            )}
           </div>
         </section>
 

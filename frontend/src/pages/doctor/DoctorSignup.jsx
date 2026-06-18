@@ -40,6 +40,8 @@ function getErrors(form, usernameChecked, licenseVerified) {
 
   if (!form.license)
     e.license = '면허 번호를 입력하세요';
+  else if (!form.licenseDate)
+    e.license = '취득 날짜를 입력해주세요';
   else if (!licenseVerified)
     e.license = '면허 번호 인증을 완료해주세요';
 
@@ -47,6 +49,11 @@ function getErrors(form, usernameChecked, licenseVerified) {
     e.phone = '전화번호를 입력하세요';
   else if (!/^\d{2,3}-\d{3,4}-\d{4}$/.test(form.phone))
     e.phone = '전화번호를 끝까지 입력하세요';
+
+  if (!form.email)
+    e.email = '이메일을 입력하세요';
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+    e.email = '올바른 이메일 형식이 아닙니다 (예: doctor@example.com)';
 
   return e;
 }
@@ -61,7 +68,7 @@ export default function DoctorSignup() {
 
   const [form, setForm] = useState({
     username: '', password: '', password2: '',
-    name: '', hospital: '', license: '', phone: '',
+    name: '', hospital: '', license: '', licenseDate: '', phone: '', email: '',
   });
   const [touched, setTouched]                   = useState({});
   const [usernameChecked, setUsernameChecked]   = useState(false);
@@ -95,7 +102,7 @@ export default function DoctorSignup() {
     setForm((p) => ({ ...p, [name]: value }));
     setTouched((p) => ({ ...p, [name]: true }));
     if (name === 'username') setUsernameChecked(false);
-    if (name === 'license') setLicenseVerified(false);
+    if (name === 'license' || name === 'licenseDate') setLicenseVerified(false);
   };
 
   const handleBlur = (field) => setTouched((p) => ({ ...p, [field]: true }));
@@ -125,7 +132,7 @@ export default function DoctorSignup() {
     setTimeout(() => { setCheckingUsername(false); setUsernameChecked(true); }, 800);
   };
 
-  const isLicenseFmtOk = form.license.trim().length >= 5;
+  const isLicenseFmtOk = form.license.trim().length >= 5 && !!form.licenseDate;
   const verifyLicense = () => {
     if (!isLicenseFmtOk || verifyingLicense) return;
     setVerifyingLicense(true);
@@ -136,7 +143,7 @@ export default function DoctorSignup() {
   const handleSubmit = (e) => {
     e.preventDefault();
     setSubmitAttempted(true);
-    setTouched({ username:true, password:true, password2:true, name:true, hospital:true, license:true, phone:true });
+    setTouched({ username:true, password:true, password2:true, name:true, hospital:true, license:true, licenseDate:true, phone:true, email:true });
     if (!canSubmit) return;
     setLoading(true);
     setTimeout(() => { setLoading(false); navigate('/doctor/login'); }, 1000);
@@ -332,20 +339,36 @@ export default function DoctorSignup() {
               {show('hospital') && <p className="text-label-sm text-red-500 ml-1">{errors.hospital}</p>}
             </div>
 
-            {/* 면허 번호 + 인증 */}
+            {/* 면허 번호 + 취득날짜 + 인증 */}
             <div className="space-y-1.5">
               <label className="block text-label-lg font-semibold ml-1" style={{ color: '#414754' }} htmlFor="license">
                 면허 번호 <span className="text-red-500">*</span>
               </label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-blue-600 transition-colors" style={{ color: '#727785' }}>verified</span>
+                <input
+                  id="license" name="license" type="text"
+                  placeholder="의사 면허 번호를 입력하세요"
+                  value={form.license}
+                  onChange={handleChange}
+                  onBlur={() => handleBlur('license')}
+                  className={inputCls('license')}
+                  style={!show('license') ? { borderColor: '#c1c6d6' } : {}}
+                />
+              </div>
+
+              <label className="block text-label-sm font-semibold ml-1 mt-2" style={{ color: '#727785' }}>
+                취득 날짜 <span className="text-red-500">*</span>
+              </label>
               <div className="flex gap-2">
                 <div className="relative group flex-1">
-                  <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-blue-600 transition-colors" style={{ color: '#727785' }}>verified</span>
+                  <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-blue-600 transition-colors" style={{ color: '#727785' }}>calendar_today</span>
                   <input
-                    id="license" name="license" type="text"
-                    placeholder="의사 면허 번호를 입력하세요"
-                    value={form.license}
+                    id="licenseDate" name="licenseDate" type="date"
+                    value={form.licenseDate}
                     onChange={handleChange}
-                    onBlur={() => handleBlur('license')}
+                    onBlur={() => handleBlur('licenseDate')}
+                    max={new Date().toISOString().split('T')[0]}
                     className={inputCls('license')}
                     style={!show('license') ? { borderColor: '#c1c6d6' } : {}}
                   />
@@ -360,6 +383,7 @@ export default function DoctorSignup() {
                   {verifyingLicense ? '인증 중…' : licenseVerified ? '인증 완료' : '인증'}
                 </button>
               </div>
+
               {licenseVerified && !show('license') && (
                 <p className="text-label-sm text-green-600 flex items-center gap-1 ml-1">
                   <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings:"'FILL' 1" }}>verified</span>
@@ -388,6 +412,26 @@ export default function DoctorSignup() {
                 />
               </div>
               {show('phone') && <p className="text-label-sm text-red-500 ml-1">{errors.phone}</p>}
+            </div>
+
+            {/* 이메일 */}
+            <div className="space-y-1.5">
+              <label className="block text-label-lg font-semibold ml-1" style={{ color: '#414754' }} htmlFor="email">
+                이메일 <span className="text-red-500">*</span>
+              </label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-blue-600 transition-colors" style={{ color: '#727785' }}>mail</span>
+                <input
+                  id="email" name="email" type="email"
+                  placeholder="doctor@example.com"
+                  value={form.email}
+                  onChange={handleChange}
+                  onBlur={() => handleBlur('email')}
+                  className={inputCls('email')}
+                  style={!show('email') ? { borderColor: '#c1c6d6' } : {}}
+                />
+              </div>
+              {show('email') && <p className="text-label-sm text-red-500 ml-1">{errors.email}</p>}
             </div>
 
             {/* 필수 동의 */}

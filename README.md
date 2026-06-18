@@ -56,25 +56,24 @@ Fine/
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── docker-compose.yml          # FastAPI + PostgreSQL 컨테이너 구성
-└── frontend/
-    └── fine-app/                   # React + Vite 프론트엔드
-        ├── src/
-        │   ├── App.jsx             # 라우팅 설정
-        │   ├── components/         # 공통 컴포넌트
-        │   └── pages/
-        │       ├── LandingPage/    # 서비스 소개 페이지
-        │       ├── patient/        # 환자 화면
-        │       │   ├── PatientLogin/
-        │       │   ├── PatientSignup/
-        │       │   ├── TodayExercise/   # 오늘의 운동 (WebSocket 연동)
-        │       │   ├── MedicalRecords/  # 운동 기록 조회
-        │       │   └── PatientProfile/
-        │       └── doctor/         # 의사 화면
-        │           ├── DoctorLogin/
-        │           ├── DoctorPatientList/
-        │           ├── WeeklyReport/    # 주간 운동 보고서
-        │           └── ProgressReport/ # 환자 진도 리포트
-        └── public/
+└── frontend/                       # React + Vite 프론트엔드
+    ├── src/
+    │   ├── App.jsx                 # 라우팅 설정
+    │   ├── components/             # 공통 컴포넌트
+    │   └── pages/
+    │       ├── LandingPage/        # 서비스 소개 페이지
+    │       ├── patient/            # 환자 화면
+    │       │   ├── PatientLogin/
+    │       │   ├── PatientSignup/
+    │       │   ├── TodayExercise/  # 오늘의 운동 (WebSocket 연동)
+    │       │   ├── MedicalRecords/ # 운동 기록 조회
+    │       │   └── PatientProfile/
+    │       └── doctor/             # 의사 화면
+    │           ├── DoctorLogin/
+    │           ├── DoctorPatientList/
+    │           ├── WeeklyReport/   # 주간 운동 보고서
+    │           └── ProgressReport/ # 환자 진도 리포트
+    └── public/
 ```
 
 ---
@@ -165,7 +164,7 @@ python ai/websocket_server.py
 ### 4. 프론트엔드 실행
 
 ```bash
-cd frontend/fine-app
+cd frontend
 npm install
 npm run dev
 # → http://localhost:5173
