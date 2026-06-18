@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import handBg from '../../assets/hand-ex2.jpg';
 import handImg from '../../assets/hand-ex.png';
+import VoiceChatBot from '../../components/VoiceChatBot';
 
 function HandGuide() {
   const joints = [
@@ -209,6 +210,9 @@ export default function ExerciseSession() {
           </button>
         </div>
       </div>
+
+      {/* 챗봇 */}
+      <VoiceChatBot />
 
       {/* 종료 확인 모달 */}
       {showModal && (

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from routers import health, ws
+from routers import chat, health, ws
 
 load_dotenv()
 
@@ -16,3 +16,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(ws.router)
+app.include_router(chat.router)
