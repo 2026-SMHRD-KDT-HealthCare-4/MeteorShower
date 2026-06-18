@@ -221,7 +221,7 @@ def get_tap_state(landmarks, guide_tap_finger):
 
 # ── ROM / 캡처 ────────────────────────────────────────────────
 
-def compute_rom(landmarks):
+def compute_overload_rom(landmarks):
     wrist = landmarks[0]
     tips = [landmarks[i] for i in [8, 12, 16, 20]]
     return float(np.mean([
@@ -586,7 +586,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                 display_similarity = None
 
             # ── 과부하 감지 (ROM 기반) ────────────────────────
-            current_rom = compute_rom(first_landmarks) if first_landmarks else 0.0
+            current_rom = compute_overload_rom(first_landmarks) if first_landmarks else 0.0
 
             if overload_stage == 0 and current_rom > TARGET_ROM:
                 save_capture(frame)
