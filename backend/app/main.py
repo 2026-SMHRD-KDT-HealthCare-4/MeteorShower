@@ -4,7 +4,7 @@ load_dotenv(Path(__file__).parent.parent / '.env')
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import chat, health, ws, auth
+from routers import auth, chat, health, patients, ws
 
 app = FastAPI()
 
@@ -17,5 +17,6 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(patients.router)
 app.include_router(ws.router)
 app.include_router(chat.router)

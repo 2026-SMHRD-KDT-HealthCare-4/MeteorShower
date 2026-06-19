@@ -1,18 +1,17 @@
 import random
 import string
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from crud import doctor as doctor_crud
 from crud import patient as patient_crud
 from database import get_db
+from dependencies import get_token_payload
 from schemas.auth import DoctorSignupRequest, LoginRequest, PatientSignupRequest
-from security import create_token, decode_token, hash_password, verify_password
+from security import create_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-bearer_scheme = HTTPBearer()
 
 def _generate_patient_code(db: Session) -> str:
     while True:
@@ -21,22 +20,9 @@ def _generate_patient_code(db: Session) -> str:
             return code
 
 
-def _get_token_payload(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> dict:
-    payload = decode_token(credentials.credentials)
-    if not payload.get("sub") or not payload.get("role"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return payload
-
-
 @router.get("/me")
 def get_me(
-    payload: dict = Depends(_get_token_payload),
+    payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ):
     user_id = int(payload["sub"])
