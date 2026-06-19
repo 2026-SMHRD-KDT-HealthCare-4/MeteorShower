@@ -1,3 +1,4 @@
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.patient import Patient
@@ -41,6 +42,23 @@ def create_patient(
     db.commit()
     db.refresh(patient)
     return patient
+
+
+def search_unassigned_patients(db: Session, q: str):
+    term = f"%{q}%"
+    return (
+        db.query(Patient)
+        .filter(
+            Patient.doctor_id.is_(None),
+            or_(
+                Patient.login_id.ilike(term),
+                Patient.patient_code.ilike(term),
+                Patient.name.ilike(term),
+            ),
+        )
+        .limit(20)
+        .all()
+    )
 
 
 def update_patient(db: Session, patient: Patient, values: dict):

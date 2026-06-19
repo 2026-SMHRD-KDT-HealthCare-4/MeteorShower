@@ -1,30 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
+import { patientApi } from '../../api';
 
-// TODO: API 호출로 교체 — GET /api/doctor/patients
-const allPatients = [
-  { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000' },
-  { id: 'F310957194584', name: '이피카츄', gender: '여', birth: '1995.05.12', phone: '010-1234-5678' },
-  { id: 'F310957194585', name: '박파이리', gender: '남', birth: '1988.11.02', phone: '010-9999-8888' },
-  { id: 'F310957194586', name: '최꼬부기', gender: '남', birth: '2001.03.30', phone: '010-1111-2222' },
-  { id: 'F310957194587', name: '강뮤츠', gender: '여', birth: '1990.07.15', phone: '010-3333-4444' },
-  { id: 'F310957194588', name: '윤리자몽', gender: '여', birth: '1993.09.22', phone: '010-5555-6666' },
-  { id: 'F310957194589', name: '정이상해씨', gender: '남', birth: '1992.08.15', phone: '010-5555-4444' },
-];
-
-// TODO: API 호출로 교체 — GET /api/doctor/patients/waiting
+// 처방 대기 / 이번 주 처방 현황은 별도 API 미구현 — 임시 더미
 const waitingPatients = [
   { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000', urgent: true },
   { id: 'F310957194589', name: '정이상해씨', gender: '남', birth: '1992.08.15', phone: '010-5555-4444', urgent: false },
   { id: 'F310957194590', name: '김이브', gender: '여', birth: '1997.12.24', phone: '010-7777-6666', urgent: false },
 ];
 
-// TODO: API 호출로 교체 — GET /api/doctor/patients/prescribed/weekly
 const prescribedPatients = [
   { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000', exercises: 12, status: 'Completed' },
   { id: 'F310957194595', name: '한라프라스', gender: '여', birth: '1985.04.10', phone: '010-8888-9999', exercises: 8, status: 'In Progress' },
 ];
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  return dateStr.replace(/-/g, '.');
+}
 
 function PatientCard({ patient, selected, onSelect, accent = 'primary', showUrgent = false, showExercises = false }) {
   const colors = {
@@ -67,9 +61,27 @@ function PatientCard({ patient, selected, onSelect, accent = 'primary', showUrge
 }
 
 export default function DoctorPatientList() {
-  const [selectedPatient, setSelectedPatient] = useState('F310957194583');
+  const [allPatients, setAllPatients] = useState([]);
+  const [selectedPatient, setSelectedPatient] = useState(null);
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    patientApi.listPatients()
+      .then((data) => {
+        const mapped = data.map((p) => ({
+          patient_id: p.patient_id,
+          id: p.patient_code,
+          name: p.name,
+          gender: p.gender,
+          birth: formatDate(p.birth_date),
+          phone: p.phone,
+        }));
+        setAllPatients(mapped);
+        if (mapped.length > 0) setSelectedPatient(mapped[0].id);
+      })
+      .catch(() => {});
+  }, []);
 
   const selectedInfo = allPatients.find((p) => p.id === selectedPatient);
 
@@ -204,7 +216,7 @@ export default function DoctorPatientList() {
             </div>
             <div className="flex gap-3 flex-wrap">
               <button
-                onClick={() => navigate('/doctor/patient/info')}
+                onClick={() => navigate(`/doctor/patient/info/${selectedInfo.patient_id}`)}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-doctor-primary text-white font-semibold text-label-md hover:opacity-90 transition-opacity shadow-md"
               >
                 <span className="material-symbols-outlined text-sm">person</span>

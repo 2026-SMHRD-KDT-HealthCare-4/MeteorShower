@@ -1,7 +1,7 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8001';
 
 function getToken() {
-  return localStorage.getItem('token');
+  return localStorage.getItem('token') ?? sessionStorage.getItem('token');
 }
 
 async function request(method, path, body = null) {
@@ -30,6 +30,15 @@ export const api = {
   patch:  (path, body)  => request('PATCH',  path, body),
   put:    (path, body)  => request('PUT',    path, body),
   delete: (path)        => request('DELETE', path),
+};
+
+export const patientApi = {
+  getMyProfile:    ()         => api.get('/patients/me'),
+  updateMyProfile: (body)     => api.patch('/patients/me', body),
+  listPatients:    ()         => api.get('/patients'),
+  getPatient:      (id)       => api.get(`/patients/${id}`),
+  searchPatients:  (q)        => api.get(`/patients/search?q=${encodeURIComponent(q)}`),
+  assignPatient:   (id, body) => api.patch(`/patients/${id}/register`, body),
 };
 
 export const authApi = {
