@@ -1,8 +1,15 @@
 fastapi
 uvicorn[standard]
+python-multipart
 websockets
 opencv-python-headless
 mediapipe
 numpy
 openai
 python-dotenv
+asyncpg
+sqlalchemy
+psycopg2-binary
+alembic
+bcrypt
+python-jose[cryptography]

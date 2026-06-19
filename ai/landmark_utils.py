@@ -59,3 +59,70 @@ def normalize_to_guide_scale(landmarks, guide_scale):
     scale = max(float(palm_scale(coords)), _MIN_SCALE)
     ratio = guide_scale / scale
     return coords * ratio
+
+
+def extract_features_full_fist(coords):
+    """(21, 3) wrist-relative coords → (5,) feature vector.
+
+    손목(0) 기준 각 손가락 끝까지의 3D 거리.
+    주먹: 5개 값 모두 작음.
+    V표시: 검지(8)·중지(12) 거리만 크고 나머지 작음 → 패턴 다름.
+    """
+    tips = [4, 8, 12, 16, 20]   # 엄지, 검지, 중지, 약지, 새끼 끝
+    return np.array(
+        [np.linalg.norm(coords[i]) for i in tips],
+        dtype=np.float32
+    )
+
+
+def extract_features_tapping(coords):
+    """(21, 3) wrist-relative coords → (8,) feature vector.
+
+    앞 4개: 엄지끝(4) 기준 각 손가락끝(8,12,16,20)까지의 3D 거리.
+    뒤 4개: 손목(0, 원점) 기준 각 손가락끝(8,12,16,20)까지의 3D 거리.
+    검지+엄지 탭: 앞쪽은 첫 번째 값만 작음, 뒤쪽은 탭한 손가락만 작고
+    나머지는 펴져 있어 큼.
+    그립: 앞쪽 4개 모두 작고, 뒤쪽 4개도 모두 작음 → 탭 패턴과 다름.
+    """
+    thumb = coords[4]
+    tips  = [8, 12, 16, 20]
+    thumb_dists = [np.linalg.norm(coords[i] - thumb) for i in tips]
+    wrist_dists = [np.linalg.norm(coords[i]) for i in tips]
+    return np.array(thumb_dists + wrist_dists, dtype=np.float32)
+
+
+def compute_finger_angles(coords):
+    """5개 손가락 꺾임 각도 → (5,) float32 [thumb, index, middle, ring, pinky].
+
+    각 손가락의 첫 번째 관절(A)→두 번째 관절(B)→끝 관절(C) 방향벡터 사이의 각도.
+    상대 벡터만 사용하므로 회전·이동·스케일에 무관하다.
+    엄지: CMC(1)→MCP(2)→TIP(4), 나머지: MCP→PIP→TIP.
+    주먹을 꽉 쥘수록 각도가 0°에 가까워진다.
+    """
+    angles = []
+    finger_indices = [(1, 2, 4), (5, 6, 8), (9, 10, 12), (13, 14, 16), (17, 18, 20)]
+    for a, b, c in finger_indices:
+        v1 = coords[b] - coords[a]
+        v2 = coords[c] - coords[b]
+        n1 = np.linalg.norm(v1)
+        n2 = np.linalg.norm(v2)
+        if n1 < 1e-6 or n2 < 1e-6:
+            angles.append(180.0)
+            continue
+        cos_theta = np.dot(v1, v2) / (n1 * n2)
+        angle = np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0)))
+        angles.append(angle)
+    return np.array(angles, dtype=np.float32)
+
+
+def mirror_guide_to_right_hand(guide_np):
+    """왼손 기준 가이드 (N, 21, 3)을 오른손용으로 좌우 반전.
+
+    손목 기준 상대좌표에서 x축만 부호 반전하면 거울 대칭이 된다.
+    y, z축은 그대로 유지.
+    """
+    if guide_np is None:
+        return None
+    mirrored = guide_np.copy()
+    mirrored[..., 0] *= -1
+    return mirrored
