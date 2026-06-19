@@ -18,6 +18,7 @@ from landmark_utils import (
     compute_finger_angles,
 )
 from notification_trigger import build_blocking_event, send_notification_to_backend
+from feedback_trigger import FeedbackTracker
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
 MODEL_URL = (
@@ -396,6 +397,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         current_guide_scale  = compute_guide_scale(current_guide_raw)
         current_feature_fn   = ex0["feature_fn"]
         joint_signals = None
+        feedback_tracker = FeedbackTracker()
 
         # ── 공통 트래킹 상태 ─────────────────────────────────
         count           = 0
@@ -605,6 +607,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                     rom_score     = None
                                     rom_score_buf.clear()
                                     joint_signals = None
+                                    feedback_tracker.reset()
 
             # 2. 실시간 스켈레톤 색상 업데이트 (동작이 유지되는 동안 '매 프레임' 실행)
             if first_landmarks is not None:
@@ -656,6 +659,12 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         joint_signals = _build_joint_signals_from_fingers(finger_sigs)
                     else:
                         joint_signals = _build_joint_signals_from_fingers(["green"] * 5)
+
+            # joint_signals가 모든 분기를 거쳐 확정된 직후, 손 검출 여부와 무관하게
+            # 매 프레임 실행되는 공통 지점에서 피드백 메시지를 생성한다.
+            feedback_messages = feedback_tracker.update(joint_signals)
+            for msg in feedback_messages:
+                print(f"[{time.time():.2f}] [Feedback] {msg['finger']}/{msg['level']} {msg['message']}")
 
             # 신호등 계산 완료 후 손 그리기
             for landmarks, handedness in valid_hands:
@@ -723,6 +732,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "total_sets":     ex_now["target_set"],
                     "rom_score":      round(rom_score, 1) if rom_score is not None else None,
                     "joint_signals":  joint_signals,
+                    "feedback_messages": feedback_messages,
                     "finger_angles":  {
                         name: round(float(a), 1)
                         for name, a in zip(FINGER_NAMES, angles)

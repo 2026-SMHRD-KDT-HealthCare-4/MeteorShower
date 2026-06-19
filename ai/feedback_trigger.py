@@ -45,6 +45,17 @@ class FeedbackTracker:
         self._current_level    = {}   # finger_name -> 마지막으로 본 레벨
         self._last_feedback_at = {}   # (finger_name, level) -> 마지막 피드백 발생 시각
 
+    def reset(self):
+        """지속시간·쿨다운 상태를 모두 초기화한다.
+
+        운동/세트 전환처럼 맥락이 완전히 바뀌는 시점에 호출한다. 단순히 green
+        신호가 들어와서 지속시간만 리셋되는 것과 달리, 쿨다운(_last_feedback_at)도
+        함께 비워야 이전 운동의 쿨다운이 새 운동의 경고를 막는 일이 없다.
+        """
+        self._level_started_at.clear()
+        self._current_level.clear()
+        self._last_feedback_at.clear()
+
     def update(self, joint_signals: dict, now: float = None) -> list:
         now = now if now is not None else time.time()
         finger_signals = reduce_to_finger_signals(joint_signals)
