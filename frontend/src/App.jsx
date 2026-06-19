@@ -45,7 +45,7 @@ export default function App() {
           {/* Doctor protected routes */}
           <Route path="/doctor/patients" element={<ProtectedRoute role="doctor"><DoctorPatientList /></ProtectedRoute>} />
           <Route path="/doctor/report/progress" element={<ProtectedRoute role="doctor"><ProgressReport /></ProtectedRoute>} />
-          <Route path="/doctor/patient/info" element={<ProtectedRoute role="doctor"><PatientInfo /></ProtectedRoute>} />
+          <Route path="/doctor/patient/info/:patientId" element={<ProtectedRoute role="doctor"><PatientInfo /></ProtectedRoute>} />
           <Route path="/doctor/patient/register" element={<ProtectedRoute role="doctor"><PatientRegister /></ProtectedRoute>} />
           <Route path="/doctor/profile" element={<ProtectedRoute role="doctor"><DoctorProfile /></ProtectedRoute>} />
           <Route path="/doctor/report/daily" element={<ProtectedRoute role="doctor"><DailyReport /></ProtectedRoute>} />
