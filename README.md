@@ -134,7 +134,7 @@ venv\Scripts\activate
 source venv/bin/activate
 
 # 패키지 설치
-pip install mediapipe==0.10.35 opencv-python==4.13.0.92 fastapi uvicorn numpy
+pip install -r ai/requirements.txt
 ```
 
 > `hand_landmarker.task` 모델 파일은 최초 실행 시 자동으로 다운로드됩니다.
