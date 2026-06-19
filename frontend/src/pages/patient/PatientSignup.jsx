@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { authApi } from '../../api';
 import Footer from '../../components/Footer';
 import logo from '../../assets/logo.png';
 
@@ -73,6 +74,7 @@ export default function PatientSignup() {
   });
   const [touched, setTouched]               = useState({});
   const [usernameChecked, setUsernameChecked] = useState(false);
+  const [usernameTaken, setUsernameTaken]     = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
   const [agree, setAgree]                   = useState({ terms: false, data: false, guardian: false });
   const [loading, setLoading]               = useState(false);
@@ -102,7 +104,7 @@ export default function PatientSignup() {
     const { name, value } = e.target;
     setForm((p) => ({ ...p, [name]: value }));
     setTouched((p) => ({ ...p, [name]: true }));
-    if (name === 'username') setUsernameChecked(false);
+    if (name === 'username') { setUsernameChecked(false); setUsernameTaken(false); }
   };
 
   const handleBlur = (field) => setTouched((p) => ({ ...p, [field]: true }));
@@ -130,11 +132,18 @@ export default function PatientSignup() {
   const checkUsername = () => {
     if (!isUsernameFmtOk || checkingUsername) return;
     setCheckingUsername(true);
-    // TODO: API 연동
-    setTimeout(() => {
-      setCheckingUsername(false);
-      setUsernameChecked(true);
-    }, 800);
+    authApi.patientCheckId(form.username)
+      .then(({ available }) => {
+        if (available) {
+          setUsernameChecked(true);
+          setUsernameTaken(false);
+        } else {
+          setUsernameTaken(true);
+          setTouched((p) => ({ ...p, username: true }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCheckingUsername(false));
   };
 
   /* 제출 */
@@ -144,12 +153,10 @@ export default function PatientSignup() {
     setTouched({ username:true, password:true, password2:true, name:true, phone:true, gender:true, birth:true, guardianEmail:true });
     if (!canSubmit) return;
     setLoading(true);
-    // TODO: 아래 setTimeout 블록을 실제 API 호출로 교체
-    // api.post('/auth/patient/signup', { username: form.username, password: form.password, name: form.name, phone: form.phone, gender: form.gender, birth: form.birth, guardianEmail: form.guardianEmail })
-    //   .then(() => navigate('/patient/login'))
-    //   .catch((err) => alert(err.message))
-    //   .finally(() => setLoading(false));
-    setTimeout(() => { setLoading(false); navigate('/patient/login'); }, 1000);
+    authApi.patientSignup(form)
+      .then(() => navigate('/patient/login'))
+      .catch((err) => alert(err.message))
+      .finally(() => setLoading(false));
   };
 
   /* 공통 input 클래스 */
@@ -209,7 +216,13 @@ export default function PatientSignup() {
                   사용 가능한 아이디입니다
                 </p>
               )}
-              {show('username') && <p className="text-label-sm text-red-500 ml-1">{errors.username}</p>}
+              {usernameTaken && (
+                <p className="text-label-sm text-red-500 flex items-center gap-1 ml-1">
+                  <span className="material-symbols-outlined text-sm">cancel</span>
+                  이미 사용 중인 아이디입니다
+                </p>
+              )}
+              {show('username') && !usernameTaken && <p className="text-label-sm text-red-500 ml-1">{errors.username}</p>}
             </div>
 
             {/* 비밀번호 */}
