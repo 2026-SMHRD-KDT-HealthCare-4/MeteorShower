@@ -133,6 +133,29 @@ def test_level_switch_restarts_duration_timer():
     print("[PASS] yellow→red 전환 시 red 기준으로 타이머 재시작")
 
 
+def test_reset_clears_duration_and_cooldown():
+    tracker = FeedbackTracker()
+    yellow = _joint_signals({"index": "yellow"})
+
+    tracker.update(yellow, now=0.0)
+    msgs = tracker.update(yellow, now=3.0)
+    assert len(msgs) == 1, "리셋 전 정상적으로 1회 발생해야 함 (쿨다운은 8.0까지)"
+
+    tracker.reset()
+
+    # reset() 직후엔 지속시간이 0부터 다시 채워져야 함
+    msgs = tracker.update(yellow, now=4.0)
+    assert msgs == []
+    msgs = tracker.update(yellow, now=6.9)
+    assert msgs == [], "아직 3초 미달"
+
+    # 7.0초 시점은 reset() 없었다면 쿨다운(3.0+5.0=8.0까지) 안에 걸려 막혔을 시점.
+    # 여기서 발생한다는 것은 reset()이 쿨다운까지 지웠다는 뜻.
+    msgs = tracker.update(yellow, now=7.0)
+    assert len(msgs) == 1, "reset()으로 쿨다운까지 풀렸어야 함"
+    print("[PASS] reset() 호출 시 지속시간·쿨다운 모두 초기화")
+
+
 def test_multiple_fingers_independent():
     tracker = FeedbackTracker()
     js = _joint_signals({"index": "yellow", "pinky": "red"})
@@ -155,5 +178,6 @@ if __name__ == "__main__":
     test_red_fires_after_shorter_duration_with_shorter_cooldown()
     test_green_resets_duration_timer()
     test_level_switch_restarts_duration_timer()
+    test_reset_clears_duration_and_cooldown()
     test_multiple_fingers_independent()
     print("\nALL TESTS PASSED")

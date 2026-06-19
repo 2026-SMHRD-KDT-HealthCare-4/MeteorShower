@@ -101,14 +101,26 @@ async def websocket_endpoint(websocket: WebSocket):
     {
         "landmarks":   [[x,y,z], ...],   // 21개, 손 미검출 시 []
         "count":       5,
-        "state":       "OPEN",           // "OPEN" / "GRIP" / ""
-        "similarity":  78.3,             // null 가능
+        "state":       "OPEN",           // "OPEN" / "GRIP" / "TAP" / ""
+        "similarity":  78.3,             // DTW + ROM 가중 평균, null 가능
         "signal":      "green",          // green / yellow / red / gray
         "overload":    false,
         "session_end": false,
         "exercise":    "full_fist",      // 현재 운동 이름
         "set":         2,                // 현재 세트 번호 (1-indexed)
-        "total_sets":  3                 // 총 세트 수
+        "total_sets":  3,                // 총 세트 수
+        "rom_score":   82.4,             // 손가락 굴곡 각도 기반 ROM 점수(0~100), null 가능
+        "joint_signals": {               // 21개 랜드마크 인덱스(문자열 키)별 신호등 색상, null 가능
+            "0": "green", "4": "green", "8": "yellow", "...": "..."
+        },
+        "finger_angles": {               // 손가락별 굴곡 각도(도), 손 미검출 시 null
+            "thumb": 118.2, "index": 62.5, "middle": 58.9, "ring": 71.3, "pinky": 65.0
+        },
+        "feedback_messages": [           // (신규) 이번 프레임에 새로 발생한 실시간 피드백 메시지 목록.
+                                          // feedback_trigger.FeedbackTracker가 손가락별 yellow/red
+                                          // 신호 지속시간·쿨다운을 추적해 생성. 보통 빈 배열([]).
+            {"finger": "index", "level": "yellow", "message": "검지 동작을 조금 더 정확하게 해보세요"}
+        ]
     }
     """
     await manager.connect(websocket)
