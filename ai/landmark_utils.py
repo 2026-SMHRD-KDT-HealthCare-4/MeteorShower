@@ -113,3 +113,16 @@ def compute_finger_angles(coords):
         angle = np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0)))
         angles.append(angle)
     return np.array(angles, dtype=np.float32)
+
+
+def mirror_guide_to_right_hand(guide_np):
+    """왼손 기준 가이드 (N, 21, 3)을 오른손용으로 좌우 반전.
+
+    손목 기준 상대좌표에서 x축만 부호 반전하면 거울 대칭이 된다.
+    y, z축은 그대로 유지.
+    """
+    if guide_np is None:
+        return None
+    mirrored = guide_np.copy()
+    mirrored[..., 0] *= -1
+    return mirrored
