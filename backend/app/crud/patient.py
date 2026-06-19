@@ -12,6 +12,10 @@ def get_patient_by_id(db: Session, patient_id: int):
     return db.query(Patient).filter(Patient.patient_id == patient_id).first()
 
 
+def get_patients_by_doctor_id(db: Session, doctor_id: int):
+    return db.query(Patient).filter(Patient.doctor_id == doctor_id).all()
+
+
 def get_patient_by_code(db: Session, patient_code: str):
     return db.query(Patient).filter(Patient.patient_code == patient_code).first()
 
@@ -34,6 +38,15 @@ def create_patient(
         patient_code=patient_code,
     )
     db.add(patient)
+    db.commit()
+    db.refresh(patient)
+    return patient
+
+
+def update_patient(db: Session, patient: Patient, values: dict):
+    for key, value in values.items():
+        if value is not None:
+            setattr(patient, key, value)
     db.commit()
     db.refresh(patient)
     return patient
