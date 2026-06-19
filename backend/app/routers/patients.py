@@ -5,6 +5,7 @@ from crud import doctor as doctor_crud
 from crud import patient as patient_crud
 from database import get_db
 from dependencies import get_token_payload
+from models.prescription import Prescription
 from schemas.patient import PatientAssignRequest, PatientUpdateRequest
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -117,6 +118,55 @@ def assign_patient(
 
     updated = patient_crud.update_patient(db, patient, values)
     return _patient_to_dict(updated)
+
+
+@router.get("/{patient_id}/prescriptions")
+def get_patient_prescriptions(
+    patient_id: int,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+
+    prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id)
+        .order_by(Prescription.prescription_date.desc())
+        .all()
+    )
+
+    current = next((p for p in prescriptions if p.status == "적용중"), None)
+    if current is None and prescriptions:
+        current = prescriptions[0]
+    if current is None:
+        return None
+
+    exercises = []
+    schedule = {}
+    for pe in sorted(current.prescription_exercises, key=lambda x: x.exercise_order):
+        exercises.append({
+            "exercise_id": pe.exercise_id,
+            "name": pe.exercise.exercise_name,
+            "sets": pe.target_sets,
+            "reps": pe.target_reps,
+            "enabled": True,
+        })
+        for s in pe.schedules:
+            schedule[f"{pe.exercise.exercise_name}|{s.exercise_date.isoformat()}"] = True
+
+    return {
+        "prescription_id": current.prescription_id,
+        "saved_at": current.prescription_date.isoformat() if current.prescription_date else None,
+        "rehab_phase": current.rehab_phase,
+        "status": current.status,
+        "exercises": exercises,
+        "schedule": schedule,
+    }
 
 
 @router.get("/{patient_id}")
