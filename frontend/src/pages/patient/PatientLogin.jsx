@@ -15,6 +15,7 @@ export default function PatientLogin() {
   const [touched, setTouched] = useState({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [remember, setRemember] = useState(false);
 
   const errors = {};
   if (!id) errors.id = '아이디를 입력하세요';
@@ -32,8 +33,8 @@ export default function PatientLogin() {
     setLoading(true);
     authApi.patientLogin(id, password)
       .then(({ token, name }) => {
-        login({ name, role: 'patient' }, token);
-        navigate('/patient/exercise');
+        login({ name, role: 'patient' }, token, remember);
+        navigate('/patient/exercise', { replace: true });
       })
       .catch((err) => setLoginError(err.message))
       .finally(() => setLoading(false));
@@ -114,7 +115,7 @@ export default function PatientLogin() {
 
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 cursor-pointer group">
-                <input type="checkbox" className="w-6 h-6 rounded-lg border-outline-variant accent-primary-container" />
+                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="w-6 h-6 rounded-lg border-outline-variant accent-primary-container" />
                 <span className="text-label-md text-on-surface-variant group-hover:text-on-surface transition-colors">로그인 상태 유지</span>
               </label>
             </div>
