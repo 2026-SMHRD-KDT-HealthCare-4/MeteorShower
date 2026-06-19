@@ -31,3 +31,36 @@ export const api = {
   put:    (path, body)  => request('PUT',    path, body),
   delete: (path)        => request('DELETE', path),
 };
+
+export const authApi = {
+  doctorCheckId:  (login_id)  => request('GET', `/auth/doctor/check-id?login_id=${login_id}`),
+  patientCheckId: (login_id)  => request('GET', `/auth/patient/check-id?login_id=${login_id}`),
+
+  doctorLogin:  (login_id, password) =>
+    request('POST', '/auth/doctor/login',  { login_id, password }),
+
+  patientLogin: (login_id, password) =>
+    request('POST', '/auth/patient/login', { login_id, password }),
+
+  doctorSignup: (form) =>
+    request('POST', '/auth/doctor/signup', {
+      login_id:       form.username,
+      password:       form.password,
+      name:           form.name,
+      hospital_name:  form.hospital,
+      license_number: form.license,
+      phone:          form.phone,
+      email:          form.email,
+    }),
+
+  patientSignup: (form) =>
+    request('POST', '/auth/patient/signup', {
+      login_id:      form.username,
+      password:      form.password,
+      name:          form.name,
+      phone:         form.phone,
+      gender:        form.gender,
+      birth_date:    form.birth,
+      guardian_email: form.guardianEmail || null,
+    }),
+};

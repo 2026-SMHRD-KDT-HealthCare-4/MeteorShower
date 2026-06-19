@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Footer from '../../components/Footer';
 import logo from '../../assets/logo.png';
 import { useAuth } from '../../context/AuthContext';
+import { authApi } from '../../api';
 
 export default function PatientLogin() {
   const navigate = useNavigate();
@@ -29,23 +30,13 @@ export default function PatientLogin() {
     if (Object.keys(errors).length > 0) return;
 
     setLoading(true);
-    // TODO: 아래 setTimeout 블록을 실제 API 호출로 교체
-    // api.post('/auth/patient/login', { username: id, password })
-    //   .then(({ token, name }) => {
-    //     login({ name, role: 'patient' }, token);
-    //     navigate('/patient/exercise');
-    //   })
-    //   .catch((err) => setLoginError(err.message))
-    //   .finally(() => setLoading(false));
-    setTimeout(() => {
-      setLoading(false);
-      if (id === 'patient' && password === 'patient123!') {
-        login({ name: '홍길동', role: 'patient' }, 'dummy-patient-token');
+    authApi.patientLogin(id, password)
+      .then(({ token, name }) => {
+        login({ name, role: 'patient' }, token);
         navigate('/patient/exercise');
-      } else {
-        setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');
-      }
-    }, 1000);
+      })
+      .catch((err) => setLoginError(err.message))
+      .finally(() => setLoading(false));
   };
 
   return (
