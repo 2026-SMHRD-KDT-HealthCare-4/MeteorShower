@@ -1,6 +1,12 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
+import { patientApi } from '../../api';
+
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  return dateStr.replace(/-/g, '.');
+}
 
 /* ── 날짜 유틸 ── */
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
@@ -209,19 +215,6 @@ const sessionGallery = [
   },
 ];
 
-// TODO: API 호출로 교체 — GET /api/doctor/patients/:id
-const patientInfo = [
-  { label: '성명 (Name)',        value: '김망나뇽' },
-  { label: '환자번호 (Code)',    value: 'F310957194583' },
-  { label: '성별 (Gender)',      value: '남자' },
-  { label: '생년월일 (Birth)',   value: '1960.01.02' },
-  { label: '연락처 (Phone)',     value: '010-0000-0000' },
-  { label: '수술명 (Surgery)',   value: '손가락 골절 수술' },
-  { label: '수술일 (Date)',      value: '2026.01.01' },
-  { label: '진행 단계 (Stage)', value: '손가락 굽히기 운동' },
-  { label: '재활 시작일',        value: '2026.01.25' },
-  { label: '담당 의사',          value: '김나연 원장' },
-];
 
 // TODO: API 호출로 교체 — GET /api/doctor/patients/:id/prescription
 const currentPrescriptionData = {
@@ -267,9 +260,20 @@ const currentRomData = null;
 
 export default function PatientInfo() {
   const navigate = useNavigate();
-  const [nextAppointment, setNextAppointment] = useState('2026-03-15');
+  const { patientId } = useParams();
+  const [patient, setPatient] = useState(null);
+  const [nextAppointment, setNextAppointment] = useState('');
   const [editingAppointment, setEditingAppointment] = useState(false);
-  const [appointmentInput, setAppointmentInput] = useState('2026-03-15');
+  const [appointmentInput, setAppointmentInput] = useState('');
+
+  useEffect(() => {
+    if (!patientId) return;
+    patientApi.getPatient(patientId).then((data) => {
+      setPatient(data);
+      setNextAppointment(data.appointment_date ?? '');
+      setAppointmentInput(data.appointment_date ?? '');
+    }).catch(() => {});
+  }, [patientId]);
   const [prescription, setPrescription] = useState(
     currentPrescriptionData ? currentPrescriptionData.exercises : defaultPrescription
   );
@@ -426,7 +430,7 @@ export default function PatientInfo() {
             환자 정보
           </h1>
           <p className="text-body-md text-on-surface-variant mt-1">
-            김망나뇽 환자 · F310957194583
+            {patient ? `${patient.name} 환자 · ${patient.patient_code}` : '로딩 중...'}
           </p>
         </div>
 
@@ -437,13 +441,24 @@ export default function PatientInfo() {
             <h2 className="text-title-md font-bold text-doctor-primary">기본 정보</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2">
-            {patientInfo.map((item, i) => (
+            {[
+              { label: '성명 (Name)',        value: patient?.name },
+              { label: '환자번호 (Code)',    value: patient?.patient_code },
+              { label: '성별 (Gender)',      value: patient?.gender },
+              { label: '생년월일 (Birth)',   value: formatDate(patient?.birth_date) },
+              { label: '연락처 (Phone)',     value: patient?.phone },
+              { label: '수술명 (Surgery)',   value: patient?.surgery_name },
+              { label: '수술일 (Date)',      value: formatDate(patient?.surgery_date) },
+              { label: '진행 단계 (Stage)', value: patient?.current_rehab_phase },
+              { label: '재활 시작일',        value: formatDate(patient?.rehab_start_date) },
+              { label: '병원명',             value: patient?.hospital_name },
+            ].map((item, i) => (
               <div key={i} className={`flex ${cellBorder(i)}`}>
                 <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
                   {item.label}
                 </div>
                 <div className="flex-1 min-w-0 px-4 py-3 text-body-md text-on-surface">
-                  {item.value}
+                  {item.value ?? '—'}
                 </div>
               </div>
             ))}
