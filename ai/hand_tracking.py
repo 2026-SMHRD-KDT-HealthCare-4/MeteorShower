@@ -42,6 +42,7 @@ HAND_CONNECTIONS = [
 STABLE_FRAMES   = 3
 TAP_THRESHOLDS  = {8: 0.06, 12: 0.07, 16: 0.09, 20: 0.09}   # 손가락별 임계값
 TARGET_ROM      = 0.8    # 과부하 ROM 임계값 (테스트 하드코딩)
+OVERLOAD_STAGE1_TIMEOUT = 5.0   # stage 1(경고) 진입 후 이 시간(초)이 지나면 카운트와 무관하게 stage 2로 전환
 CAPTURE_DIR     = os.path.join(os.path.dirname(__file__), "captures")
 GUIDE_FPS       = 30.0
 GUIDE_SCALE     = 900
@@ -412,8 +413,9 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         no_hand_counter = 0
 
         # ── 과부하 상태 ──────────────────────────────────────
-        overload_stage        = 0
-        overload_count_marker = -1
+        overload_stage            = 0
+        overload_count_marker     = -1
+        overload_stage1_started_at = None
         session_end_at        = None
 
         # 0→1 전환 시점의 원인/측정값을 고정 캡처 (break 시점엔 값이 바뀌어 있으므로)
@@ -562,6 +564,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                             save_capture(frame)
                             overload_stage        = 1
                             overload_count_marker = count
+                            overload_stage1_started_at = time.time()
                             overload_cause          = "count"
                             overload_measured_count = count
                             overload_target_count   = ex["target_count"]
@@ -676,11 +679,18 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 save_capture(frame)
                 overload_stage        = 1
                 overload_count_marker = count
+                overload_stage1_started_at = time.time()
                 overload_cause          = "rom"
                 overload_measured_rom   = current_rom
                 overload_threshold_rom  = TARGET_ROM
 
-            elif overload_stage == 1 and count > overload_count_marker:
+            elif overload_stage == 1 and (
+                count > overload_count_marker
+                or (
+                    overload_stage1_started_at is not None
+                    and time.time() - overload_stage1_started_at > OVERLOAD_STAGE1_TIMEOUT
+                )
+            ):
                 save_capture(frame)
                 overload_stage = 2
 
@@ -824,7 +834,9 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
                 event = build_blocking_event(session_data)
                 if event is not None:
-                    send_notification_to_backend(event)
+                    print(f"[Notification] 운동차단 이벤트 생성됨: {event['reason_code']}")
+                    sent = send_notification_to_backend(event)
+                    print(f"[Notification] 백엔드 전송 {'성공' if sent else '실패'}")
         elif session_complete:
             print("All exercises completed. Session complete.")
 

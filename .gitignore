@@ -183,3 +183,7 @@ ai/captures/*
 
 package-lock.json
 frontend/package-lock.json
+
+log.txt
+*.log
+
