@@ -184,61 +184,6 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = 
   );
 }
 
-// TODO: API 호출로 교체 — GET /api/doctor/patients/:id/gallery
-const sessionGallery = [
-  {
-    date: '2026.02.15',
-    label: '3회차',
-    photos: [
-      { id: 1, time: '10:23', label: '운동 시작', gradient: 'from-sky-300 to-blue-500' },
-      { id: 2, time: '10:31', label: '태핑 동작', gradient: 'from-emerald-300 to-green-500' },
-      { id: 3, time: '10:38', label: '그립 동작', gradient: 'from-violet-300 to-purple-500' },
-      { id: 4, time: '10:45', label: '운동 완료', gradient: 'from-amber-300 to-orange-500' },
-    ],
-  },
-  {
-    date: '2026.02.10',
-    label: '2회차',
-    photos: [
-      { id: 1, time: '14:05', label: '준비 자세', gradient: 'from-rose-300 to-pink-500' },
-      { id: 2, time: '14:13', label: '그립 동작', gradient: 'from-cyan-300 to-teal-500' },
-      { id: 3, time: '14:20', label: '태핑 동작', gradient: 'from-lime-300 to-green-500' },
-    ],
-  },
-  {
-    date: '2026.02.05',
-    label: '1회차',
-    photos: [
-      { id: 1, time: '11:00', label: '초기 평가', gradient: 'from-indigo-300 to-blue-600' },
-      { id: 2, time: '11:15', label: '가동 범위 측정', gradient: 'from-fuchsia-300 to-purple-500' },
-    ],
-  },
-];
-
-
-// TODO: API 호출로 교체 — GET /api/doctor/patients/:id/prescription
-const currentPrescriptionData = {
-  savedAt: '2026.02.10',
-  exercises: [
-    { name: '오른손 태핑 (Tapping)', sets: 3, reps: 10, enabled: true  },
-    { name: '왼손 태핑 (Tapping)',   sets: 3, reps: 10, enabled: true  },
-    { name: '오른손 그립 (Grip)',    sets: 2, reps: 10, enabled: true  },
-    { name: '왼손 그립 (Grip)',      sets: 2, reps: 10, enabled: false },
-  ],
-  schedule: {
-    '오른손 태핑 (Tapping)|2026-02-10': true,
-    '오른손 태핑 (Tapping)|2026-02-12': true,
-    '오른손 태핑 (Tapping)|2026-02-14': true,
-    '왼손 태핑 (Tapping)|2026-02-10':  true,
-    '왼손 태핑 (Tapping)|2026-02-12':  true,
-    '왼손 태핑 (Tapping)|2026-02-14':  true,
-    '오른손 그립 (Grip)|2026-02-11':   true,
-    '오른손 그립 (Grip)|2026-02-13':   true,
-  },
-};
-// null 로 바꾸면 "처방 없음" 상태로 테스트 가능
-// const currentPrescriptionData = null;
-
 const defaultPrescription = [
   { name: '오른손 태핑 (Tapping)', sets: 3, reps: 10, enabled: false },
   { name: '왼손 태핑 (Tapping)',   sets: 3, reps: 10, enabled: false },
@@ -255,9 +200,6 @@ const ROM_FINGERS = [
 ];
 const ROM_ROW_LABELS = ['MCP', 'PIP / IP', 'DIP'];
 
-// TODO: API 호출로 교체 — GET /api/doctor/patients/:id/rom
-const currentRomData = null;
-
 export default function PatientInfo() {
   const navigate = useNavigate();
   const { patientId } = useParams();
@@ -266,6 +208,18 @@ export default function PatientInfo() {
   const [editingAppointment, setEditingAppointment] = useState(false);
   const [appointmentInput, setAppointmentInput] = useState('');
 
+  const [prescription, setPrescription] = useState(defaultPrescription);
+  const [aiAdjust, setAiAdjust] = useState(true);
+  const [aiJustSaved, setAiJustSaved] = useState(false);
+  const [schedule, setSchedule] = useState({});
+  const [justSaved, setJustSaved] = useState(false);
+  const [selectedSession, setSelectedSession] = useState(0);
+  const [lightboxPhoto, setLightboxPhoto] = useState(null);
+  const [isEditing, setIsEditing] = useState(true);
+  const [isEditingRom, setIsEditingRom] = useState(true);
+  const [rom, setRom] = useState({});
+  const [prescriptionLoaded, setPrescriptionLoaded] = useState(false);
+
   useEffect(() => {
     if (!patientId) return;
     patientApi.getPatient(patientId).then((data) => {
@@ -273,22 +227,19 @@ export default function PatientInfo() {
       setNextAppointment(data.appointment_date ?? '');
       setAppointmentInput(data.appointment_date ?? '');
     }).catch(() => {});
+
+    patientApi.getPatientPrescription(patientId).then((data) => {
+      if (data) {
+        setPrescription(data.exercises);
+        setSchedule(data.schedule ?? {});
+        setIsEditing(false);
+      }
+      setPrescriptionLoaded(true);
+    }).catch(() => { setPrescriptionLoaded(true); });
   }, [patientId]);
-  const [prescription, setPrescription] = useState(
-    currentPrescriptionData ? currentPrescriptionData.exercises : defaultPrescription
-  );
-  const [aiAdjust, setAiAdjust] = useState(true);
-  const [aiJustSaved, setAiJustSaved] = useState(false);
-  const [schedule, setSchedule] = useState({});
-  const [justSaved, setJustSaved] = useState(false);
-  const [selectedSession, setSelectedSession] = useState(0);
-  const [lightboxPhoto, setLightboxPhoto] = useState(null);
-  const [isEditing, setIsEditing] = useState(!currentPrescriptionData);
-  const [isEditingRom, setIsEditingRom] = useState(!currentRomData);
-  const [rom, setRom] = useState(currentRomData || {});
 
   const handleRomSave = () => setIsEditingRom(false);
-  const handleRomCancel = () => { setRom(currentRomData || {}); setIsEditingRom(false); };
+  const handleRomCancel = () => { setRom({}); setIsEditingRom(false); };
 
   const updatePrescription = (idx, field, val) =>
     setPrescription((prev) => prev.map((row, i) => (i === idx ? { ...row, [field]: val } : row)));
@@ -313,14 +264,14 @@ export default function PatientInfo() {
   };
 
   const handleEditCancel = () => {
-    setPrescription(currentPrescriptionData ? currentPrescriptionData.exercises : defaultPrescription);
+    setPrescription(defaultPrescription);
     setSchedule({});
     setIsEditing(false);
   };
 
   /* 환자 정보 셀 border */
   const cellBorder = (i) => {
-    const total = patientInfo.length;
+    const total = 10;
     const isLastRow = i >= total - (total % 2 === 0 ? 2 : 1);
     const isLastItem = i === total - 1;
     const isEven = i % 2 === 0;
@@ -332,7 +283,8 @@ export default function PatientInfo() {
     ].join(' ');
   };
 
-  const currentPhotos = sessionGallery[selectedSession].photos;
+  const sessionGallery = [];
+  const currentPhotos = sessionGallery[selectedSession]?.photos ?? [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -355,7 +307,7 @@ export default function PatientInfo() {
               <div>
                 <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.label}</p>
                 <p className="text-label-sm text-on-surface-variant mt-0.5">
-                  {sessionGallery[selectedSession].label} · {sessionGallery[selectedSession].date} · {lightboxPhoto.time}
+                  {sessionGallery[selectedSession]?.label} · {sessionGallery[selectedSession]?.date} · {lightboxPhoto.time}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -575,7 +527,7 @@ export default function PatientInfo() {
               <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>straighten</span>
               관절 가동 범위 (ROM)
             </h2>
-            {!isEditingRom && currentRomData && (
+            {!isEditingRom && null && (
               <button
                 onClick={() => setIsEditingRom(true)}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
@@ -587,7 +539,7 @@ export default function PatientInfo() {
           </div>
 
           {/* 데이터 없음 */}
-          {!isEditingRom && !currentRomData && (
+          {!isEditingRom && !null && (
             <div className="flex flex-col items-center justify-center py-8 gap-4 text-center">
               <div className="w-14 h-14 bg-surface-container rounded-full flex items-center justify-center">
                 <span className="material-symbols-outlined text-outline text-3xl">straighten</span>
@@ -607,7 +559,7 @@ export default function PatientInfo() {
           )}
 
           {/* 조회 모드 */}
-          {!isEditingRom && currentRomData && (
+          {!isEditingRom && null && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[540px] border-collapse">
                 <thead>
@@ -629,7 +581,7 @@ export default function PatientInfo() {
                       {ROM_FINGERS.map((f) => {
                         const jointName = f.joints[rowIdx];
                         const stateKey = jointName ? `${f.key}_${jointName}` : null;
-                        const val = stateKey ? currentRomData[stateKey] : undefined;
+                        const val = stateKey ? null[stateKey] : undefined;
                         return (
                           <td key={f.key} className="px-3 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
                             {stateKey ? (
@@ -704,7 +656,7 @@ export default function PatientInfo() {
                 </table>
               </div>
               <div className="flex justify-end gap-3 pt-2 border-t border-outline-variant">
-                {currentRomData && (
+                {null && (
                   <button
                     onClick={handleRomCancel}
                     className="px-5 py-2.5 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md"
@@ -732,10 +684,10 @@ export default function PatientInfo() {
                 <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>assignment</span>
                 운동 처방
               </h2>
-              {!isEditing && currentPrescriptionData && (
+              {!isEditing && !isEditing && (
                 <p className="text-label-sm text-on-surface-variant mt-0.5 ml-7 flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-sm">event</span>
-                  처방일: <span className="font-semibold text-on-surface">{currentPrescriptionData.savedAt}</span>
+                  처방일: <span className="font-semibold text-on-surface">{patient?.appointment_date}</span>
                 </p>
               )}
             </div>
@@ -761,7 +713,7 @@ export default function PatientInfo() {
                   </span>
                 )}
               </div>
-              {!isEditing && currentPrescriptionData && (
+              {!isEditing && !isEditing && (
                 <button
                   onClick={handleEditStart}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
@@ -774,7 +726,7 @@ export default function PatientInfo() {
           </div>
 
           {/* ── 조회 모드 ── */}
-          {!isEditing && currentPrescriptionData && (
+          {!isEditing && !isEditing && (
             <>
 
               <div className="overflow-x-auto">
@@ -789,7 +741,7 @@ export default function PatientInfo() {
                     </tr>
                   </thead>
                   <tbody>
-                    {currentPrescriptionData.exercises.map((row, i) => (
+                    {prescription.map((row, i) => (
                       <tr key={i} className={`border-b border-outline-variant last:border-0 ${!row.enabled ? 'opacity-40' : ''}`}>
                         <td className="px-4 py-3 text-body-md font-semibold text-on-surface">{row.name}</td>
                         <td className="px-4 py-3 text-center text-label-md text-on-surface">{row.sets}</td>
@@ -821,8 +773,8 @@ export default function PatientInfo() {
                 </h3>
               </div>
               <PrescriptionSchedule
-                prescription={currentPrescriptionData.exercises}
-                schedule={currentPrescriptionData.schedule}
+                prescription={prescription}
+                schedule={schedule}
                 setSchedule={() => {}}
                 readOnly
               />
@@ -830,7 +782,7 @@ export default function PatientInfo() {
           )}
 
           {/* ── 처방 없음 ── */}
-          {!isEditing && !currentPrescriptionData && (
+          {!isEditing && isEditing && (
             <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
               <div className="w-14 h-14 bg-surface-container rounded-full flex items-center justify-center">
                 <span className="material-symbols-outlined text-outline text-3xl">assignment_late</span>
@@ -936,7 +888,7 @@ export default function PatientInfo() {
         {/* 저장 / 취소 */}
         {isEditing && (
         <div className="flex justify-end gap-3 pb-4">
-          {currentPrescriptionData && (
+          {!isEditing && (
             <button
               onClick={handleEditCancel}
               className="px-6 py-3 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md"
