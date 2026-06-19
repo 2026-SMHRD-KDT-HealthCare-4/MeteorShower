@@ -15,6 +15,7 @@ export default function DoctorLogin() {
   const [touched, setTouched] = useState({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [remember, setRemember] = useState(false);
 
   const errors = {};
   if (!id) errors.id = '아이디를 입력하세요';
@@ -32,8 +33,8 @@ export default function DoctorLogin() {
     setLoading(true);
     authApi.doctorLogin(id, password)
       .then(({ token, name, hospital_name }) => {
-        login({ name, hospital: hospital_name, role: 'doctor' }, token);
-        navigate('/doctor/patients');
+        login({ name, hospital: hospital_name, role: 'doctor' }, token, remember);
+        navigate('/doctor/patients', { replace: true });
       })
       .catch((err) => setLoginError(err.message))
       .finally(() => setLoading(false));
@@ -116,7 +117,7 @@ export default function DoctorLogin() {
 
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 cursor-pointer group">
-                <input type="checkbox" className="w-6 h-6 rounded-lg" style={{ accentColor: '#005bbf' }} />
+                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="w-6 h-6 rounded-lg" style={{ accentColor: '#005bbf' }} />
                 <span className="text-label-md text-on-surface-variant">로그인 상태 유지</span>
               </label>
             </div>
