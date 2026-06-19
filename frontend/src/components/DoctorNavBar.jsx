@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
+import { useAuth } from '../context/AuthContext';
 
 const INITIAL_NOTIFICATIONS = [
   {
@@ -66,6 +67,7 @@ const TYPE_CONFIG = {
 
 export default function DoctorNavBar() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [showProfile, setShowProfile]   = useState(false);
   const [showNotif, setShowNotif]       = useState(false);
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
@@ -98,7 +100,7 @@ export default function DoctorNavBar() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/')}
+            onClick={() => { logout(); navigate('/'); }}
             className="flex items-center gap-2 group cursor-pointer active:scale-95 transition-transform duration-150"
           >
             <span className="text-on-surface-variant font-medium group-hover:text-doctor-primary text-label-md">Logout</span>
@@ -207,7 +209,7 @@ export default function DoctorNavBar() {
                       account_circle
                     </span>
                   </div>
-                  <p className="text-title-md font-bold text-on-surface">00병원 김나연 의사님</p>
+                  <p className="text-title-md font-bold text-on-surface">{user?.hospital} {user?.name} 의사님</p>
                   <span className="mt-1 px-3 py-0.5 bg-white border border-outline-variant rounded-full text-label-sm text-on-surface-variant font-medium">
                     상지 재활 전문의
                   </span>

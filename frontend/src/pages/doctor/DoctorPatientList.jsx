@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
 
+// TODO: API 호출로 교체 — GET /api/doctor/patients
 const allPatients = [
   { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000' },
   { id: 'F310957194584', name: '이피카츄', gender: '여', birth: '1995.05.12', phone: '010-1234-5678' },
@@ -12,12 +13,14 @@ const allPatients = [
   { id: 'F310957194589', name: '정이상해씨', gender: '남', birth: '1992.08.15', phone: '010-5555-4444' },
 ];
 
+// TODO: API 호출로 교체 — GET /api/doctor/patients/waiting
 const waitingPatients = [
   { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000', urgent: true },
   { id: 'F310957194589', name: '정이상해씨', gender: '남', birth: '1992.08.15', phone: '010-5555-4444', urgent: false },
   { id: 'F310957194590', name: '김이브', gender: '여', birth: '1997.12.24', phone: '010-7777-6666', urgent: false },
 ];
 
+// TODO: API 호출로 교체 — GET /api/doctor/patients/prescribed/weekly
 const prescribedPatients = [
   { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000', exercises: 12, status: 'Completed' },
   { id: 'F310957194595', name: '한라프라스', gender: '여', birth: '1985.04.10', phone: '010-8888-9999', exercises: 8, status: 'In Progress' },
