@@ -144,6 +144,11 @@ export default function PatientSignup() {
     setTouched({ username:true, password:true, password2:true, name:true, phone:true, gender:true, birth:true, guardianEmail:true });
     if (!canSubmit) return;
     setLoading(true);
+    // TODO: 아래 setTimeout 블록을 실제 API 호출로 교체
+    // api.post('/auth/patient/signup', { username: form.username, password: form.password, name: form.name, phone: form.phone, gender: form.gender, birth: form.birth, guardianEmail: form.guardianEmail })
+    //   .then(() => navigate('/patient/login'))
+    //   .catch((err) => alert(err.message))
+    //   .finally(() => setLoading(false));
     setTimeout(() => { setLoading(false); navigate('/patient/login'); }, 1000);
   };
 

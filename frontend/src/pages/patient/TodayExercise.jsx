@@ -1,11 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PatientNavBar from '../../components/PatientNavBar';
-
-// TODO: 실제 API에서 받아올 데이터
-const MOCK_USER = {
-  name: '김망나뇽',
-};
+import { useAuth } from '../../context/AuthContext';
 
 const INITIAL_EXERCISES = [
   { id: 1, name: '오른손 두드리기',  sets: 3, reps: 10, duration: '5분', status: 'done',        videoTime: '01:20' },
@@ -248,6 +244,7 @@ function ExerciseCard({ ex, onStart }) {
 }
 
 export default function TodayExercise() {
+  const { user } = useAuth();
   const [exercises, setExercises] = useState(INITIAL_EXERCISES);
 
   const sortedExercises = useMemo(
@@ -274,7 +271,7 @@ export default function TodayExercise() {
         {/* 헤더 */}
         <header className="mb-stack-lg">
           <h1 className="text-headline-lg font-display font-bold text-primary mb-1">
-            {MOCK_USER.name}님 안녕하세요!
+            {user?.name}님 안녕하세요!
           </h1>
         </header>
 

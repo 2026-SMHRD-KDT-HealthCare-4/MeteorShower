@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import PatientNavBar from '../../components/PatientNavBar';
+import { useAuth } from '../../context/AuthContext';
 
 // ── Mock 데이터 (API 연동 시 교체) ──────────────────────────────────────
 const MOCK_PROFILE = {
@@ -76,6 +77,7 @@ const PHONE_RE = /^01[0-9]-\d{4}-\d{4}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function ProfileCard() {
+  const { user } = useAuth();
   const [phone, setPhone]                   = useState(MOCK_PROFILE.phone);
   const [guardianEmail, setGuardianEmail]   = useState(MOCK_PROFILE.guardianEmail);
   const [guardianConsent, setGuardianConsent] = useState(MOCK_PROFILE.guardianConsent);
@@ -123,10 +125,10 @@ function ProfileCard() {
       <div className="bg-surface-container-lowest rounded-xl shadow-card border border-outline-variant p-6 flex flex-col flex-1 gap-5">
         <div className="grid grid-cols-2 gap-4">
           <Field label="아이디">
-            <input readOnly value={MOCK_PROFILE.id} className={roInputCls} />
+            <input readOnly value={user?.id ?? MOCK_PROFILE.id} className={roInputCls} />
           </Field>
           <Field label="이름">
-            <input readOnly value={MOCK_PROFILE.name} className={roInputCls} />
+            <input readOnly value={user?.name ?? MOCK_PROFILE.name} className={roInputCls} />
           </Field>
           <Field label="성별">
             <input readOnly value={MOCK_PROFILE.gender} className={roInputCls} />

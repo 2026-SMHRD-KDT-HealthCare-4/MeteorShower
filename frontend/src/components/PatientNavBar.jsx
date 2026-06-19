@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
+import { useAuth } from '../context/AuthContext';
 
 const INITIAL_NOTIFICATIONS = [
   {
@@ -56,6 +57,7 @@ const TYPE_CONFIG = {
 export default function PatientNavBar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const path = location.pathname;
 
   const [showNotif, setShowNotif] = useState(false);
@@ -195,7 +197,7 @@ export default function PatientNavBar() {
             </div>
 
             <button
-              onClick={() => navigate('/')}
+              onClick={() => { logout(); navigate('/'); }}
               className="flex items-center gap-2 group cursor-pointer active:scale-95 transition-transform duration-150"
             >
               <span className="text-on-surface-variant font-medium group-hover:text-primary text-label-md">Logout</span>

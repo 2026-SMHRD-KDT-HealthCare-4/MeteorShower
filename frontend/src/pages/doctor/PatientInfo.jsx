@@ -178,6 +178,7 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = 
   );
 }
 
+// TODO: API 호출로 교체 — GET /api/doctor/patients/:id/gallery
 const sessionGallery = [
   {
     date: '2026.02.15',
@@ -208,6 +209,7 @@ const sessionGallery = [
   },
 ];
 
+// TODO: API 호출로 교체 — GET /api/doctor/patients/:id
 const patientInfo = [
   { label: '성명 (Name)',        value: '김망나뇽' },
   { label: '환자번호 (Code)',    value: 'F310957194583' },
@@ -221,7 +223,7 @@ const patientInfo = [
   { label: '담당 의사',          value: '김나연 원장' },
 ];
 
-/* 현재 처방된 데이터 (null 이면 처방 없음) */
+// TODO: API 호출로 교체 — GET /api/doctor/patients/:id/prescription
 const currentPrescriptionData = {
   savedAt: '2026.02.10',
   exercises: [
@@ -260,6 +262,7 @@ const ROM_FINGERS = [
 ];
 const ROM_ROW_LABELS = ['MCP', 'PIP / IP', 'DIP'];
 
+// TODO: API 호출로 교체 — GET /api/doctor/patients/:id/rom
 const currentRomData = null;
 
 export default function PatientInfo() {

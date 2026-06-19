@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Footer from '../../components/Footer';
 import logo from '../../assets/logo.png';
+import { useAuth } from '../../context/AuthContext';
 
 export default function DoctorLogin() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -27,10 +29,18 @@ export default function DoctorLogin() {
     if (Object.keys(errors).length > 0) return;
 
     setLoading(true);
+    // TODO: 아래 setTimeout 블록을 실제 API 호출로 교체
+    // api.post('/auth/doctor/login', { username: id, password })
+    //   .then(({ token, name, hospital }) => {
+    //     login({ name, hospital, role: 'doctor' }, token);
+    //     navigate('/doctor/patients');
+    //   })
+    //   .catch((err) => setLoginError(err.message))
+    //   .finally(() => setLoading(false));
     setTimeout(() => {
       setLoading(false);
-      // TODO: 실제 API 호출로 교체
       if (id === 'doctor' && password === 'doctor123!') {
+        login({ name: '김나연', hospital: '00병원', role: 'doctor' }, 'dummy-doctor-token');
         navigate('/doctor/patients');
       } else {
         setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');

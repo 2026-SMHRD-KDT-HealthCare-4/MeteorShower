@@ -146,6 +146,11 @@ export default function DoctorSignup() {
     setTouched({ username:true, password:true, password2:true, name:true, hospital:true, license:true, licenseDate:true, phone:true, email:true });
     if (!canSubmit) return;
     setLoading(true);
+    // TODO: 아래 setTimeout 블록을 실제 API 호출로 교체
+    // api.post('/auth/doctor/signup', { username: form.username, password: form.password, name: form.name, hospital: form.hospital, license: form.license, phone: form.phone, email: form.email })
+    //   .then(() => navigate('/doctor/login'))
+    //   .catch((err) => alert(err.message))
+    //   .finally(() => setLoading(false));
     setTimeout(() => { setLoading(false); navigate('/doctor/login'); }, 1000);
   };
 
