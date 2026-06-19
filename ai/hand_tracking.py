@@ -46,12 +46,12 @@ GUIDE_SCALE     = 900
 MAX_DTW_DIST    = 0.162
 WINDOW_STRETCH  = 2      # 환자버퍼 길이 대비 가이드 비교 구간의 최대 배수
 WINDOW_STRIDE   = 3      # (수정) 10 -> 3: 점수 요동 및 초반 점수 폭락의 핵심 원인 해결! 탐색을 촘촘하게 합니다.
-DTW_INTERVAL    = 3      # (수정) 연산 주기 조절
+DTW_INTERVAL    = 10     # (수정) 3 -> 10: 너무 빈번한 재계산이 출렁임의 원인이라 주기를 늘림
 PATIENT_BUF_MAX = 30
 
 # ── 변별력 & 흔들림 제어 상수 ────────────────────────────
 SIMILARITY_SMOOTHING = 12    # (수정) 8 -> 12: 점수 흔들림을 아주 부드럽게 잡아주는 버퍼 크기
-PENALTY_POWER        = 1.2   # (수정) 1.8 -> 1.2: 동작 초반 점수 폭락을 막고, 덜 쥐었을 때만 패널티를 줍니다.
+PENALTY_POWER        = 0.8   # (수정) 1.8 -> 1.2: 동작 초반 점수 폭락을 막고, 덜 쥐었을 때만 패널티를 줍니다.
 
 # ── 각도/ROM 통합 가중치 (추후 DB 주입 예정) ────────────────
 DTW_WEIGHT    = 0.5   # DTW 패턴 점수 가중치
@@ -146,7 +146,7 @@ EXERCISES = [
         "target_count": 7,   # TODO: DB 처방값으로 교체 예정
         "target_set":   2,   # TODO: DB 처방값으로 교체 예정
         "count_type":   "tap",
-        "max_dtw_dist": 0.32,
+        "max_dtw_dist": 0.45,
         "feature_fn":   extract_features_tapping,
     },
 ]
@@ -220,18 +220,38 @@ def get_guide_tap_finger(guide_frame):
     return tap_finger
 
 
-def get_tap_state(landmarks, guide_tap_finger):
-    """가이드가 지정한 손가락이 해당 손가락의 임계값 이하면 TAP."""
-    if guide_tap_finger is None:
-        return "open"
+def get_tap_state(landmarks):
+    """환자 주도적 탭 판별: 검지 완화 및 빨간불 추적 범위 확대"""
     thumb = landmarks[4]
-    tip   = landmarks[guide_tap_finger]
-    dist  = math.sqrt(
-        (thumb.x - tip.x) ** 2 +
-        (thumb.y - tip.y) ** 2 +
-        (thumb.z - tip.z) ** 2
-    )
-    return "tap" if dist < TAP_THRESHOLDS[guide_tap_finger] else "open"
+    wrist = landmarks[0]
+    mcp   = landmarks[5]
+    
+    ref_length = math.sqrt((wrist.x - mcp.x)**2 + (wrist.y - mcp.y)**2 + (wrist.z - mcp.z)**2)
+    if ref_length < 1e-6:
+        ref_length = 0.1
+        
+    min_ratio = float("inf")
+    active_finger = 8
+    
+    for tip_i in [8, 12, 16, 20]:
+        tip = landmarks[tip_i]
+        dist = math.sqrt((thumb.x - tip.x)**2 + (thumb.y - tip.y)**2 + (thumb.z - tip.z)**2)
+        ratio = dist / ref_length
+        
+        if ratio < min_ratio:
+            min_ratio = ratio
+            active_finger = tip_i
+            
+    # 검지(8)를 0.15 -> 0.20으로 완화하여 살짝만 닿아도 편하게 인식되도록 수정
+    touch_thresholds = {8: 0.20, 12: 0.22, 16: 0.24, 20: 0.26}
+    touch_th = touch_thresholds[active_finger]
+    
+    if min_ratio <= touch_th:
+        return "tap", active_finger
+    elif min_ratio <= touch_th + 0.4: # 추적 범위를 0.4로 대폭 넓혀 빨간불이 일찍 켜지게 함
+        return "open", active_finger
+    else:
+        return "open", None
 
 
 # ── ROM / 캡처 ────────────────────────────────────────────────
@@ -381,6 +401,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
         confirmed_state = None
         patient_buf     = []
         dtw_counter     = 0
+        last_guide_tap_finger = None  # guide_tap_finger가 None일 때 이전 값 유지용
         similarity          = None
         similarity_buf      = []
         rom_score           = None
@@ -413,6 +434,9 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                 if count_type == "tap" and current_guide_raw is not None
                 else None
             )
+            # guide_tap_finger가 None이 아닐 때만 last 값 갱신
+            if guide_tap_finger is not None:
+                last_guide_tap_finger = guide_tap_finger
 
             # flip 후 MediaPipe에 전달 → Left/Right 화면과 일치
             frame = cv2.flip(frame, 1)
@@ -423,9 +447,11 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
             result = landmarker.detect_for_video(mp_image, timestamp_ms)
 
             # ── 1. 랜드마크 수집 ──────────────────────────────
-            raw_state       = None
-            first_landmarks = None
-            valid_hands     = []
+            raw_state             = None
+            first_landmarks       = None
+            patient_active_finger = None  # 추가: 환자가 현재 움직이는 손가락 추적
+            valid_hands           = []
+            
             if result.hand_landmarks and result.handedness:
                 for landmarks, handedness_list in zip(
                     result.hand_landmarks, result.handedness
@@ -436,7 +462,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                     valid_hands.append((landmarks, handedness))
                     if raw_state is None:
                         if count_type == "tap":
-                            raw_state = get_tap_state(landmarks, guide_tap_finger)
+                            # 가이드 변수를 제거하고 환자의 상태와 작동 중인 손가락을 가져옴
+                            raw_state, patient_active_finger = get_tap_state(landmarks)
                         else:
                             raw_state, _ = get_hand_state(landmarks)
                         first_landmarks = landmarks
@@ -462,21 +489,23 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
             dtw_counter += 1
             if dtw_counter >= DTW_INTERVAL:
                 dtw_counter = 0
-                raw_similarity = compute_dtw_similarity(
-                    patient_buf, current_guide_np, ex["max_dtw_dist"]
-                )
-                if raw_similarity is not None:
-                    similarity_buf.append(raw_similarity)
-                    if len(similarity_buf) > SIMILARITY_SMOOTHING: # <-- 여기 변경
-                        similarity_buf.pop(0)
-                    similarity = sum(similarity_buf) / len(similarity_buf)
+                if len(patient_buf) >= 10:
+                    raw_similarity = compute_dtw_similarity(
+                        patient_buf, current_guide_np, ex["max_dtw_dist"]
+                    )
+                    if raw_similarity is not None:
+                        similarity_buf.append(raw_similarity)
+                        if len(similarity_buf) > SIMILARITY_SMOOTHING:
+                            similarity_buf.pop(0)
+                        similarity = sum(similarity_buf) / len(similarity_buf)
+                else:
+                    similarity = None
+                    similarity_buf.clear()
 
             # ── 4. 가이드 프레임 인덱스 (루프 상단에서 이미 계산됨) ──
 
-            # ── 5. 렌더링 ────────────────────────────────────
+            # ── 5. 렌더링 (가이드만) ──────────────────────────
             draw_animated_guide(frame, guide_frame_idx, current_guide_raw)
-            for landmarks, handedness in valid_hands:
-                draw_hand(frame, landmarks, handedness, joint_signals)
 
             # ── 상태 안정화 & 카운팅 ─────────────────────────
             valid_states = ("open", "tap") if count_type == "tap" else ("open", "grip")
@@ -510,6 +539,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                                 should_count = True
                             phase = "open"
                             joint_signals = None
+                            last_guide_tap_finger = None
                         elif confirmed_state == "tap":
                             if phase == "open":
                                 phase = "tap"
@@ -535,6 +565,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                             similarity_buf.clear()
                             rom_score = None
                             rom_score_buf.clear()
+                            last_guide_tap_finger = None
                             no_hand_counter = 0
 
                             # ── 운동 완료 체크 ──────────────────────
@@ -565,38 +596,62 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                 )
                 angles = compute_finger_angles(coords_raw)
 
-                # ROM 점수 계산 (매 프레임, 이동평균 적용)
-                raw_rom = _compute_rom_score(angles, target_angles)
-                rom_score_buf.append(raw_rom)
-                if len(rom_score_buf) > ROM_SMOOTHING:
-                    rom_score_buf.pop(0)
-                rom_score = sum(rom_score_buf) / len(rom_score_buf)
+                # ROM 점수 계산 — grip 확정 상태일 때만 갱신 (탭은 거리 기반 신호등으로 별도 처리)
+                if confirmed_state == "grip" and count_type == "grip":
+                    raw_rom = _compute_rom_score(angles, target_angles)
+                    rom_score_buf.append(raw_rom)
+                    if len(rom_score_buf) > ROM_SMOOTHING:
+                        rom_score_buf.pop(0)
+                    rom_score = sum(rom_score_buf) / len(rom_score_buf)
+                # 그 외 상태(OPEN/TAP)에서는 rom_score 유지 (마지막 grip 값 그대로)
 
                 # 신호등
                 if confirmed_state == "grip" and count_type == "grip":
                     finger_sigs = _finger_angle_signals(angles, target_angles)
                     joint_signals = _build_joint_signals_from_fingers(finger_sigs)
-                elif confirmed_state == "tap" and count_type == "tap" and guide_tap_finger is not None:
-                    tap_finger_map = {8: 1, 12: 2, 16: 3, 20: 4}
-                    tap_idx = tap_finger_map.get(guide_tap_finger, 1)
-                    finger_sigs = ["green"] * 5
-                    tap_angle = float(angles[tap_idx])
-                    tap_target = target_angles[tap_idx]
-                    if tap_angle <= tap_target * 1.2:
-                        finger_sigs[tap_idx] = "green"
-                    elif tap_angle <= tap_target * 1.8:
-                        finger_sigs[tap_idx] = "yellow"
+                elif count_type == "tap":
+                    if patient_active_finger is not None:
+                        thumb = first_landmarks[4]
+                        tip   = first_landmarks[patient_active_finger]
+                        wrist = first_landmarks[0]
+                        mcp   = first_landmarks[5]
+                        
+                        ref_length = math.sqrt((wrist.x - mcp.x)**2 + (wrist.y - mcp.y)**2 + (wrist.z - mcp.z)**2) + 1e-6
+                        cur_dist = math.sqrt((thumb.x - tip.x)**2 + (thumb.y - tip.y)**2 + (thumb.z - tip.z)**2)
+                        ratio = cur_dist / ref_length
+                        
+                        # [수정됨] HUD 쪽 임계값도 동일하게 꽉 조임
+                        touch_thresholds = {8: 0.15, 12: 0.18, 16: 0.22, 20: 0.25}
+                        touch_th = touch_thresholds.get(patient_active_finger, 0.15)
+
+                        tap_sig_map = {8: 1, 12: 2, 16: 3, 20: 4}
+                        sig_idx = tap_sig_map.get(patient_active_finger, 1)
+
+                        finger_sigs = ["green"] * 5
+                        
+                        if ratio <= touch_th:           
+                            finger_sigs[sig_idx] = "green"   # 완벽히 닿음 (Tap)
+                        elif ratio <= touch_th + 0.25:   
+                            finger_sigs[sig_idx] = "yellow"  # 가까이 다가옴
+                        else:                               
+                            finger_sigs[sig_idx] = "red"     # 구부리기 시작함
+                            
+                        joint_signals = _build_joint_signals_from_fingers(finger_sigs)
                     else:
-                        finger_sigs[tap_idx] = "red"
-                    joint_signals = _build_joint_signals_from_fingers(finger_sigs)
+                        joint_signals = _build_joint_signals_from_fingers(["green"] * 5)
+
+            # 신호등 계산 완료 후 손 그리기
+            for landmarks, handedness in valid_hands:
+                draw_hand(frame, landmarks, handedness, joint_signals)
 
             # 최종 display_similarity: DTW + ROM 가중 평균
-            if similarity is not None and rom_score is not None:
-                display_similarity = round(
-                    similarity * DTW_WEIGHT + rom_score * ROM_WEIGHT, 1
-                )
-            elif similarity is not None:
-                display_similarity = round(similarity, 1)
+            if similarity is not None:
+                if rom_score is not None and confirmed_state in ("grip", "tap"):
+                    display_similarity = round(
+                        similarity * DTW_WEIGHT + rom_score * ROM_WEIGHT, 1
+                    )
+                else:
+                    display_similarity = round(similarity, 1)
             else:
                 display_similarity = None
 
