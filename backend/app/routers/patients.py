@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from crud import doctor as doctor_crud
 from crud import patient as patient_crud
 from database import get_db
 from dependencies import get_token_payload
-from schemas.patient import PatientUpdateRequest
+from schemas.patient import PatientAssignRequest, PatientUpdateRequest
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -79,6 +80,43 @@ def list_my_patients(
     _require_role(payload, "doctor")
     patients = patient_crud.get_patients_by_doctor_id(db, int(payload["sub"]))
     return [_patient_to_dict(patient) for patient in patients]
+
+
+@router.get("/search")
+def search_patients(
+    q: str,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    if not q or not q.strip():
+        return []
+    patients = patient_crud.search_unassigned_patients(db, q.strip())
+    return [_patient_to_dict(p) for p in patients]
+
+
+@router.patch("/{patient_id}/register")
+def assign_patient(
+    patient_id: int,
+    body: PatientAssignRequest,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id is not None:
+        raise HTTPException(status_code=409, detail="이미 담당 의사가 있는 환자입니다.")
+
+    doctor = doctor_crud.get_doctor_by_id(db, int(payload["sub"]))
+    values = body.model_dump(exclude_unset=True)
+    values["doctor_id"] = int(payload["sub"])
+    if doctor:
+        values["hospital_name"] = doctor.hospital_name
+
+    updated = patient_crud.update_patient(db, patient, values)
+    return _patient_to_dict(updated)
 
 
 @router.get("/{patient_id}")

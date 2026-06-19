@@ -1,40 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
-
-/* ── 더미 환자 DB (회원가입된 환자들) ── */
-const registeredPatients = [
-  {
-    id: 'user_hong123',
-    code: 'F310957194590',
-    name: '홍길동',
-    gender: '남자',
-    birth: '1985.03.15',
-    phone: '010-1234-5678',
-    guardianEmail: 'guardian1@email.com',
-    guardianConsent: true,
-  },
-  {
-    id: 'user_kim456',
-    code: 'F310957194591',
-    name: '김영희',
-    gender: '여자',
-    birth: '1992.07.22',
-    phone: '010-9876-5432',
-    guardianEmail: 'guardian2@email.com',
-    guardianConsent: false,
-  },
-  {
-    id: 'user_lee789',
-    code: 'F310957194592',
-    name: '이철수',
-    gender: '남자',
-    birth: '1978.11.08',
-    phone: '010-5555-4444',
-    guardianEmail: '',
-    guardianConsent: false,
-  },
-];
+import { patientApi } from '../../api';
 
 
 const inputCls = 'w-full px-3 py-2.5 border border-outline-variant rounded-xl text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary transition-all placeholder:text-outline bg-white';
@@ -65,6 +32,8 @@ export default function PatientRegister() {
   /* 검색 단계 */
   const [query, setQuery]         = useState('');
   const [searched, setSearched]   = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [patient, setPatient]     = useState(null);
 
   /* 의사 입력 */
@@ -74,6 +43,8 @@ export default function PatientRegister() {
   const [rehabStart, setRehabStart]   = useState('');
   const [stage, setStage]         = useState('');
   const [done, setDone]           = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [rom, setRom]             = useState({});
 
   /* 검색 결과 목록 */
@@ -81,16 +52,16 @@ export default function PatientRegister() {
 
   /* 검색 실행 */
   const handleSearch = () => {
+    if (!query.trim()) return;
     setSearched(true);
+    setSearching(true);
+    setSearchError('');
     setPatient(null);
     setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setRom({});
-    const found = registeredPatients.filter(
-      (p) =>
-        p.id.toLowerCase().includes(query.toLowerCase()) ||
-        p.code.includes(query) ||
-        p.name.includes(query)
-    );
-    setResults(found);
+    patientApi.searchPatients(query.trim())
+      .then((data) => { setResults(data); })
+      .catch((err) => { setResults([]); setSearchError(err.message); })
+      .finally(() => setSearching(false));
   };
 
   /* 목록에서 환자 선택 */
@@ -101,7 +72,19 @@ export default function PatientRegister() {
 
   /* 제출 */
   const handleSubmit = () => {
-    setDone(true);
+    if (!patient) return;
+    setSubmitting(true);
+    setSubmitError('');
+    patientApi.assignPatient(patient.patient_id, {
+      surgery_area: area || undefined,
+      surgery_name: surgery || undefined,
+      surgery_date: surgeryDate || undefined,
+      rehab_start_date: rehabStart || undefined,
+      current_rehab_phase: stage || undefined,
+    })
+      .then(() => setDone(true))
+      .catch((err) => setSubmitError(err.message))
+      .finally(() => setSubmitting(false));
   };
 
   /* ── 완료 화면 ── */
@@ -122,7 +105,7 @@ export default function PatientRegister() {
           <div className="w-full bg-white border border-outline-variant rounded-2xl p-5 text-left space-y-2 shadow-card">
             {[
               { label: '환자명', value: patient.name },
-              { label: '코드',   value: patient.code },
+              { label: '코드',   value: patient.patient_code },
               { label: '수술 부위', value: area },
               { label: '수술명', value: surgery },
               { label: '수술 시기', value: surgeryDate },
@@ -195,7 +178,7 @@ export default function PatientRegister() {
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-base">search</span>
               <input
                 value={query}
-                onChange={(e) => { setQuery(e.target.value); setSearched(false); setPatient(null); }}
+                onChange={(e) => { setQuery(e.target.value); setSearched(false); setPatient(null); setSearchError(''); }}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder="아이디 / 환자 코드 / 이름 입력"
                 className="w-full pl-10 pr-4 py-2.5 border border-outline-variant rounded-xl text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary transition-all bg-white placeholder:text-outline"
@@ -211,14 +194,28 @@ export default function PatientRegister() {
           </div>
 
           {/* 검색 결과 목록 */}
-          {searched && results.length === 0 && (
+          {searching && (
+            <div className="flex items-center gap-2 px-4 py-3 text-on-surface-variant text-label-md">
+              <span className="material-symbols-outlined text-base animate-spin">progress_activity</span>
+              검색 중...
+            </div>
+          )}
+
+          {searched && !searching && searchError && (
+            <div className="flex items-center gap-2 px-4 py-3 bg-error-container text-on-error-container rounded-xl text-label-md">
+              <span className="material-symbols-outlined text-base">error</span>
+              {searchError}
+            </div>
+          )}
+
+          {searched && !searching && !searchError && results.length === 0 && (
             <div className="flex items-center gap-2 px-4 py-3 bg-error-container text-on-error-container rounded-xl text-label-md">
               <span className="material-symbols-outlined text-base">search_off</span>
               일치하는 환자를 찾을 수 없습니다. 아이디, 코드, 이름을 다시 확인해주세요.
             </div>
           )}
 
-          {searched && results.length > 0 && !patient && (
+          {searched && !searching && results.length > 0 && !patient && (
             <div className="space-y-2">
               <p className="text-label-sm text-on-surface-variant">
                 검색 결과 <span className="font-bold text-doctor-primary">{results.length}명</span> · 환자를 선택해주세요
@@ -226,7 +223,7 @@ export default function PatientRegister() {
               <div className="divide-y divide-outline-variant border border-outline-variant rounded-xl overflow-hidden">
                 {results.map((p) => (
                   <button
-                    key={p.code}
+                    key={p.patient_code}
                     onClick={() => handleSelect(p)}
                     className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#f0f6ff] transition-colors text-left group"
                   >
@@ -236,11 +233,11 @@ export default function PatientRegister() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-body-md font-bold text-on-surface">{p.name}</span>
-                        <span className="text-label-sm text-on-surface-variant">{p.gender} · {p.birth}</span>
+                        <span className="text-label-sm text-on-surface-variant">{p.gender} · {String(p.birth_date).replace(/-/g, '.')}</span>
                       </div>
                       <div className="flex items-center gap-3 mt-0.5">
                         <span className="text-label-sm text-on-surface-variant flex items-center gap-1">
-                          <span className="material-symbols-outlined text-xs">id_card</span>{p.code}
+                          <span className="material-symbols-outlined text-xs">id_card</span>{p.patient_code}
                         </span>
                         <span className="text-label-sm text-on-surface-variant flex items-center gap-1">
                           <span className="material-symbols-outlined text-xs">call</span>{p.phone}
@@ -260,7 +257,7 @@ export default function PatientRegister() {
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-doctor-primary" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
                 <span className="text-label-md font-semibold text-doctor-primary">
-                  {patient.name} ({patient.code}) 선택됨
+                  {patient.name} ({patient.patient_code}) 선택됨
                 </span>
               </div>
               <button
@@ -291,11 +288,11 @@ export default function PatientRegister() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
                 {[
-                  { label: '아이디 (ID)',     value: patient.id },
-                  { label: '환자 코드 (Code)', value: patient.code },
+                  { label: '아이디 (ID)',     value: patient.login_id },
+                  { label: '환자 코드 (Code)', value: patient.patient_code },
                   { label: '이름 (Name)',      value: patient.name },
                   { label: '성별 (Gender)',    value: patient.gender },
-                  { label: '생년월일 (Birth)', value: patient.birth },
+                  { label: '생년월일 (Birth)', value: String(patient.birth_date).replace(/-/g, '.') },
                   { label: '연락처 (Phone)',   value: patient.phone },
                 ].map((row) => (
                   <div key={row.label} className="space-y-1.5">
@@ -316,12 +313,12 @@ export default function PatientRegister() {
                 <div className="sm:col-span-2 space-y-1.5">
                   <label className="text-label-sm font-semibold text-on-surface-variant">보호자 재활 보고서 수신 동의</label>
                   <div className={`flex items-center gap-2 px-3 py-2.5 border border-outline-variant rounded-xl bg-surface-container-low`}>
-                    <span className={`material-symbols-outlined text-base ${patient.guardianConsent ? 'text-doctor-primary' : 'text-outline'}`}
+                    <span className={`material-symbols-outlined text-base ${patient.report_consent ? 'text-doctor-primary' : 'text-outline'}`}
                       style={{ fontVariationSettings: "'FILL' 1" }}>
-                      {patient.guardianConsent ? 'check_circle' : 'cancel'}
+                      {patient.report_consent ? 'check_circle' : 'cancel'}
                     </span>
-                    <span className={`text-body-md font-semibold ${patient.guardianConsent ? 'text-doctor-primary' : 'text-on-surface-variant'}`}>
-                      {patient.guardianConsent ? '동의함' : '동의하지 않음'}
+                    <span className={`text-body-md font-semibold ${patient.report_consent ? 'text-doctor-primary' : 'text-on-surface-variant'}`}>
+                      {patient.report_consent ? '동의함' : '동의하지 않음'}
                     </span>
                   </div>
                   <div className="h-4" />
@@ -374,12 +371,16 @@ export default function PatientRegister() {
                 </Field>
 
                 <Field label="진행 단계">
-                  <input
+                  <select
                     value={stage}
                     onChange={(e) => setStage(e.target.value)}
-                    placeholder="예: 손가락 굽히기 운동 1단계"
                     className={inputCls}
-                  />
+                  >
+                    <option value="">선택 안함</option>
+                    <option value="초기">초기</option>
+                    <option value="중기">중기</option>
+                    <option value="후기">후기</option>
+                  </select>
                 </Field>
               </div>
             </section>
@@ -443,20 +444,29 @@ export default function PatientRegister() {
               </div>
             </section>
 
+            {/* 에러 메시지 */}
+            {submitError && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-error-container text-on-error-container rounded-xl text-label-md">
+                <span className="material-symbols-outlined text-base">error</span>
+                {submitError}
+              </div>
+            )}
+
             {/* 하단 버튼 */}
             <div className="flex justify-end gap-3 pb-4">
               <button
-                onClick={() => { setPatient(null); setQuery(''); setSearched(false); }}
+                onClick={() => { setPatient(null); setQuery(''); setSearched(false); setSubmitError(''); }}
                 className="px-6 py-3 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md"
               >
                 다시 검색
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex items-center gap-2 px-8 py-3 bg-doctor-primary text-white font-semibold rounded-xl hover:opacity-90 transition-opacity shadow-md text-label-md"
+                disabled={submitting}
+                className="flex items-center gap-2 px-8 py-3 bg-doctor-primary text-white font-semibold rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-md text-label-md"
               >
                 <span className="material-symbols-outlined text-base">person_add</span>
-                환자 등록 완료
+                {submitting ? '등록 중...' : '환자 등록 완료'}
               </button>
             </div>
           </>

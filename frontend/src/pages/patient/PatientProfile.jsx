@@ -1,28 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import PatientNavBar from '../../components/PatientNavBar';
 import { useAuth } from '../../context/AuthContext';
+import { patientApi } from '../../api';
 
-// ── Mock 데이터 (API 연동 시 교체) ──────────────────────────────────────
-const MOCK_PROFILE = {
-  id: 'patient01',
-  name: '김망나뇽',
-  gender: '남',
-  phone: '010-1234-5678',
-  birthdate: '1985.05.20',
-  guardianEmail: 'guardian@email.com',
-  guardianConsent: true,
-  surgery: '수근관 증후군 유리술',
-  surgeryPart: '오른쪽 손목',
-  surgeryDate: '2021.12.15',
-  rehabStart: '2021.12.28',
-};
-
-const MOCK_HOSPITAL = {
-  name: '한국재활병원',
-  doctor: '김나연 원장',
-  department: '재활의학과',
-  diagnosis: '우측 손 건초염',
-};
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  return dateStr.replace(/-/g, '.');
+}
 
 // YYYY-MM-DD 형식
 const MOCK_SCHEDULE = [
@@ -78,30 +62,45 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function ProfileCard() {
   const { user } = useAuth();
-  const [phone, setPhone]                   = useState(MOCK_PROFILE.phone);
-  const [guardianEmail, setGuardianEmail]   = useState(MOCK_PROFILE.guardianEmail);
-  const [guardianConsent, setGuardianConsent] = useState(MOCK_PROFILE.guardianConsent);
+  const [profile, setProfile]               = useState(null);
+  const [phone, setPhone]                   = useState('');
+  const [guardianEmail, setGuardianEmail]   = useState('');
+  const [guardianConsent, setGuardianConsent] = useState(false);
   const [saved, setSaved]                   = useState(false);
   const [errors, setErrors]                 = useState({});
 
+  useEffect(() => {
+    patientApi.getMyProfile().then((data) => {
+      setProfile(data);
+      setPhone(data.phone ?? '');
+      setGuardianEmail(data.guardian_email ?? '');
+      setGuardianConsent(data.report_consent ?? false);
+    }).catch(() => {});
+  }, []);
+
   const isDirty =
-    phone !== MOCK_PROFILE.phone ||
-    guardianEmail !== MOCK_PROFILE.guardianEmail ||
-    guardianConsent !== MOCK_PROFILE.guardianConsent;
+    profile &&
+    (phone !== (profile.phone ?? '') ||
+     guardianEmail !== (profile.guardian_email ?? '') ||
+     guardianConsent !== (profile.report_consent ?? false));
 
   const validate = () => {
     const next = {};
     if (!PHONE_RE.test(phone)) next.phone = '전화번호를 정확히 입력해 주세요';
-    if (!EMAIL_RE.test(guardianEmail)) next.email = '올바른 이메일 형식을 입력해 주세요';
+    if (guardianEmail && !EMAIL_RE.test(guardianEmail)) next.email = '올바른 이메일 형식을 입력해 주세요';
     setErrors(next);
     return Object.keys(next).length === 0;
   };
 
   const handleSave = () => {
     if (!validate()) return;
-    // TODO: API PATCH 호출
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    patientApi.updateMyProfile({ phone, guardian_email: guardianEmail || null, report_consent: guardianConsent })
+      .then((data) => {
+        setProfile(data);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      })
+      .catch(() => {});
   };
 
   const handlePhoneChange = (e) => {
@@ -125,16 +124,16 @@ function ProfileCard() {
       <div className="bg-surface-container-lowest rounded-xl shadow-card border border-outline-variant p-6 flex flex-col flex-1 gap-5">
         <div className="grid grid-cols-2 gap-4">
           <Field label="아이디">
-            <input readOnly value={user?.id ?? MOCK_PROFILE.id} className={roInputCls} />
+            <input readOnly value={profile?.login_id ?? ''} className={roInputCls} />
           </Field>
           <Field label="이름">
-            <input readOnly value={user?.name ?? MOCK_PROFILE.name} className={roInputCls} />
+            <input readOnly value={profile?.name ?? user?.name ?? ''} className={roInputCls} />
           </Field>
           <Field label="성별">
-            <input readOnly value={MOCK_PROFILE.gender} className={roInputCls} />
+            <input readOnly value={profile?.gender ?? ''} className={roInputCls} />
           </Field>
           <Field label="생년월일">
-            <input readOnly value={MOCK_PROFILE.birthdate} className={roInputCls} />
+            <input readOnly value={formatDate(profile?.birth_date)} className={roInputCls} />
           </Field>
 
           {/* 수정 가능 필드 */}
@@ -152,16 +151,16 @@ function ProfileCard() {
             <p className="text-[11px] text-error h-4 mt-0.5">{errors.phone ?? ''}</p>
           </div>
           <Field label="수술 부위">
-            <input readOnly value={MOCK_PROFILE.surgeryPart} className={roInputCls} />
+            <input readOnly value={profile?.surgery_area ?? ''} className={roInputCls} />
           </Field>
           <Field label="수술명">
-            <input readOnly value={MOCK_PROFILE.surgery} className={roInputCls} />
+            <input readOnly value={profile?.surgery_name ?? ''} className={roInputCls} />
           </Field>
           <Field label="수술 시기">
-            <input readOnly value={MOCK_PROFILE.surgeryDate} className={roInputCls} />
+            <input readOnly value={formatDate(profile?.surgery_date)} className={roInputCls} />
           </Field>
           <Field label="재활 시작">
-            <input readOnly value={MOCK_PROFILE.rehabStart} className={roInputCls} />
+            <input readOnly value={formatDate(profile?.rehab_start_date)} className={roInputCls} />
           </Field>
         </div>
 
@@ -346,8 +345,15 @@ function ScheduleCalendar() {
 
 // ── 병원정보 카드 (읽기 전용) ─────────────────────────────────────────────
 function HospitalCard() {
+  const [hospitalName, setHospitalName] = useState('');
   const roInputCls =
     'w-full h-10 px-3 rounded-lg border border-outline-variant bg-surface-container text-on-surface-variant text-body-md outline-none cursor-not-allowed text-sm';
+
+  useEffect(() => {
+    patientApi.getMyProfile().then((data) => {
+      setHospitalName(data.hospital_name ?? '');
+    }).catch(() => {});
+  }, []);
 
   return (
     <section className="flex flex-col gap-6">
@@ -356,8 +362,7 @@ function HospitalCard() {
       <div className="bg-surface-container-lowest rounded-xl shadow-card border border-outline-variant p-6">
         <div className="grid grid-cols-2 gap-4">
           {[
-            { label: '병원명',    value: MOCK_HOSPITAL.name   },
-            { label: '담당 의사', value: MOCK_HOSPITAL.doctor },
+            { label: '병원명', value: hospitalName },
           ].map(({ label, value }) => (
             <div key={label} className="space-y-1">
               <p className="text-label-sm font-semibold text-on-surface-variant">{label}</p>

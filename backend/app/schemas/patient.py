@@ -10,6 +10,14 @@ class PatientUpdateRequest(BaseModel):
     report_consent: Optional[bool] = None
 
 
+class PatientAssignRequest(BaseModel):
+    surgery_area: Optional[str] = None
+    surgery_name: Optional[str] = None
+    surgery_date: Optional[date] = None
+    rehab_start_date: Optional[date] = None
+    current_rehab_phase: Optional[str] = None
+
+
 class PatientResponse(BaseModel):
     patient_id: int
     doctor_id: Optional[int] = None
