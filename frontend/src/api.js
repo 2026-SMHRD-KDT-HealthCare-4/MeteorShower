@@ -37,8 +37,9 @@ export const patientApi = {
   updateMyProfile: (body)     => api.patch('/patients/me', body),
   listPatients:    ()         => api.get('/patients'),
   getPatient:      (id)       => api.get(`/patients/${id}`),
-  searchPatients:  (q)        => api.get(`/patients/search?q=${encodeURIComponent(q)}`),
-  assignPatient:   (id, body) => api.patch(`/patients/${id}/register`, body),
+  searchPatients:       (q)        => api.get(`/patients/search?q=${encodeURIComponent(q)}`),
+  assignPatient:        (id, body) => api.patch(`/patients/${id}/register`, body),
+  getPatientPrescription: (id)     => api.get(`/patients/${id}/prescriptions`),
 };
 
 export const authApi = {
