@@ -15,7 +15,7 @@ from mediapipe.tasks.python import vision
 from landmark_utils import (
     compute_guide_scale, normalize_to_guide_scale,
     extract_features_full_fist, extract_features_tapping,
-    compute_finger_angles,
+    compute_finger_angles, mirror_guide_to_right_hand,
 )
 from notification_trigger import build_blocking_event, send_notification_to_backend
 
@@ -76,7 +76,7 @@ FINGER_LANDMARK_GROUPS = {
 }
 
 # TODO: DB 처방값으로 교체 예정. run_tracking(finger_rom_targets=외부값) 형태로 주입 가능
-DEFAULT_FINGER_ROM_TARGETS = {"thumb": 60, "index": 60, "middle": 60, "ring": 60, "pinky": 60}
+DEFAULT_FINGER_ROM_TARGETS = {"thumb": 70, "index": 70, "middle": 70, "ring": 70, "pinky": 70}
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 
 
@@ -375,7 +375,13 @@ _options = vision.HandLandmarkerOptions(
 
 # ── 메인 트래킹 함수 ───────────────────────────────────────────
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None):
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None,
+                  hand="left"):
+    """
+    hand: "left" 또는 "right". 환자가 사용할 손.
+    가이드 json은 왼손 기준으로 저장돼 있으므로,
+    hand="right"이면 로드 시 x축을 반전해서 오른손용 가이드를 만든다.
+    """
     _targets = finger_rom_targets if finger_rom_targets is not None else DEFAULT_FINGER_ROM_TARGETS
     target_angles = [_targets.get(name, 60) for name in FINGER_NAMES]
 
@@ -389,8 +395,11 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         current_set          = 1
         ex0                  = EXERCISES[current_exercise_idx]
         current_guide_raw    = _load_guide(ex0["guide_path"])           # 애니메이션용 (N,21,3)
-        current_guide_np     = _load_guide_features(                     # DTW용 (N,D)
-            ex0["guide_path"], ex0["feature_fn"]
+        if hand == "right":
+            current_guide_raw = mirror_guide_to_right_hand(current_guide_raw)
+        current_guide_np     = (                                         # DTW용 (N,D)
+            np.array([ex0["feature_fn"](frame) for frame in current_guide_raw], dtype=np.float32)
+            if current_guide_raw is not None else None
         )
         current_guide_scale  = compute_guide_scale(current_guide_raw)
         current_feature_fn   = ex0["feature_fn"]
@@ -593,9 +602,12 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                 else:
                                     ex_new              = EXERCISES[current_exercise_idx]
                                     current_guide_raw   = _load_guide(ex_new["guide_path"])
-                                    current_guide_np    = _load_guide_features(
-                                        ex_new["guide_path"], ex_new["feature_fn"]
-                                    )
+                                    if hand == "right":
+                                        current_guide_raw = mirror_guide_to_right_hand(current_guide_raw)
+                                    current_guide_np    = np.array(
+                                        [ex_new["feature_fn"](frame) for frame in current_guide_raw],
+                                        dtype=np.float32
+                                    ) if current_guide_raw is not None else None
                                     current_guide_scale = compute_guide_scale(current_guide_raw)
                                     current_feature_fn  = ex_new["feature_fn"]
                                     guide_elapsed_start = time.time()
@@ -830,4 +842,4 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
 
 if __name__ == "__main__":
-    run_tracking()
+    run_tracking(hand="right")
