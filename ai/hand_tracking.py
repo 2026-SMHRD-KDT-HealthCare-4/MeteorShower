@@ -4,6 +4,7 @@ import os
 import queue
 import time
 import urllib.request
+from datetime import datetime
 
 import cv2
 import mediapipe as mp
@@ -16,6 +17,7 @@ from landmark_utils import (
     extract_features_full_fist, extract_features_tapping,
     compute_finger_angles,
 )
+from notification_trigger import build_blocking_event, send_notification_to_backend
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
 MODEL_URL = (
@@ -373,7 +375,7 @@ _options = vision.HandLandmarkerOptions(
 
 # ── 메인 트래킹 함수 ───────────────────────────────────────────
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None):
     _targets = finger_rom_targets if finger_rom_targets is not None else DEFAULT_FINGER_ROM_TARGETS
     target_angles = [_targets.get(name, 60) for name in FINGER_NAMES]
 
@@ -413,6 +415,14 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
         overload_stage        = 0
         overload_count_marker = -1
         session_end_at        = None
+
+        # 0→1 전환 시점의 원인/측정값을 고정 캡처 (break 시점엔 값이 바뀌어 있으므로)
+        overload_cause          = None   # "rom" | "count" | None
+        overload_measured_rom   = None
+        overload_threshold_rom  = None
+        overload_measured_count = None
+        overload_target_count   = None
+        overload_exercise_name  = None
 
         # ── 세션 완료 상태 ────────────────────────────────────
         session_complete    = False
@@ -552,6 +562,10 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                             save_capture(frame)
                             overload_stage        = 1
                             overload_count_marker = count
+                            overload_cause          = "count"
+                            overload_measured_count = count
+                            overload_target_count   = ex["target_count"]
+                            overload_exercise_name  = ex["name"]
 
                         # ── 세트 완료 체크 ─────────────────────────
                         elif count >= ex["target_count"] and overload_stage == 0:
@@ -662,6 +676,9 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
                 save_capture(frame)
                 overload_stage        = 1
                 overload_count_marker = count
+                overload_cause          = "rom"
+                overload_measured_rom   = current_rom
+                overload_threshold_rom  = TARGET_ROM
 
             elif overload_stage == 1 and count > overload_count_marker:
                 save_capture(frame)
@@ -781,7 +798,34 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None):
         cap.release()
         cv2.destroyAllWindows()
 
-        if session_complete:
+        # ── 세션 종료 후처리 ──────────────────────────────────
+        # 정상 완료(session_complete)와 비정상 종료(overload_stage == 2)는
+        # 서로 배타적인 분기이므로 섞이지 않게 명확히 구분한다.
+        if overload_stage == 2:
+            if patient_id is None:
+                print("[WARN] patient_id 없음 — 운동차단 알림을 보내지 않습니다.")
+            else:
+                session_data = {
+                    "end_type":       "운동차단",
+                    "patient_id":     patient_id,
+                    "occurred_at":    datetime.fromtimestamp(session_end_at).isoformat(),
+                    "overload_cause": overload_cause,
+                }
+                if doctor_id is not None:
+                    session_data["doctor_id"] = doctor_id
+
+                if overload_cause == "rom":
+                    session_data["measured_rom"]  = overload_measured_rom
+                    session_data["threshold_rom"] = overload_threshold_rom
+                elif overload_cause == "count":
+                    session_data["measured_count"] = overload_measured_count
+                    session_data["target_count"]   = overload_target_count
+                    session_data["exercise_name"]  = overload_exercise_name
+
+                event = build_blocking_event(session_data)
+                if event is not None:
+                    send_notification_to_backend(event)
+        elif session_complete:
             print("All exercises completed. Session complete.")
 
 
