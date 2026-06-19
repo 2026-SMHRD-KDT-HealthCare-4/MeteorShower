@@ -74,20 +74,31 @@ FINGER_LANDMARK_GROUPS = {
 }
 
 # TODO: DB 처방값으로 교체 예정. run_tracking(finger_rom_targets=외부값) 형태로 주입 가능
-DEFAULT_FINGER_ROM_TARGETS = {"thumb": 120, "index": 60, "middle": 60, "ring": 60, "pinky": 60}
+DEFAULT_FINGER_ROM_TARGETS = {"thumb": 60, "index": 60, "middle": 60, "ring": 60, "pinky": 60}
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 
 
 def _finger_angle_signals(angles, target_angles):
-    """각 손가락 꺾임 각도 vs. 목표 각도 → 신호 색상 리스트 (5개)."""
+    """각 손가락 꺾임 각도 vs. 목표 각도 → 신호 색상 리스트 (5개).
+
+    엄지(i==0)는 CMC->MCP->TIP 각도가 굽힐수록 커지는 구조라 부등호가 반대.
+    """
     signals = []
-    for angle, target in zip(angles, target_angles):
-        if angle <= target * 1.2:
-            signals.append("green")
-        elif angle <= target * 1.8:
-            signals.append("yellow")
+    for i, (angle, target) in enumerate(zip(angles, target_angles)):
+        if i == 0:
+            if angle >= target * 0.8:
+                signals.append("green")
+            elif angle >= target * 0.5:
+                signals.append("yellow")
+            else:
+                signals.append("red")
         else:
-            signals.append("red")
+            if angle <= target * 1.2:
+                signals.append("green")
+            elif angle <= target * 1.8:
+                signals.append("yellow")
+            else:
+                signals.append("red")
     return signals
 
 
@@ -96,11 +107,15 @@ def _compute_rom_score(angles, target_angles):
 
     각 손가락: min(1.0, target / max(angle, 1e-6))
     목표각 이하면 1.0, 클수록(덜 구부릴수록) 낮아짐 → 5개 평균 × 100
+    엄지(i==0)는 각도가 클수록 더 굽혀진 것이므로 비율 계산이 반대.
     """
     ratios = []
-    for angle, target in zip(angles, target_angles):
-        ratio = min(1.0, float(target) / max(float(angle), 1e-6)) ** 1.5
-        ratios.append(ratio)
+    for i, (angle, target) in enumerate(zip(angles, target_angles)):
+        if i == 0:
+            ratio = min(1.0, float(angle) / max(float(target), 1e-6))
+        else:
+            ratio = min(1.0, float(target) / max(float(angle), 1e-6))
+        ratios.append(ratio ** 1.5)
     return float(np.mean(ratios)) * 100.0
 
 
