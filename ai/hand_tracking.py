@@ -225,11 +225,26 @@ def get_guide_tap_finger(guide_frame):
 
 
 def get_tap_state(landmarks):
-    """환자 주도적 탭 판별: 검지 완화 및 빨간불 추적 범위 확대"""
+    """환자 주도적 탭 판별: 주먹 쥐기 등 완전히 잘못된 오동작 예외 처리 추가"""
     thumb = landmarks[4]
     wrist = landmarks[0]
-    mcp   = landmarks[5]
+    mcp   = landmarks[5]  # 검지 뿌리 관절
     
+    # 1. 아예 오동작(주먹 쥐기 등) 사전 검사
+    # 탭핑 동작 중인데, 검지~새끼손가락 중 2개 이상이 심하게 접혀있다면 '완전 오동작'으로 간주
+    pairs = [(8, 6), (12, 10), (16, 14), (20, 18)]
+    folded_count = 0
+    for tip_i, pip_i in pairs:
+        # 손가락 끝(tip)이 중간 마디(pip)보다 손목에 더 가까우면 꽉 접힌 것으로 판단
+        tip_dist = (wrist.x - landmarks[tip_i].x)**2 + (wrist.y - landmarks[tip_i].y)**2
+        pip_dist = (wrist.x - landmarks[pip_i].x)**2 + (wrist.y - landmarks[pip_i].y)**2
+        if tip_dist < pip_dist:
+            folded_count += 1
+            
+    if folded_count >= 2:
+        return "wrong_motion", None  # 완전한 오동작 상태 반환
+
+    # 2. 내 손바닥 기준의 비율 측정 시작
     ref_length = math.sqrt((wrist.x - mcp.x)**2 + (wrist.y - mcp.y)**2 + (wrist.z - mcp.z)**2)
     if ref_length < 1e-6:
         ref_length = 0.1
@@ -246,13 +261,13 @@ def get_tap_state(landmarks):
             min_ratio = ratio
             active_finger = tip_i
             
-    # 검지(8)를 0.15 -> 0.20으로 완화하여 살짝만 닿아도 편하게 인식되도록 수정
     touch_thresholds = {8: 0.20, 12: 0.22, 16: 0.24, 20: 0.26}
     touch_th = touch_thresholds[active_finger]
     
+    # 3. 상태 판정
     if min_ratio <= touch_th:
         return "tap", active_finger
-    elif min_ratio <= touch_th + 0.4: # 추적 범위를 0.4로 대폭 넓혀 빨간불이 일찍 켜지게 함
+    elif min_ratio <= touch_th + 0.4: 
         return "open", active_finger
     else:
         return "open", None
@@ -415,7 +430,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         confirmed_state = None
         patient_buf     = []
         dtw_counter     = 0
-        last_guide_tap_finger = None  # guide_tap_finger가 None일 때 이전 값 유지용
         similarity          = None
         similarity_buf      = []
         rom_score           = None
@@ -457,9 +471,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 if count_type == "tap" and current_guide_raw is not None
                 else None
             )
-            # guide_tap_finger가 None이 아닐 때만 last 값 갱신
-            if guide_tap_finger is not None:
-                last_guide_tap_finger = guide_tap_finger
 
             # flip 후 MediaPipe에 전달 → Left/Right 화면과 일치
             frame = cv2.flip(frame, 1)
@@ -562,7 +573,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                 should_count = True
                             phase = "open"
                             joint_signals = None
-                            last_guide_tap_finger = None
                         elif confirmed_state == "tap":
                             if phase == "open":
                                 phase = "tap"
@@ -593,7 +603,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                             similarity_buf.clear()
                             rom_score = None
                             rom_score_buf.clear()
-                            last_guide_tap_finger = None
                             no_hand_counter = 0
 
                             # ── 운동 완료 체크 ──────────────────────
@@ -642,7 +651,11 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     finger_sigs = _finger_angle_signals(angles, target_angles)
                     joint_signals = _build_joint_signals_from_fingers(finger_sigs)
                 elif count_type == "tap":
-                    if patient_active_finger is not None:
+                    # [추가됨] 예외 처리: 주먹 쥐기 등 대놓고 오동작인 경우 스켈레톤 전체를 빨간색으로 경고!
+                    if raw_state == "wrong_motion":
+                        joint_signals = _build_joint_signals_from_fingers(["red"] * 5)
+                        
+                    elif patient_active_finger is not None:
                         thumb = first_landmarks[4]
                         tip   = first_landmarks[patient_active_finger]
                         wrist = first_landmarks[0]
@@ -652,9 +665,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         cur_dist = math.sqrt((thumb.x - tip.x)**2 + (thumb.y - tip.y)**2 + (thumb.z - tip.z)**2)
                         ratio = cur_dist / ref_length
                         
-                        # [수정됨] HUD 쪽 임계값도 동일하게 꽉 조임
-                        touch_thresholds = {8: 0.15, 12: 0.18, 16: 0.22, 20: 0.25}
-                        touch_th = touch_thresholds.get(patient_active_finger, 0.15)
+                        touch_thresholds = {8: 0.20, 12: 0.22, 16: 0.24, 20: 0.26}
+                        touch_th = touch_thresholds.get(patient_active_finger, 0.20)
 
                         tap_sig_map = {8: 1, 12: 2, 16: 3, 20: 4}
                         sig_idx = tap_sig_map.get(patient_active_finger, 1)
@@ -662,14 +674,15 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         finger_sigs = ["green"] * 5
                         
                         if ratio <= touch_th:           
-                            finger_sigs[sig_idx] = "green"   # 완벽히 닿음 (Tap)
-                        elif ratio <= touch_th + 0.25:   
-                            finger_sigs[sig_idx] = "yellow"  # 가까이 다가옴
+                            finger_sigs[sig_idx] = "green"   # 완전히 닿음
+                        elif ratio <= touch_th + 0.15:   
+                            finger_sigs[sig_idx] = "yellow"  # 닿기 직전 접근
                         else:                               
-                            finger_sigs[sig_idx] = "red"     # 구부리기 시작함
+                            finger_sigs[sig_idx] = "red"     # 굽히기 시작함
                             
                         joint_signals = _build_joint_signals_from_fingers(finger_sigs)
                     else:
+                        # 손을 쫙 펴고 정상적으로 쉴 때만 평온한 초록색 유지
                         joint_signals = _build_joint_signals_from_fingers(["green"] * 5)
 
             # joint_signals가 모든 분기를 거쳐 확정된 직후, 손 검출 여부와 무관하게
