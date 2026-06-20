@@ -45,11 +45,19 @@ export const patientApi = {
   getPatientRom:          (id)       => api.get(`/patients/${id}/rom`),
   updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
   getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),
+  getMySchedule:          ()         => api.get('/patients/me/schedule'),
+  getNotifications:         ()   => api.get('/patients/me/notifications'),
+  markNotificationRead:     (id) => api.patch(`/patients/me/notifications/${id}/read`),
+  markAllNotificationsRead: ()   => api.patch('/patients/me/notifications/read-all'),
+  reportExerciseBlocked:    ()   => api.post('/patients/me/exercise-blocked'),
 };
 
 export const doctorApi = {
   getMyProfile:    ()     => api.get('/auth/me'),
   updateMyProfile: (body) => api.patch('/auth/doctor/me', body),
+  getNotifications:         ()   => api.get('/doctor/me/notifications'),
+  markNotificationRead:     (id) => api.patch(`/doctor/me/notifications/${id}/read`),
+  markAllNotificationsRead: ()   => api.patch('/doctor/me/notifications/read-all'),
 };
 
 export const authApi = {

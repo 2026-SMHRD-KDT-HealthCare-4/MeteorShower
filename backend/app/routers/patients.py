@@ -6,7 +6,9 @@ from crud import doctor as doctor_crud
 from crud import patient as patient_crud
 from database import get_db
 from dependencies import get_token_payload
+from models.doctor_notification import DoctorNotification
 from models.exercise import Exercise
+from models.patient_notification import PatientNotification
 from models.prescription import Prescription
 from models.prescription_exercise import PrescriptionExercise
 from models.exercise_schedule import ExerciseSchedule
@@ -238,6 +240,79 @@ def update_patient_rom(
     return {"rom": _save_patient_rom(db, patient_id, body.rom)}
 
 
+@router.post("/me/exercise-blocked", status_code=201)
+def report_exercise_blocked(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if not patient.doctor_id:
+        return {"message": "담당 의사 없음"}
+
+    db.add(DoctorNotification(
+        doctor_id=patient.doctor_id,
+        patient_id=patient_id,
+        notification_type="운동차단",
+        notification_content=f"{patient.name} 환자가 사전 문진에서 증상을 호소하여 운동이 차단되었습니다.",
+        is_read=False,
+    ))
+    db.commit()
+    return {"message": "의사에게 알림이 전송되었습니다."}
+
+
+@router.get("/me/schedule")
+def get_my_schedule(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    today = date.today()
+
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    result = []
+
+    # 운동 일정: 적용중 처방의 exercise_schedule 전체
+    prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .all()
+    )
+    for prescription in prescriptions:
+        for pe in prescription.prescription_exercises:
+            for schedule in pe.schedules:
+                ex_date = schedule.exercise_date
+                if ex_date < today:
+                    status = "done" if schedule.sessions else "missed"
+                else:
+                    status = "upcoming"
+                result.append({
+                    "date": ex_date.isoformat(),
+                    "type": "exercise",
+                    "status": status,
+                })
+
+    # 진료 예정일
+    if patient.appointment_date:
+        appt_date = patient.appointment_date
+        status = "done" if appt_date < today else "upcoming"
+        result.append({
+            "date": appt_date.isoformat(),
+            "type": "hospital",
+            "status": status,
+        })
+
+    return result
+
+
 @router.get("/me/today-exercises")
 def get_my_today_exercises(
     payload: dict = Depends(get_token_payload),
@@ -357,6 +432,13 @@ def save_patient_prescription(
                     target_rom=target_rom,
                 )
             )
+
+    db.add(PatientNotification(
+        patient_id=patient_id,
+        notification_type="처방등록",
+        notification_content="담당 의사가 새 운동 처방을 등록했습니다.",
+        is_read=False,
+    ))
 
     db.commit()
     db.refresh(prescription)
