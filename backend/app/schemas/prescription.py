@@ -15,4 +15,5 @@ class PrescriptionSaveRequest(BaseModel):
     rehab_phase: Optional[str] = None
     exercises: List[PrescriptionExerciseRequest]
     schedule: Dict[str, bool] = {}
+    rom: Dict[str, float] = {}
     prescription_date: Optional[date] = None

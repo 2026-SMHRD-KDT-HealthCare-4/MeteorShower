@@ -5,6 +5,7 @@ from .exercise import Exercise
 from .prescription import Prescription
 from .prescription_exercise import PrescriptionExercise
 from .prescription_finger_setting import PrescriptionFingerSetting
+from .patient_rom_setting import PatientRomSetting
 from .exercise_schedule import ExerciseSchedule
 from .rehab_exercise_session import RehabExerciseSession
 from .rehab_exercise_log import RehabExerciseLog
