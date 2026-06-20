@@ -7,6 +7,8 @@ import PublicOnlyRoute from './components/PublicOnlyRoute';
 import LandingPage from './pages/LandingPage';
 import PatientLogin from './pages/patient/PatientLogin';
 import PatientSignup from './pages/patient/PatientSignup';
+import SocialCallback from './pages/patient/SocialCallback';
+import SocialSignup from './pages/patient/SocialSignup';
 import TodayExercise from './pages/patient/TodayExercise';
 import ExerciseSession from './pages/patient/ExerciseSession';
 import MedicalRecords from './pages/patient/MedicalRecords';
@@ -31,6 +33,8 @@ export default function App() {
           {/* Patient public routes */}
           <Route path="/patient/login" element={<PublicOnlyRoute><PatientLogin /></PublicOnlyRoute>} />
           <Route path="/patient/signup" element={<PublicOnlyRoute><PatientSignup /></PublicOnlyRoute>} />
+          <Route path="/patient/auth/callback/:provider" element={<SocialCallback />} />
+          <Route path="/patient/auth/social-signup" element={<SocialSignup />} />
 
           {/* Patient protected routes */}
           <Route path="/patient/exercise" element={<ProtectedRoute role="patient"><TodayExercise /></ProtectedRoute>} />
