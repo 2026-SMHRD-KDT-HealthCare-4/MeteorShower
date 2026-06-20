@@ -24,6 +24,16 @@ export default function PatientLogin() {
   const show = (field) => (touched[field] || submitAttempted) && errors[field];
   const handleBlur = (field) => setTouched((p) => ({ ...p, [field]: true }));
 
+  const handleSocialLogin = async (provider) => {
+    const redirectUri = `${window.location.origin}/patient/auth/callback/${provider}`;
+    try {
+      const { url } = await authApi.getSocialLoginUrl(provider, redirectUri);
+      window.location.href = url;
+    } catch {
+      setLoginError('소셜 로그인 연결에 실패했습니다.');
+    }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setSubmitAttempted(true);
@@ -156,7 +166,7 @@ export default function PatientLogin() {
 
           {/* Social */}
           <div className="flex justify-center gap-4">
-            <button title="Google 로그인" className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center bg-white hover:bg-surface-container transition-colors active:scale-95">
+            <button onClick={() => handleSocialLogin('google')} title="Google 로그인" className="w-12 h-12 rounded-full border border-outline-variant flex items-center justify-center bg-white hover:bg-surface-container transition-colors active:scale-95">
               <svg className="w-6 h-6" viewBox="0 0 24 24">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                 <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -164,10 +174,10 @@ export default function PatientLogin() {
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 6.57l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
             </button>
-            <button title="Naver 로그인" className="w-12 h-12 rounded-full flex items-center justify-center bg-[#03C75A] hover:brightness-95 transition-all active:scale-95">
+            <button onClick={() => handleSocialLogin('naver')} title="Naver 로그인" className="w-12 h-12 rounded-full flex items-center justify-center bg-[#03C75A] hover:brightness-95 transition-all active:scale-95">
               <span className="text-white font-black text-lg">N</span>
             </button>
-            <button title="Kakao 로그인" className="w-12 h-12 rounded-full flex items-center justify-center bg-[#FEE500] hover:brightness-95 transition-all active:scale-95">
+            <button onClick={() => handleSocialLogin('kakao')} title="Kakao 로그인" className="w-12 h-12 rounded-full flex items-center justify-center bg-[#FEE500] hover:brightness-95 transition-all active:scale-95">
               <span className="text-[#3C1E1E] font-black text-lg">K</span>
             </button>
           </div>

@@ -70,6 +70,11 @@ export const authApi = {
   patientLogin: (login_id, password) =>
     request('POST', '/auth/patient/login', { login_id, password }),
 
+  getSocialLoginUrl: (provider, redirectUri) =>
+    request('GET', `/auth/social/${provider}/url?redirect_uri=${encodeURIComponent(redirectUri)}`),
+  socialLogin: (provider, body) => request('POST', `/auth/social/${provider}`, body),
+  socialSignup: (body) => request('POST', '/auth/social-signup', body),
+
   doctorSignup: (form) =>
     request('POST', '/auth/doctor/signup', {
       login_id:       form.username,
