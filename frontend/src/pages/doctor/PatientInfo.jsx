@@ -192,13 +192,20 @@ const defaultPrescription = [
 ];
 
 const ROM_FINGERS = [
-  { key: 'thumb',  label: '엄지 (Thumb)',  joints: ['MCP', 'IP', 'DIP'] },
-  { key: 'index',  label: '검지 (Index)',  joints: ['MCP', 'PIP', 'DIP'] },
-  { key: 'middle', label: '중지 (Middle)', joints: ['MCP', 'PIP', 'DIP'] },
-  { key: 'ring',   label: '약지 (Ring)',   joints: ['MCP', 'PIP', 'DIP'] },
-  { key: 'pinky',  label: '소지 (Pinky)', joints: ['MCP', 'PIP', 'DIP'] },
+  { key: 'thumb',  label: '엄지 (Thumb)'  },
+  { key: 'index',  label: '검지 (Index)'  },
+  { key: 'middle', label: '중지 (Middle)' },
+  { key: 'ring',   label: '약지 (Ring)'   },
+  { key: 'pinky',  label: '소지 (Pinky)'  },
 ];
-const ROM_ROW_LABELS = ['MCP', 'PIP / IP', 'DIP'];
+const ROM_ROWS = [
+  { label: 'MCP (왼손)',   joint: 'MCP', hand: '왼손'  },
+  { label: 'MCP (오른손)', joint: 'MCP', hand: '오른손' },
+  { label: 'PIP (왼손)',   joint: 'PIP', hand: '왼손'  },
+  { label: 'PIP (오른손)', joint: 'PIP', hand: '오른손' },
+  { label: 'DIP (왼손)',   joint: 'DIP', hand: '왼손'  },
+  { label: 'DIP (오른손)', joint: 'DIP', hand: '오른손' },
+];
 
 export default function PatientInfo() {
   const navigate = useNavigate();
@@ -269,7 +276,11 @@ export default function PatientInfo() {
   const hasRomData = Object.values(rom).some((v) => v !== '' && v !== null && v !== undefined);
 
   const handleRomSave = () => {
-    patientApi.updatePatientRom(patientId, { rom })
+    const body = {};
+    Object.entries(rom).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) body[k] = parseFloat(v);
+    });
+    patientApi.updatePatientRom(patientId, { rom: body })
       .then((data) => {
         setRom(data.rom ?? {});
         setIsEditingRom(false);
@@ -620,36 +631,32 @@ export default function PatientInfo() {
           {/* 조회 모드 */}
           {!isEditingRom && hasRomData && (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[540px] border-collapse">
+              <table className="w-full min-w-[580px] border-collapse">
                 <thead>
                   <tr className="bg-[#f0f6ff]">
-                    <th className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-20">관절</th>
+                    <th className="px-2 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-36 whitespace-nowrap">관절</th>
                     {ROM_FINGERS.map((f) => (
-                      <th key={f.key} className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
+                      <th key={f.key} className="px-1 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
                         {f.label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {ROM_ROW_LABELS.map((rowLabel, rowIdx) => (
-                    <tr key={rowLabel} className="hover:bg-surface-container-lowest transition-colors">
-                      <td className="px-3 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low">
-                        {rowLabel}
+                  {ROM_ROWS.map(({ label, joint, hand }) => (
+                    <tr key={`${joint}_${hand}`} className="hover:bg-surface-container-lowest transition-colors">
+                      <td className="px-2 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low whitespace-nowrap">
+                        {label}
                       </td>
                       {ROM_FINGERS.map((f) => {
-                        const jointName = f.joints[rowIdx];
-                        const stateKey = jointName ? `${f.key}_${jointName}` : null;
-                        const val = stateKey ? rom[stateKey] : undefined;
+                        const stateKey = `${f.key}_${joint}_${hand}`;
+                        const val = rom[stateKey];
                         return (
-                          <td key={f.key} className="px-3 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
-                            {stateKey ? (
-                              val !== undefined
-                                ? `${val}°`
-                                : <span className="text-outline font-normal">—</span>
-                            ) : (
-                              <span className="text-outline font-normal">—</span>
-                            )}
+                          <td key={f.key} className="px-1 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
+                            {val !== undefined
+                              ? `${val}°`
+                              : <span className="text-outline font-normal">—</span>
+                            }
                           </td>
                         );
                       })}
@@ -667,45 +674,40 @@ export default function PatientInfo() {
                 각 관절의 가동 범위를 입력해주세요. 단위: 도(°), 소수점 1자리까지 입력 가능합니다.
               </p>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[540px] border-collapse">
+                <table className="w-full min-w-[580px] border-collapse">
                   <thead>
                     <tr className="bg-[#f0f6ff]">
-                      <th className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-20">관절</th>
+                      <th className="px-2 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-36 whitespace-nowrap">관절</th>
                       {ROM_FINGERS.map((f) => (
-                        <th key={f.key} className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
+                        <th key={f.key} className="px-1 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
                           {f.label}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {ROM_ROW_LABELS.map((rowLabel, rowIdx) => (
-                      <tr key={rowLabel} className="hover:bg-surface-container-lowest transition-colors">
-                        <td className="px-3 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low">
-                          {rowLabel}
+                    {ROM_ROWS.map(({ label, joint, hand }) => (
+                      <tr key={`${joint}_${hand}`} className="hover:bg-surface-container-lowest transition-colors">
+                        <td className="px-2 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low whitespace-nowrap">
+                          {label}
                         </td>
                         {ROM_FINGERS.map((f) => {
-                          const jointName = f.joints[rowIdx];
-                          const stateKey = jointName ? `${f.key}_${jointName}` : null;
+                          const stateKey = `${f.key}_${joint}_${hand}`;
                           return (
-                            <td key={f.key} className="px-2 py-2 border border-outline-variant text-center">
-                              {stateKey ? (
-                                <div className="flex items-center justify-center gap-1">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    max="180"
-                                    value={rom[stateKey] ?? ''}
-                                    onChange={(e) => setRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
-                                    placeholder="—"
-                                    className="w-16 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
-                                  />
-                                  <span className="text-label-sm text-on-surface-variant">°</span>
-                                </div>
-                              ) : (
-                                <span className="text-outline text-label-md">—</span>
-                              )}
+                            <td key={f.key} className="px-1 py-2 border border-outline-variant text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="180"
+                                  value={rom[stateKey] ?? ''}
+                                  onChange={(e) => setRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
+                                  placeholder="—"
+                                  className="w-14 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
+                                />
+                                <span className="text-label-sm text-on-surface-variant">°</span>
+                              </div>
                             </td>
                           );
                         })}

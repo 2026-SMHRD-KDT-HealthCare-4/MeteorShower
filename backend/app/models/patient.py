@@ -43,3 +43,4 @@ class Patient(Base):
     social_accounts = relationship("SocialAccount", back_populates="patient")
     prescriptions = relationship("Prescription", back_populates="patient")
     llm_reports = relationship("LlmReport", back_populates="patient")
+    notifications = relationship("PatientNotification", back_populates="patient")
