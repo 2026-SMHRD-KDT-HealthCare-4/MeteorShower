@@ -51,13 +51,20 @@ function Field({ label, children }) {
 }
 
 function formatPhone(value) {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  const d = value.replace(/\D/g, '');
+  if (d.startsWith('02')) {
+    if (d.length <= 2) return d;
+    if (d.length <= 5) return `${d.slice(0,2)}-${d.slice(2)}`;
+    if (d.length <= 9) return `${d.slice(0,2)}-${d.slice(2,5)}-${d.slice(5)}`;
+    return `${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6,10)}`;
+  }
+  const s = d.slice(0, 11);
+  if (s.length <= 3) return s;
+  if (s.length <= 7) return `${s.slice(0,3)}-${s.slice(3)}`;
+  return `${s.slice(0,3)}-${s.slice(3,7)}-${s.slice(7)}`;
 }
 
-const PHONE_RE = /^01[0-9]-\d{4}-\d{4}$/;
+const PHONE_RE = /^\d{2,3}-\d{3,4}-\d{4}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function ProfileCard() {
@@ -86,7 +93,7 @@ function ProfileCard() {
 
   const validate = () => {
     const next = {};
-    if (!PHONE_RE.test(phone)) next.phone = '전화번호를 정확히 입력해 주세요';
+    if (!PHONE_RE.test(phone)) next.phone = '전화번호를 끝까지 입력하세요';
     if (guardianEmail && !EMAIL_RE.test(guardianEmail)) next.email = '올바른 이메일 형식을 입력해 주세요';
     setErrors(next);
     return Object.keys(next).length === 0;

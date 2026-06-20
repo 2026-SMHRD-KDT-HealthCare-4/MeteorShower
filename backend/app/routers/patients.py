@@ -6,7 +6,7 @@ from crud import patient as patient_crud
 from database import get_db
 from dependencies import get_token_payload
 from models.prescription import Prescription
-from schemas.patient import PatientAssignRequest, PatientUpdateRequest
+from schemas.patient import PatientAssignRequest, PatientMedicalUpdateRequest, PatientUpdateRequest
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -117,6 +117,23 @@ def assign_patient(
         values["hospital_name"] = doctor.hospital_name
 
     updated = patient_crud.update_patient(db, patient, values)
+    return _patient_to_dict(updated)
+
+
+@router.patch("/{patient_id}/medical")
+def update_patient_medical(
+    patient_id: int,
+    body: PatientMedicalUpdateRequest,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    updated = patient_crud.update_patient(db, patient, body.model_dump(exclude_unset=True))
     return _patient_to_dict(updated)
 
 
