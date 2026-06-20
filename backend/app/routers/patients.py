@@ -1,12 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import date
 
 from crud import doctor as doctor_crud
 from crud import patient as patient_crud
 from database import get_db
 from dependencies import get_token_payload
+from models.exercise import Exercise
 from models.prescription import Prescription
+from models.prescription_exercise import PrescriptionExercise
+from models.exercise_schedule import ExerciseSchedule
 from schemas.patient import PatientAssignRequest, PatientMedicalUpdateRequest, PatientUpdateRequest
+from schemas.prescription import PrescriptionSaveRequest
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -135,6 +140,115 @@ def update_patient_medical(
         raise HTTPException(status_code=403, detail="Cannot access this patient")
     updated = patient_crud.update_patient(db, patient, body.model_dump(exclude_unset=True))
     return _patient_to_dict(updated)
+
+
+@router.get("/me/today-exercises")
+def get_my_today_exercises(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    today = date.today()
+
+    prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .order_by(Prescription.prescription_date.desc())
+        .all()
+    )
+
+    exercises = []
+    for prescription in prescriptions:
+        for pe in sorted(prescription.prescription_exercises, key=lambda x: x.exercise_order):
+            scheduled_today = any(s.exercise_date == today for s in pe.schedules)
+            if pe.schedules and not scheduled_today:
+                continue
+            exercises.append({
+                "id": pe.prescription_exercise_id,
+                "exercise_id": pe.exercise_id,
+                "name": pe.exercise.exercise_name,
+                "sets": pe.target_sets,
+                "reps": pe.target_reps,
+                "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
+                "status": "waiting",
+                "videoTime": "01:20",
+            })
+
+    return exercises
+
+
+@router.post("/{patient_id}/prescriptions", status_code=201)
+def save_patient_prescription(
+    patient_id: int,
+    body: PrescriptionSaveRequest,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+
+    enabled_exercises = [ex for ex in body.exercises if ex.enabled]
+    if not enabled_exercises:
+        raise HTTPException(status_code=422, detail="At least one exercise is required")
+
+    (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .update({"status": "종료"})
+    )
+
+    prescription = Prescription(
+        patient_id=patient_id,
+        doctor_id=int(payload["sub"]),
+        prescription_date=body.prescription_date or date.today(),
+        rehab_phase=body.rehab_phase or patient.current_rehab_phase or "초기",
+        status="적용중",
+    )
+    db.add(prescription)
+    db.flush()
+
+    for order, ex in enumerate(enabled_exercises, start=1):
+        exercise = db.query(Exercise).filter(Exercise.exercise_name == ex.name).first()
+        if not exercise:
+            exercise = Exercise(
+                exercise_name=ex.name,
+                reference_motion={},
+                estimated_duration=ex.sets * ex.reps * 3,
+            )
+            db.add(exercise)
+            db.flush()
+
+        prescription_exercise = PrescriptionExercise(
+            prescription_id=prescription.prescription_id,
+            exercise_id=exercise.exercise_id,
+            target_sets=ex.sets,
+            target_reps=ex.reps,
+            exercise_order=order,
+        )
+        db.add(prescription_exercise)
+        db.flush()
+
+        for key, enabled in body.schedule.items():
+            if not enabled:
+                continue
+            name, _, date_text = key.partition("|")
+            if name != ex.name or not date_text:
+                continue
+            db.add(
+                ExerciseSchedule(
+                    prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                    exercise_date=date.fromisoformat(date_text),
+                )
+            )
+
+    db.commit()
+    db.refresh(prescription)
+    return {"prescription_id": prescription.prescription_id}
 
 
 @router.get("/{patient_id}/prescriptions")

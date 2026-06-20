@@ -277,9 +277,17 @@ export default function PatientInfo() {
 
   const handleSave = () => {
     if (!canSave) return;
-    setJustSaved(true);
-    setIsEditing(false);
-    setTimeout(() => setJustSaved(false), 2000);
+    patientApi.savePatientPrescription(patientId, {
+      rehab_phase: patient?.current_rehab_phase || undefined,
+      exercises: prescription,
+      schedule,
+    })
+      .then(() => {
+        setJustSaved(true);
+        setIsEditing(false);
+        setTimeout(() => setJustSaved(false), 2000);
+      })
+      .catch(() => {});
   };
 
   const handleEditStart = () => {
