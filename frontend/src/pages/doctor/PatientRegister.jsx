@@ -76,6 +76,7 @@ export default function PatientRegister() {
     if (!patient) return;
     setSubmitting(true);
     setSubmitError('');
+    const hasRom = Object.values(rom).some((v) => v !== '' && v !== null && v !== undefined);
     patientApi.assignPatient(patient.patient_id, {
       surgery_area: area || undefined,
       surgery_name: surgery || undefined,
@@ -84,6 +85,10 @@ export default function PatientRegister() {
       current_rehab_phase: stage || undefined,
       appointment_date: appointmentDate || undefined,
     })
+      .then(() => {
+        if (!hasRom) return null;
+        return patientApi.updatePatientRom(patient.patient_id, { rom });
+      })
       .then(() => setDone(true))
       .catch((err) => setSubmitError(err.message))
       .finally(() => setSubmitting(false));

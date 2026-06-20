@@ -15,6 +15,7 @@ class PrescriptionFingerSetting(Base):
     )
     hand_type = Column(String(10), nullable=False)
     finger_type = Column(String(10), nullable=False)
+    joint_type = Column(String(10), nullable=False)
     target_rom = Column(Numeric(6, 2), nullable=False)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
@@ -25,7 +26,11 @@ class PrescriptionFingerSetting(Base):
             "finger_type IN ('엄지', '검지', '중지', '약지', '소지')",
             name="ck_finger_setting_finger",
         ),
-        UniqueConstraint("prescription_exercise_id", "hand_type", "finger_type"),
+        CheckConstraint(
+            "joint_type IN ('MCP', 'PIP', 'DIP', 'IP')",
+            name="ck_finger_setting_joint",
+        ),
+        UniqueConstraint("prescription_exercise_id", "hand_type", "finger_type", "joint_type"),
     )
 
     prescription_exercise = relationship("PrescriptionExercise", back_populates="finger_settings")

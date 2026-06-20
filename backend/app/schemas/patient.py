@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 
@@ -26,6 +26,10 @@ class PatientMedicalUpdateRequest(BaseModel):
     rehab_start_date: Optional[date] = None
     current_rehab_phase: Optional[str] = None
     appointment_date: Optional[date] = None
+
+
+class PatientRomUpdateRequest(BaseModel):
+    rom: Dict[str, float] = {}
 
 
 class PatientResponse(BaseModel):

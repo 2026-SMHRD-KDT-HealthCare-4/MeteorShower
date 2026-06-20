@@ -215,7 +215,7 @@ export default function PatientInfo() {
   const [selectedSession, setSelectedSession] = useState(0);
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
   const [isEditing, setIsEditing] = useState(true);
-  const [isEditingRom, setIsEditingRom] = useState(true);
+  const [isEditingRom, setIsEditingRom] = useState(false);
   const [rom, setRom] = useState({});
   const [prescriptionLoaded, setPrescriptionLoaded] = useState(false);
 
@@ -241,6 +241,10 @@ export default function PatientInfo() {
       }
       setPrescriptionLoaded(true);
     }).catch(() => { setPrescriptionLoaded(true); });
+
+    patientApi.getPatientRom(patientId)
+      .then((data) => setRom(data.rom ?? {}))
+      .catch(() => {});
   }, [patientId]);
 
   const handleMedicalSave = () => {
@@ -262,7 +266,16 @@ export default function PatientInfo() {
     setMedicalEditing(false);
   };
 
-  const handleRomSave = () => setIsEditingRom(false);
+  const hasRomData = Object.values(rom).some((v) => v !== '' && v !== null && v !== undefined);
+
+  const handleRomSave = () => {
+    patientApi.updatePatientRom(patientId, { rom })
+      .then((data) => {
+        setRom(data.rom ?? {});
+        setIsEditingRom(false);
+      })
+      .catch(() => {});
+  };
   const handleRomCancel = () => { setRom({}); setIsEditingRom(false); };
 
   const updatePrescription = (idx, field, val) =>
@@ -277,9 +290,18 @@ export default function PatientInfo() {
 
   const handleSave = () => {
     if (!canSave) return;
-    setJustSaved(true);
-    setIsEditing(false);
-    setTimeout(() => setJustSaved(false), 2000);
+    patientApi.savePatientPrescription(patientId, {
+      rehab_phase: patient?.current_rehab_phase || undefined,
+      exercises: prescription,
+      schedule,
+      rom,
+    })
+      .then(() => {
+        setJustSaved(true);
+        setIsEditing(false);
+        setTimeout(() => setJustSaved(false), 2000);
+      })
+      .catch(() => {});
   };
 
   const handleEditStart = () => {
@@ -564,7 +586,7 @@ export default function PatientInfo() {
               <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>straighten</span>
               관절 가동 범위 (ROM)
             </h2>
-            {!isEditingRom && null && (
+            {!isEditingRom && (
               <button
                 onClick={() => setIsEditingRom(true)}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
@@ -576,7 +598,7 @@ export default function PatientInfo() {
           </div>
 
           {/* 데이터 없음 */}
-          {!isEditingRom && !null && (
+          {!isEditingRom && !hasRomData && (
             <div className="flex flex-col items-center justify-center py-8 gap-4 text-center">
               <div className="w-14 h-14 bg-surface-container rounded-full flex items-center justify-center">
                 <span className="material-symbols-outlined text-outline text-3xl">straighten</span>
@@ -596,7 +618,7 @@ export default function PatientInfo() {
           )}
 
           {/* 조회 모드 */}
-          {!isEditingRom && null && (
+          {!isEditingRom && hasRomData && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[540px] border-collapse">
                 <thead>
@@ -618,7 +640,7 @@ export default function PatientInfo() {
                       {ROM_FINGERS.map((f) => {
                         const jointName = f.joints[rowIdx];
                         const stateKey = jointName ? `${f.key}_${jointName}` : null;
-                        const val = stateKey ? null[stateKey] : undefined;
+                        const val = stateKey ? rom[stateKey] : undefined;
                         return (
                           <td key={f.key} className="px-3 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
                             {stateKey ? (
@@ -693,7 +715,7 @@ export default function PatientInfo() {
                 </table>
               </div>
               <div className="flex justify-end gap-3 pt-2 border-t border-outline-variant">
-                {null && (
+                {hasRomData && (
                   <button
                     onClick={handleRomCancel}
                     className="px-5 py-2.5 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md"

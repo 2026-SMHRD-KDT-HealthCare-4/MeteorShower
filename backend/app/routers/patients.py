@@ -1,14 +1,84 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import date
 
 from crud import doctor as doctor_crud
 from crud import patient as patient_crud
 from database import get_db
 from dependencies import get_token_payload
+from models.exercise import Exercise
 from models.prescription import Prescription
-from schemas.patient import PatientAssignRequest, PatientMedicalUpdateRequest, PatientUpdateRequest
+from models.prescription_exercise import PrescriptionExercise
+from models.exercise_schedule import ExerciseSchedule
+from models.patient_rom_setting import PatientRomSetting
+from models.prescription_finger_setting import PrescriptionFingerSetting
+from schemas.patient import PatientAssignRequest, PatientMedicalUpdateRequest, PatientRomUpdateRequest, PatientUpdateRequest
+from schemas.prescription import PrescriptionSaveRequest
 
 router = APIRouter(prefix="/patients", tags=["patients"])
+
+FINGER_LABELS = {
+    "thumb": "엄지",
+    "index": "검지",
+    "middle": "중지",
+    "ring": "약지",
+    "pinky": "소지",
+}
+
+
+def _hand_type_from_exercise_name(name: str):
+    if "왼손" in name:
+        return "왼손"
+    if "오른손" in name:
+        return "오른손"
+    return "오른손"
+
+
+def _parse_rom_key(key: str):
+    finger_key, _, joint_type = key.partition("_")
+    finger_type = FINGER_LABELS.get(finger_key)
+    if not finger_type or joint_type not in {"MCP", "PIP", "DIP", "IP"}:
+        return None
+    return finger_type, joint_type
+
+
+def _rom_settings_to_dict(settings):
+    rom = {}
+    for setting in settings:
+        finger_key = next(
+            (key for key, value in FINGER_LABELS.items() if value == setting.finger_type),
+            None,
+        )
+        if finger_key:
+            rom[f"{finger_key}_{setting.joint_type}"] = float(setting.target_rom)
+    return rom
+
+
+def _get_patient_rom(db: Session, patient_id: int):
+    return (
+        db.query(PatientRomSetting)
+        .filter(PatientRomSetting.patient_id == patient_id)
+        .all()
+    )
+
+
+def _save_patient_rom(db: Session, patient_id: int, rom: dict):
+    db.query(PatientRomSetting).filter(PatientRomSetting.patient_id == patient_id).delete()
+    for key, target_rom in rom.items():
+        parsed = _parse_rom_key(key)
+        if not parsed or target_rom in (None, ""):
+            continue
+        finger_type, joint_type = parsed
+        db.add(
+            PatientRomSetting(
+                patient_id=patient_id,
+                finger_type=finger_type,
+                joint_type=joint_type,
+                target_rom=target_rom,
+            )
+        )
+    db.commit()
+    return _rom_settings_to_dict(_get_patient_rom(db, patient_id))
 
 
 def _patient_to_dict(patient):
@@ -137,6 +207,162 @@ def update_patient_medical(
     return _patient_to_dict(updated)
 
 
+@router.get("/{patient_id}/rom")
+def get_patient_rom(
+    patient_id: int,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    return {"rom": _rom_settings_to_dict(_get_patient_rom(db, patient_id))}
+
+
+@router.patch("/{patient_id}/rom")
+def update_patient_rom(
+    patient_id: int,
+    body: PatientRomUpdateRequest,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    return {"rom": _save_patient_rom(db, patient_id, body.rom)}
+
+
+@router.get("/me/today-exercises")
+def get_my_today_exercises(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    today = date.today()
+
+    prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .order_by(Prescription.prescription_date.desc())
+        .all()
+    )
+
+    exercises = []
+    for prescription in prescriptions:
+        for pe in sorted(prescription.prescription_exercises, key=lambda x: x.exercise_order):
+            scheduled_today = any(s.exercise_date == today for s in pe.schedules)
+            if pe.schedules and not scheduled_today:
+                continue
+            exercises.append({
+                "id": pe.prescription_exercise_id,
+                "exercise_id": pe.exercise_id,
+                "name": pe.exercise.exercise_name,
+                "sets": pe.target_sets,
+                "reps": pe.target_reps,
+                "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
+                "status": "waiting",
+                "videoTime": "01:20",
+            })
+
+    return exercises
+
+
+@router.post("/{patient_id}/prescriptions", status_code=201)
+def save_patient_prescription(
+    patient_id: int,
+    body: PrescriptionSaveRequest,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+
+    enabled_exercises = [ex for ex in body.exercises if ex.enabled]
+    if not enabled_exercises:
+        raise HTTPException(status_code=422, detail="At least one exercise is required")
+
+    (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .update({"status": "종료"})
+    )
+
+    prescription = Prescription(
+        patient_id=patient_id,
+        doctor_id=int(payload["sub"]),
+        prescription_date=body.prescription_date or date.today(),
+        rehab_phase=body.rehab_phase or patient.current_rehab_phase or "초기",
+        status="적용중",
+    )
+    db.add(prescription)
+    db.flush()
+
+    for order, ex in enumerate(enabled_exercises, start=1):
+        exercise = db.query(Exercise).filter(Exercise.exercise_name == ex.name).first()
+        if not exercise:
+            exercise = Exercise(
+                exercise_name=ex.name,
+                reference_motion={},
+                estimated_duration=ex.sets * ex.reps * 3,
+            )
+            db.add(exercise)
+            db.flush()
+
+        prescription_exercise = PrescriptionExercise(
+            prescription_id=prescription.prescription_id,
+            exercise_id=exercise.exercise_id,
+            target_sets=ex.sets,
+            target_reps=ex.reps,
+            exercise_order=order,
+        )
+        db.add(prescription_exercise)
+        db.flush()
+
+        for key, enabled in body.schedule.items():
+            if not enabled:
+                continue
+            name, _, date_text = key.partition("|")
+            if name != ex.name or not date_text:
+                continue
+            db.add(
+                ExerciseSchedule(
+                    prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                    exercise_date=date.fromisoformat(date_text),
+                )
+            )
+
+        hand_type = _hand_type_from_exercise_name(ex.name)
+        for key, target_rom in body.rom.items():
+            parsed = _parse_rom_key(key)
+            if not parsed:
+                continue
+            finger_type, joint_type = parsed
+            db.add(
+                PrescriptionFingerSetting(
+                    prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                    hand_type=hand_type,
+                    finger_type=finger_type,
+                    joint_type=joint_type,
+                    target_rom=target_rom,
+                )
+            )
+
+    db.commit()
+    db.refresh(prescription)
+    return {"prescription_id": prescription.prescription_id}
+
+
 @router.get("/{patient_id}/prescriptions")
 def get_patient_prescriptions(
     patient_id: int,
@@ -165,6 +391,7 @@ def get_patient_prescriptions(
 
     exercises = []
     schedule = {}
+    rom = _rom_settings_to_dict(_get_patient_rom(db, patient_id))
     for pe in sorted(current.prescription_exercises, key=lambda x: x.exercise_order):
         exercises.append({
             "exercise_id": pe.exercise_id,
@@ -175,6 +402,13 @@ def get_patient_prescriptions(
         })
         for s in pe.schedules:
             schedule[f"{pe.exercise.exercise_name}|{s.exercise_date.isoformat()}"] = True
+        for setting in pe.finger_settings:
+            finger_key = next(
+                (key for key, value in FINGER_LABELS.items() if value == setting.finger_type),
+                None,
+            )
+            if finger_key:
+                rom[f"{finger_key}_{setting.joint_type}"] = float(setting.target_rom)
 
     return {
         "prescription_id": current.prescription_id,
@@ -183,6 +417,7 @@ def get_patient_prescriptions(
         "status": current.status,
         "exercises": exercises,
         "schedule": schedule,
+        "rom": rom,
     }
 
 

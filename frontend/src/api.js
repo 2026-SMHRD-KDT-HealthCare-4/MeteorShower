@@ -40,7 +40,11 @@ export const patientApi = {
   searchPatients:       (q)        => api.get(`/patients/search?q=${encodeURIComponent(q)}`),
   assignPatient:        (id, body) => api.patch(`/patients/${id}/register`, body),
   getPatientPrescription:  (id)       => api.get(`/patients/${id}/prescriptions`),
+  savePatientPrescription: (id, body) => api.post(`/patients/${id}/prescriptions`, body),
   updatePatientMedical:   (id, body) => api.patch(`/patients/${id}/medical`, body),
+  getPatientRom:          (id)       => api.get(`/patients/${id}/rom`),
+  updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
+  getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),
 };
 
 export const doctorApi = {

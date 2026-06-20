@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PatientNavBar from '../../components/PatientNavBar';
 import { useAuth } from '../../context/AuthContext';
+import { patientApi } from '../../api';
 
 const INITIAL_EXERCISES = [
   { id: 1, name: '오른손 두드리기',  sets: 3, reps: 10, duration: '5분', status: 'done',        videoTime: '01:20' },
@@ -245,7 +246,15 @@ function ExerciseCard({ ex, onStart }) {
 
 export default function TodayExercise() {
   const { user } = useAuth();
-  const [exercises, setExercises] = useState(INITIAL_EXERCISES);
+  const [exercises, setExercises] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    patientApi.getTodayExercises()
+      .then((data) => setExercises(data))
+      .catch(() => setExercises(INITIAL_EXERCISES))
+      .finally(() => setLoading(false));
+  }, []);
 
   const sortedExercises = useMemo(
     () => [...exercises].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]),
@@ -255,6 +264,7 @@ export default function TodayExercise() {
   const completedCount = exercises.filter((e) => e.status === 'done').length;
   const totalCount = exercises.length;
   const achievementRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const completionRatio = totalCount > 0 ? completedCount / totalCount : 0;
 
   const handleStart = (id) => {
     setExercises((prev) =>
@@ -337,7 +347,7 @@ export default function TodayExercise() {
                   strokeLinecap="round" strokeWidth="8"
                   style={{
                     strokeDasharray: '351.85',
-                    strokeDashoffset: `${351.85 * (1 - completedCount / totalCount)}`,
+                    strokeDashoffset: `${351.85 * (1 - completionRatio)}`,
                     transform: 'rotate(-90deg)',
                     transformOrigin: '50% 50%',
                     transition: 'stroke-dashoffset 0.6s ease',
@@ -369,9 +379,19 @@ export default function TodayExercise() {
         </div>
 
         <div className="space-y-stack-md">
-          {sortedExercises.map((ex) => (
-            <ExerciseCard key={ex.id} ex={ex} onStart={handleStart} />
-          ))}
+          {loading ? (
+            <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 text-center text-on-surface-variant">
+              오늘 운동을 불러오는 중입니다.
+            </div>
+          ) : sortedExercises.length > 0 ? (
+            sortedExercises.map((ex) => (
+              <ExerciseCard key={ex.id} ex={ex} onStart={handleStart} />
+            ))
+          ) : (
+            <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 text-center text-on-surface-variant">
+              오늘 등록된 운동이 없습니다.
+            </div>
+          )}
         </div>
       </main>
     </div>
