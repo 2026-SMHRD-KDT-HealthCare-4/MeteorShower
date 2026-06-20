@@ -60,16 +60,22 @@ def _rom_settings_to_dict(settings):
     return rom
 
 
-def _get_patient_rom(db: Session, patient_id: int):
+def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip'):
     return (
         db.query(PatientRomSetting)
-        .filter(PatientRomSetting.patient_id == patient_id)
+        .filter(
+            PatientRomSetting.patient_id == patient_id,
+            PatientRomSetting.exercise_type == exercise_type,
+        )
         .all()
     )
 
 
-def _save_patient_rom(db: Session, patient_id: int, rom: dict):
-    db.query(PatientRomSetting).filter(PatientRomSetting.patient_id == patient_id).delete()
+def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dict):
+    db.query(PatientRomSetting).filter(
+        PatientRomSetting.patient_id == patient_id,
+        PatientRomSetting.exercise_type == exercise_type,
+    ).delete()
     for key, target_rom in rom.items():
         parsed = _parse_rom_key(key)
         if not parsed or target_rom in (None, ""):
@@ -78,6 +84,7 @@ def _save_patient_rom(db: Session, patient_id: int, rom: dict):
         db.add(
             PatientRomSetting(
                 patient_id=patient_id,
+                exercise_type=exercise_type,
                 hand_type=hand_type,
                 finger_type=finger_type,
                 joint_type=joint_type,
@@ -85,7 +92,7 @@ def _save_patient_rom(db: Session, patient_id: int, rom: dict):
             )
         )
     db.commit()
-    return _rom_settings_to_dict(_get_patient_rom(db, patient_id))
+    return _rom_settings_to_dict(_get_patient_rom(db, patient_id, exercise_type))
 
 
 def _patient_to_dict(patient):
@@ -108,6 +115,7 @@ def _patient_to_dict(patient):
         "report_consent": patient.report_consent,
         "ai_difficulty_enabled": patient.ai_difficulty_enabled,
         "appointment_date": patient.appointment_date,
+        "doctor_name": patient.doctor.name if patient.doctor else None,
     }
 
 
@@ -217,6 +225,7 @@ def update_patient_medical(
 @router.get("/{patient_id}/rom")
 def get_patient_rom(
     patient_id: int,
+    exercise_type: str = 'grip',
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ):
@@ -226,7 +235,7 @@ def get_patient_rom(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
-    return {"rom": _rom_settings_to_dict(_get_patient_rom(db, patient_id))}
+    return {"rom": _rom_settings_to_dict(_get_patient_rom(db, patient_id, exercise_type))}
 
 
 @router.patch("/{patient_id}/rom")
@@ -242,7 +251,7 @@ def update_patient_rom(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
-    return {"rom": _save_patient_rom(db, patient_id, body.rom)}
+    return {"rom": _save_patient_rom(db, patient_id, body.exercise_type, body.rom)}
 
 
 @router.post("/me/exercise-blocked", status_code=201)
@@ -477,7 +486,7 @@ def get_patient_prescriptions(
 
     exercises = []
     schedule = {}
-    rom = _rom_settings_to_dict(_get_patient_rom(db, patient_id))
+    rom = _rom_settings_to_dict(_get_patient_rom(db, patient_id, 'grip'))
     for pe in sorted(current.prescription_exercises, key=lambda x: x.exercise_order):
         exercises.append({
             "exercise_id": pe.exercise_id,

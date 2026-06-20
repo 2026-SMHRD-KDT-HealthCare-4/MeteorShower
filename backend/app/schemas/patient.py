@@ -29,6 +29,7 @@ class PatientMedicalUpdateRequest(BaseModel):
 
 
 class PatientRomUpdateRequest(BaseModel):
+    exercise_type: str = 'grip'
     rom: Dict[str, float] = {}
 
 
