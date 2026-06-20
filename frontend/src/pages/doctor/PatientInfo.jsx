@@ -204,9 +204,8 @@ export default function PatientInfo() {
   const navigate = useNavigate();
   const { patientId } = useParams();
   const [patient, setPatient] = useState(null);
-  const [nextAppointment, setNextAppointment] = useState('');
-  const [editingAppointment, setEditingAppointment] = useState(false);
-  const [appointmentInput, setAppointmentInput] = useState('');
+  const [medicalEditing, setMedicalEditing] = useState(false);
+  const [medEdit, setMedEdit] = useState({ surgery_name: '', surgery_area: '', surgery_date: '', rehab_start_date: '', current_rehab_phase: '', appointment_date: '' });
 
   const [prescription, setPrescription] = useState(defaultPrescription);
   const [aiAdjust, setAiAdjust] = useState(true);
@@ -224,8 +223,14 @@ export default function PatientInfo() {
     if (!patientId) return;
     patientApi.getPatient(patientId).then((data) => {
       setPatient(data);
-      setNextAppointment(data.appointment_date ?? '');
-      setAppointmentInput(data.appointment_date ?? '');
+      setMedEdit({
+        surgery_name:        data.surgery_name         ?? '',
+        surgery_area:        data.surgery_area         ?? '',
+        surgery_date:        data.surgery_date         ?? '',
+        rehab_start_date:    data.rehab_start_date     ?? '',
+        current_rehab_phase: data.current_rehab_phase  ?? '',
+        appointment_date:    data.appointment_date      ?? '',
+      });
     }).catch(() => {});
 
     patientApi.getPatientPrescription(patientId).then((data) => {
@@ -237,6 +242,25 @@ export default function PatientInfo() {
       setPrescriptionLoaded(true);
     }).catch(() => { setPrescriptionLoaded(true); });
   }, [patientId]);
+
+  const handleMedicalSave = () => {
+    const body = {};
+    Object.entries(medEdit).forEach(([k, v]) => { if (v !== '') body[k] = v; });
+    patientApi.updatePatientMedical(patientId, body)
+      .then((data) => { setPatient(data); setMedicalEditing(false); })
+      .catch(() => {});
+  };
+  const handleMedicalCancel = () => {
+    setMedEdit({
+      surgery_name:        patient?.surgery_name         ?? '',
+      surgery_area:        patient?.surgery_area         ?? '',
+      surgery_date:        patient?.surgery_date         ?? '',
+      rehab_start_date:    patient?.rehab_start_date     ?? '',
+      current_rehab_phase: patient?.current_rehab_phase  ?? '',
+      appointment_date:    patient?.appointment_date      ?? '',
+    });
+    setMedicalEditing(false);
+  };
 
   const handleRomSave = () => setIsEditingRom(false);
   const handleRomCancel = () => { setRom({}); setIsEditingRom(false); };
@@ -388,10 +412,25 @@ export default function PatientInfo() {
 
         {/* 환자 정보 */}
         <section className="bg-white border border-outline-variant rounded-2xl overflow-hidden shadow-card">
-          <div className="flex items-center gap-2 px-6 py-4 border-b border-outline-variant bg-surface-container-low">
-            <span className="material-symbols-outlined text-doctor-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
-            <h2 className="text-title-md font-bold text-doctor-primary">기본 정보</h2>
+          {/* 섹션 헤더 */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant bg-surface-container-low">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-doctor-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
+              <h2 className="text-title-md font-bold text-doctor-primary">기본 정보</h2>
+            </div>
+            {medicalEditing ? (
+              <div className="flex gap-2">
+                <button onClick={handleMedicalSave} className="px-4 py-1.5 bg-doctor-primary text-white rounded-xl text-label-sm font-semibold hover:opacity-90 transition-opacity">저장</button>
+                <button onClick={handleMedicalCancel} className="px-4 py-1.5 border border-outline-variant text-on-surface-variant rounded-xl text-label-sm font-semibold hover:bg-surface-container transition-colors">취소</button>
+              </div>
+            ) : (
+              <button onClick={() => setMedicalEditing(true)} className="flex items-center gap-1.5 px-4 py-1.5 border-2 border-doctor-primary text-doctor-primary rounded-xl text-label-sm font-semibold hover:bg-[#e8f0fe] transition-colors">
+                <span className="material-symbols-outlined text-sm">edit</span>편집
+              </button>
+            )}
           </div>
+
+          {/* 읽기 전용 — 성명·환자번호·성별·생년월일·연락처·병원명 */}
           <div className="grid grid-cols-1 sm:grid-cols-2">
             {[
               { label: '성명 (Name)',        value: patient?.name },
@@ -399,63 +438,61 @@ export default function PatientInfo() {
               { label: '성별 (Gender)',      value: patient?.gender },
               { label: '생년월일 (Birth)',   value: formatDate(patient?.birth_date) },
               { label: '연락처 (Phone)',     value: patient?.phone },
-              { label: '수술명 (Surgery)',   value: patient?.surgery_name },
-              { label: '수술일 (Date)',      value: formatDate(patient?.surgery_date) },
-              { label: '진행 단계 (Stage)', value: patient?.current_rehab_phase },
-              { label: '재활 시작일',        value: formatDate(patient?.rehab_start_date) },
               { label: '병원명',             value: patient?.hospital_name },
             ].map((item, i) => (
-              <div key={i} className={`flex ${cellBorder(i)}`}>
+              <div key={i} className={`flex border-outline-variant ${i < 4 ? 'border-b' : ''} ${i % 2 === 0 ? 'sm:border-r' : ''}`}>
                 <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
                   {item.label}
                 </div>
-                <div className="flex-1 min-w-0 px-4 py-3 text-body-md text-on-surface">
-                  {item.value ?? '—'}
-                </div>
+                <div className="flex-1 min-w-0 px-4 py-3 text-body-md text-on-surface">{item.value ?? '—'}</div>
               </div>
             ))}
           </div>
 
-          {/* 진료 예정일 — 편집 가능 */}
-          <div className="border-t border-outline-variant flex">
-            <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
-              진료 예정일
-            </div>
-            {editingAppointment ? (
-              <div className="flex-1 px-4 py-2 flex items-center gap-3 flex-wrap">
-                <input
-                  type="date"
-                  value={appointmentInput}
-                  onChange={(e) => setAppointmentInput(e.target.value)}
-                  className="border border-outline-variant rounded-xl px-3 py-2 text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary"
-                />
-                <button
-                  onClick={() => { setNextAppointment(appointmentInput); setEditingAppointment(false); }}
-                  className="px-4 py-2 bg-doctor-primary text-white rounded-xl text-label-sm font-semibold hover:opacity-90 transition-opacity"
-                >
-                  저장
-                </button>
-                <button
-                  onClick={() => { setAppointmentInput(nextAppointment); setEditingAppointment(false); }}
-                  className="px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-sm font-semibold hover:bg-surface-container transition-colors"
-                >
-                  취소
-                </button>
+          {/* 편집 가능 — 수술명·수술부위·수술일·재활시작일·재활진행단계·진료예정일 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 border-t border-outline-variant">
+            {[
+              { label: '수술명',        key: 'surgery_name',        type: 'text',   placeholder: '예: 손가락 골절 수술' },
+              { label: '수술 부위',     key: 'surgery_area',        type: 'text',   placeholder: '예: 손가락' },
+              { label: '수술일',        key: 'surgery_date',        type: 'date',   placeholder: '' },
+              { label: '재활 시작일',   key: 'rehab_start_date',    type: 'date',   placeholder: '' },
+              { label: '재활 진행단계', key: 'current_rehab_phase', type: 'select', placeholder: '' },
+              { label: '진료 예정일',   key: 'appointment_date',    type: 'date',   placeholder: '' },
+            ].map((item, i) => (
+              <div key={i} className={`flex border-outline-variant ${i < 4 ? 'border-b' : ''} ${i % 2 === 0 ? 'sm:border-r' : ''}`}>
+                <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
+                  {item.label}
+                </div>
+                <div className="flex-1 min-w-0 px-4 py-2 flex items-center">
+                  {medicalEditing ? (
+                    item.type === 'select' ? (
+                      <select
+                        value={medEdit[item.key]}
+                        onChange={(e) => setMedEdit((p) => ({ ...p, [item.key]: e.target.value }))}
+                        className="w-full border border-outline-variant rounded-lg px-3 py-1.5 text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary bg-white"
+                      >
+                        <option value="">선택 안함</option>
+                        <option value="초기">초기</option>
+                        <option value="중기">중기</option>
+                        <option value="후기">후기</option>
+                      </select>
+                    ) : (
+                      <input
+                        type={item.type}
+                        value={medEdit[item.key]}
+                        onChange={(e) => setMedEdit((p) => ({ ...p, [item.key]: e.target.value }))}
+                        placeholder={item.placeholder}
+                        className="w-full border border-outline-variant rounded-lg px-3 py-1.5 text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
+                      />
+                    )
+                  ) : (
+                    <span className="text-body-md text-on-surface">
+                      {item.type === 'date' ? formatDate(medEdit[item.key]) || '—' : medEdit[item.key] || '—'}
+                    </span>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="flex-1 min-w-0 px-4 py-3 flex items-center justify-between gap-2">
-                <span className="text-body-md text-on-surface">
-                  {nextAppointment ? nextAppointment.replace(/-/g, '.') : '미정'}
-                </span>
-                <button
-                  onClick={() => { setAppointmentInput(nextAppointment); setEditingAppointment(true); }}
-                  className="flex items-center gap-1 text-label-sm text-doctor-primary hover:underline font-semibold flex-shrink-0"
-                >
-                  <span className="material-symbols-outlined text-sm">edit_calendar</span>
-                  변경
-                </button>
-              </div>
-            )}
+            ))}
           </div>
         </section>
 

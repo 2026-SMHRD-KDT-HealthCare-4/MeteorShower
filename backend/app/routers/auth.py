@@ -37,6 +37,8 @@ def get_me(
             "login_id": doctor.login_id,
             "name": doctor.name,
             "hospital_name": doctor.hospital_name,
+            "email": doctor.email,
+            "phone": doctor.phone,
             "role": "doctor",
         }
 
@@ -53,6 +55,30 @@ def get_me(
         }
 
     raise HTTPException(status_code=401, detail="Invalid role")
+
+
+@router.patch("/doctor/me")
+def update_doctor_profile(
+    body: dict,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    if payload["role"] != "doctor":
+        raise HTTPException(status_code=403, detail="doctor role required")
+    doctor = doctor_crud.get_doctor_by_id(db, int(payload["sub"]))
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    allowed = {k: v for k, v in body.items() if k in ("email", "phone")}
+    updated = doctor_crud.update_doctor(db, doctor, allowed)
+    return {
+        "id": updated.doctor_id,
+        "login_id": updated.login_id,
+        "name": updated.name,
+        "hospital_name": updated.hospital_name,
+        "email": updated.email,
+        "phone": updated.phone,
+        "role": "doctor",
+    }
 
 
 # ── 아이디 중복 확인 ─────────────────────────────────────────────────────────

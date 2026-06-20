@@ -42,6 +42,7 @@ export default function PatientRegister() {
   const [surgeryDate, setSurgeryDate] = useState('');
   const [rehabStart, setRehabStart]   = useState('');
   const [stage, setStage]         = useState('');
+  const [appointmentDate, setAppointmentDate] = useState('');
   const [done, setDone]           = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -57,7 +58,7 @@ export default function PatientRegister() {
     setSearching(true);
     setSearchError('');
     setPatient(null);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setRom({});
+    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({});
     patientApi.searchPatients(query.trim())
       .then((data) => { setResults(data); })
       .catch((err) => { setResults([]); setSearchError(err.message); })
@@ -67,7 +68,7 @@ export default function PatientRegister() {
   /* 목록에서 환자 선택 */
   const handleSelect = (p) => {
     setPatient(p);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setRom({});
+    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({});
   };
 
   /* 제출 */
@@ -81,6 +82,7 @@ export default function PatientRegister() {
       surgery_date: surgeryDate || undefined,
       rehab_start_date: rehabStart || undefined,
       current_rehab_phase: stage || undefined,
+      appointment_date: appointmentDate || undefined,
     })
       .then(() => setDone(true))
       .catch((err) => setSubmitError(err.message))
@@ -381,6 +383,15 @@ export default function PatientRegister() {
                     <option value="중기">중기</option>
                     <option value="후기">후기</option>
                   </select>
+                </Field>
+
+                <Field label="진료 예정일">
+                  <input
+                    type="date"
+                    value={appointmentDate}
+                    onChange={(e) => setAppointmentDate(e.target.value)}
+                    className={inputCls}
+                  />
                 </Field>
               </div>
             </section>

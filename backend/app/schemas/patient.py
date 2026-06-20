@@ -16,6 +16,16 @@ class PatientAssignRequest(BaseModel):
     surgery_date: Optional[date] = None
     rehab_start_date: Optional[date] = None
     current_rehab_phase: Optional[str] = None
+    appointment_date: Optional[date] = None
+
+
+class PatientMedicalUpdateRequest(BaseModel):
+    surgery_name: Optional[str] = None
+    surgery_area: Optional[str] = None
+    surgery_date: Optional[date] = None
+    rehab_start_date: Optional[date] = None
+    current_rehab_phase: Optional[str] = None
+    appointment_date: Optional[date] = None
 
 
 class PatientResponse(BaseModel):
