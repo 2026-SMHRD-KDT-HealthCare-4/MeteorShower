@@ -13,3 +13,4 @@ from .finger_accuracy import FingerAccuracy
 from .rehab_exercise_capture import RehabExerciseCapture
 from .llm_report import LlmReport
 from .doctor_notification import DoctorNotification
+from .patient_notification import PatientNotification

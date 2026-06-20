@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -30,6 +30,18 @@ class PatientMedicalUpdateRequest(BaseModel):
 
 class PatientRomUpdateRequest(BaseModel):
     rom: Dict[str, float] = {}
+
+
+class PrescriptionExerciseItem(BaseModel):
+    exercise_id: int
+    target_reps: int
+    target_sets: int
+    exercise_order: int
+
+
+class SavePrescriptionRequest(BaseModel):
+    rehab_phase: str
+    exercises: List[PrescriptionExerciseItem]
 
 
 class PatientResponse(BaseModel):

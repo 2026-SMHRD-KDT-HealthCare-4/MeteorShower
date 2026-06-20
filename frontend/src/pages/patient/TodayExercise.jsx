@@ -31,6 +31,7 @@ function PreExamModal({ onConfirm, onClose }) {
     if (!allAnswered) return;
     if (answers.some((a) => a === 'yes')) {
       setBlocked(true);
+      patientApi.reportExerciseBlocked().catch(() => {});
     } else {
       onConfirm();
     }
