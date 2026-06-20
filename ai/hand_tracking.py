@@ -85,6 +85,15 @@ DEFAULT_FINGER_ROM_TARGETS = {
 }
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 
+# 새로 추가: 탭핑 전용 타겟 (각도가 그립보다 더 완만해야 함)
+TAP_FINGER_ROM_TARGETS = {
+    "thumb":  {"IP": 80},
+    "index":  {"MCP": 120, "PIP": 100, "DIP": 140},
+    "middle": {"MCP": 120, "PIP": 105, "DIP": 140},
+    "ring":   {"MCP": 125, "PIP": 110, "DIP": 145},
+    "pinky":  {"MCP": 130, "PIP": 100, "DIP": 140},
+}
+
 
 # ★ 수정됨: 새 데이터 구조에 맞춰 각 관절의 '랜드마크 번호'를 키로 하는 딕셔너리 반환
 def _finger_angle_signals(angles_dict, target_angles_dict):
@@ -98,9 +107,9 @@ def _finger_angle_signals(angles_dict, target_angles_dict):
             target = target_angles_dict[finger_name][joint_name]
             pivot_idx = _FINGER_JOINT_INDICES[finger_name][joint_name][1]
             
-            if angle <= target + 15:
+            if angle <= target + 8:
                 signals[pivot_idx] = "green"
-            elif angle <= target + 35:
+            elif angle <= target + 15:
                 signals[pivot_idx] = "yellow"
             else:
                 signals[pivot_idx] = "red"
@@ -320,8 +329,13 @@ _options = vision.HandLandmarkerOptions(
 
 
 def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left"):
-    # ★ 수정됨: 타겟 딕셔너리를 통째로 넘겨받아 구조 일치화
-    target_angles = finger_rom_targets if finger_rom_targets is not None else DEFAULT_FINGER_ROM_TARGETS
+    # 1. 외부 입력 데이터가 있으면 그것을 우선 사용
+    if finger_rom_targets is not None:
+        target_angles = finger_rom_targets
+    else:
+        # 2. 없으면 첫 번째 운동 타입을 확인해서 자동 설정
+        ex0 = EXERCISES[0]
+        target_angles = TAP_FINGER_ROM_TARGETS if ex0["count_type"] == "tap" else DEFAULT_FINGER_ROM_TARGETS
 
     with vision.HandLandmarker.create_from_options(_options) as landmarker:
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -503,6 +517,11 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                     session_complete_at = time.time()
                                 else:
                                     ex_new              = EXERCISES[current_exercise_idx]
+                                    # 운동이 전환될 때 타겟값도 운동 타입에 맞게 변경
+                                    if ex_new["count_type"] == "tap":
+                                        target_angles = TAP_FINGER_ROM_TARGETS
+                                    else:
+                                        target_angles = DEFAULT_FINGER_ROM_TARGETS
                                     current_guide_raw   = _load_guide(ex_new["guide_path"])
                                     if hand == "right":
                                         current_guide_raw = mirror_guide_to_right_hand(current_guide_raw)
@@ -527,6 +546,16 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     rom_score_buf.append(raw_rom)
                     if len(rom_score_buf) > ROM_SMOOTHING: rom_score_buf.pop(0)
                     rom_score = sum(rom_score_buf) / len(rom_score_buf)
+                elif confirmed_state == "tap" and count_type == "tap" and patient_active_finger is not None:
+                    finger_name_map = {8: "index", 12: "middle", 16: "ring", 20: "pinky"}
+                    active_finger_name = finger_name_map.get(patient_active_finger)
+                    if active_finger_name in angles and active_finger_name in target_angles:
+                        tap_angles_subset  = {active_finger_name: angles[active_finger_name]}
+                        tap_targets_subset = {active_finger_name: target_angles[active_finger_name]}
+                        raw_rom = _compute_rom_score(tap_angles_subset, tap_targets_subset)
+                        rom_score_buf.append(raw_rom)
+                        if len(rom_score_buf) > ROM_SMOOTHING: rom_score_buf.pop(0)
+                        rom_score = sum(rom_score_buf) / len(rom_score_buf)
 
                 # ★ 수정됨: 신호등 연산 완전 정상화
                 if confirmed_state == "grip" and count_type == "grip":
@@ -535,6 +564,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     if raw_state == "wrong_motion":
                         joint_signals = {i: "red" for i in range(21)}
                     elif patient_active_finger is not None:
+                        # 1. 거리 기반: 끝점(Tip) 판별 (닿았는가?)
                         thumb = first_landmarks[4]
                         tip   = first_landmarks[patient_active_finger]
                         wrist = first_landmarks[0]
@@ -547,11 +577,36 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         touch_thresholds = {8: 0.20, 12: 0.22, 16: 0.24, 20: 0.26}
                         touch_th = touch_thresholds.get(patient_active_finger, 0.20)
                         
+                        # 일단 모두 초록색으로 초기화
                         signals = {i: "green" for i in range(21)}
-                        for idx in FINGER_LANDMARK_GROUPS[patient_active_finger]:
-                            if ratio <= touch_th:           signals[idx] = "green"
-                            elif ratio <= touch_th + 0.15:  signals[idx] = "yellow"
-                            else:                           signals[idx] = "red"
+                        
+                        # 거리 비율에 따라 끝점(Tip) 색상 결정
+                        if ratio <= touch_th:           tip_state = "green"
+                        elif ratio <= touch_th + 0.15:  tip_state = "yellow"
+                        else:                           tip_state = "red"
+                        
+                        # 엄지 끝(4번)과 움직이는 손가락 끝에 거리 기반 색상 적용
+                        signals[4] = tip_state
+                        signals[patient_active_finger] = tip_state
+
+                        # 2. 각도 기반: 중간 관절(MCP, PIP, DIP) 판별 (예쁘게 구부러졌는가?)
+                        finger_name_map = {8: "index", 12: "middle", 16: "ring", 20: "pinky"}
+                        active_finger_name = finger_name_map.get(patient_active_finger)
+                        
+                        # 2. 각도 기반: 중간 관절(MCP, PIP, DIP) 판별 (정상 범위를 더 넓게!)
+                        if active_finger_name in angles:
+                            for joint_name, angle in angles[active_finger_name].items():
+                                target = target_angles[active_finger_name].get(joint_name, 90)
+                                pivot_idx = _FINGER_JOINT_INDICES[active_finger_name][joint_name][1]
+                                
+                                if angle <= target + 8:
+                                    signals[pivot_idx] = "green"
+                                elif angle <= target + 15:
+                                    signals[pivot_idx] = "yellow"
+                                # 그 이상(완전 펴짐)이면 빨간색
+                                else:
+                                    signals[pivot_idx] = "red"
+                                    
                         joint_signals = signals
                     else:
                         joint_signals = {i: "green" for i in range(21)}
