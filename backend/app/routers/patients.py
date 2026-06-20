@@ -37,11 +37,15 @@ def _hand_type_from_exercise_name(name: str):
 
 
 def _parse_rom_key(key: str):
-    finger_key, _, joint_type = key.partition("_")
-    finger_type = FINGER_LABELS.get(finger_key)
-    if not finger_type or joint_type not in {"MCP", "PIP", "DIP", "IP"}:
+    # format: {finger_key}_{joint_type}_{hand_type}  e.g. thumb_MCP_왼손
+    parts = key.split("_", 2)
+    if len(parts) != 3:
         return None
-    return finger_type, joint_type
+    finger_key, joint_type, hand_type = parts
+    finger_type = FINGER_LABELS.get(finger_key)
+    if not finger_type or joint_type not in {"MCP", "PIP", "DIP"} or hand_type not in {"왼손", "오른손"}:
+        return None
+    return finger_type, joint_type, hand_type
 
 
 def _rom_settings_to_dict(settings):
@@ -52,7 +56,7 @@ def _rom_settings_to_dict(settings):
             None,
         )
         if finger_key:
-            rom[f"{finger_key}_{setting.joint_type}"] = float(setting.target_rom)
+            rom[f"{finger_key}_{setting.joint_type}_{setting.hand_type}"] = float(setting.target_rom)
     return rom
 
 
@@ -70,10 +74,11 @@ def _save_patient_rom(db: Session, patient_id: int, rom: dict):
         parsed = _parse_rom_key(key)
         if not parsed or target_rom in (None, ""):
             continue
-        finger_type, joint_type = parsed
+        finger_type, joint_type, hand_type = parsed
         db.add(
             PatientRomSetting(
                 patient_id=patient_id,
+                hand_type=hand_type,
                 finger_type=finger_type,
                 joint_type=joint_type,
                 target_rom=target_rom,
@@ -417,12 +422,11 @@ def save_patient_prescription(
                 )
             )
 
-        hand_type = _hand_type_from_exercise_name(ex.name)
         for key, target_rom in body.rom.items():
             parsed = _parse_rom_key(key)
-            if not parsed:
+            if not parsed or target_rom in (None, ""):
                 continue
-            finger_type, joint_type = parsed
+            finger_type, joint_type, hand_type = parsed
             db.add(
                 PrescriptionFingerSetting(
                     prescription_exercise_id=prescription_exercise.prescription_exercise_id,
@@ -490,7 +494,7 @@ def get_patient_prescriptions(
                 None,
             )
             if finger_key:
-                rom[f"{finger_key}_{setting.joint_type}"] = float(setting.target_rom)
+                rom[f"{finger_key}_{setting.joint_type}_{setting.hand_type}"] = float(setting.target_rom)
 
     return {
         "prescription_id": current.prescription_id,
