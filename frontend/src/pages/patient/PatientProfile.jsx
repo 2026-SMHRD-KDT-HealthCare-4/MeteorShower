@@ -145,6 +145,9 @@ function ProfileCard() {
           <Field label="재활 시작">
             <input readOnly value={formatDate(profile?.rehab_start_date)} className={roInputCls} />
           </Field>
+          <Field label="재활 단계">
+            <input readOnly value={profile?.current_rehab_phase ?? ''} className={roInputCls} />
+          </Field>
         </div>
 
         <div>
@@ -337,12 +340,14 @@ function ScheduleCalendar() {
 // ── 병원정보 카드 (읽기 전용) ─────────────────────────────────────────────
 function HospitalCard() {
   const [hospitalName, setHospitalName] = useState('');
+  const [doctorName, setDoctorName]     = useState('');
   const roInputCls =
     'w-full h-10 px-3 rounded-lg border border-outline-variant bg-surface-container text-on-surface-variant text-body-md outline-none cursor-not-allowed text-sm';
 
   useEffect(() => {
     patientApi.getMyProfile().then((data) => {
       setHospitalName(data.hospital_name ?? '');
+      setDoctorName(data.doctor_name ?? '');
     }).catch(() => {});
   }, []);
 
@@ -354,6 +359,7 @@ function HospitalCard() {
         <div className="grid grid-cols-2 gap-4">
           {[
             { label: '병원명', value: hospitalName },
+            { label: '주치의', value: doctorName },
           ].map(({ label, value }) => (
             <div key={label} className="space-y-1">
               <p className="text-label-sm font-semibold text-on-surface-variant">{label}</p>

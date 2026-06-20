@@ -158,7 +158,7 @@ export default function DoctorNavBar() {
                         key={n.id}
                         onClick={() => {
                           markOneRead(n.id);
-                          if (n.patient_id) navigate(`/doctor/patients/${n.patient_id}`);
+                          if (n.patient_id) navigate(`/doctor/patient/info/${n.patient_id}`);
                           setShowNotif(false);
                         }}
                         className={`w-full text-left px-5 py-4 flex gap-3 hover:bg-surface-container-lowest transition-colors ${n.is_read ? 'opacity-60' : ''}`}

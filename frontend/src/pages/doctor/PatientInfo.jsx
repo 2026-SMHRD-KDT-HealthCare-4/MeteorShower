@@ -206,6 +206,10 @@ const ROM_ROWS = [
   { label: 'DIP (왼손)',   joint: 'DIP', hand: '왼손'  },
   { label: 'DIP (오른손)', joint: 'DIP', hand: '오른손' },
 ];
+const ROM_EXERCISE_TABS = [
+  { key: 'basic',   label: 'Grip'    },
+  { key: 'tapping', label: 'Tapping' },
+];
 
 export default function PatientInfo() {
   const navigate = useNavigate();
@@ -223,7 +227,9 @@ export default function PatientInfo() {
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
   const [isEditing, setIsEditing] = useState(true);
   const [isEditingRom, setIsEditingRom] = useState(false);
-  const [rom, setRom] = useState({});
+  const [rom, setRom]                   = useState({});
+  const [activeRomTab, setActiveRomTab] = useState('basic');
+  const [tappingRom, setTappingRom]     = useState({});
   const [prescriptionLoaded, setPrescriptionLoaded] = useState(false);
 
   useEffect(() => {
@@ -249,8 +255,11 @@ export default function PatientInfo() {
       setPrescriptionLoaded(true);
     }).catch(() => { setPrescriptionLoaded(true); });
 
-    patientApi.getPatientRom(patientId)
+    patientApi.getPatientRom(patientId, 'grip')
       .then((data) => setRom(data.rom ?? {}))
+      .catch(() => {});
+    patientApi.getPatientRom(patientId, 'tapping')
+      .then((data) => setTappingRom(data.rom ?? {}))
       .catch(() => {});
   }, [patientId]);
 
@@ -273,21 +282,28 @@ export default function PatientInfo() {
     setMedicalEditing(false);
   };
 
-  const hasRomData = Object.values(rom).some((v) => v !== '' && v !== null && v !== undefined);
+  const romByTab    = { basic: rom,    tapping: tappingRom    };
+  const setRomByTab = { basic: setRom, tapping: setTappingRom };
+  const currentRom    = romByTab[activeRomTab]    ?? {};
+  const setCurrentRom = setRomByTab[activeRomTab];
+
+  const hasRomData = Object.values(currentRom).some((v) => v !== '' && v !== null && v !== undefined);
 
   const handleRomSave = () => {
     const body = {};
-    Object.entries(rom).forEach(([k, v]) => {
+    Object.entries(currentRom).forEach(([k, v]) => {
       if (v !== '' && v !== null && v !== undefined) body[k] = parseFloat(v);
     });
-    patientApi.updatePatientRom(patientId, { rom: body })
+    const exerciseType = activeRomTab === 'basic' ? 'grip' : 'tapping';
+    patientApi.updatePatientRom(patientId, { exercise_type: exerciseType, rom: body })
       .then((data) => {
-        setRom(data.rom ?? {});
+        if (activeRomTab === 'basic') setRom(data.rom ?? {});
+        else setTappingRom(data.rom ?? {});
         setIsEditingRom(false);
       })
       .catch(() => {});
   };
-  const handleRomCancel = () => { setRom({}); setIsEditingRom(false); };
+  const handleRomCancel = () => { setIsEditingRom(false); };
 
   const updatePrescription = (idx, field, val) =>
     setPrescription((prev) => prev.map((row, i) => (i === idx ? { ...row, [field]: val } : row)));
@@ -317,7 +333,6 @@ export default function PatientInfo() {
 
   const handleEditStart = () => {
     setIsEditing(true);
-    setSchedule({});
   };
 
   const handleEditCancel = () => {
@@ -597,15 +612,32 @@ export default function PatientInfo() {
               <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>straighten</span>
               관절 가동 범위 (ROM)
             </h2>
-            {!isEditingRom && (
-              <button
-                onClick={() => setIsEditingRom(true)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">edit</span>
-                수정
-              </button>
-            )}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex gap-1.5">
+                {ROM_EXERCISE_TABS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => { setActiveRomTab(key); setIsEditingRom(false); }}
+                    className={`px-3 py-1.5 rounded-lg text-label-sm font-semibold transition-colors
+                      ${activeRomTab === key
+                        ? 'bg-doctor-primary text-white shadow-sm'
+                        : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+                      }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {!isEditingRom && (
+                <button
+                  onClick={() => setIsEditingRom(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">edit</span>
+                  수정
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 데이터 없음 */}
@@ -650,7 +682,7 @@ export default function PatientInfo() {
                       </td>
                       {ROM_FINGERS.map((f) => {
                         const stateKey = `${f.key}_${joint}_${hand}`;
-                        const val = rom[stateKey];
+                        const val = currentRom[stateKey];
                         return (
                           <td key={f.key} className="px-1 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
                             {val !== undefined
@@ -701,8 +733,8 @@ export default function PatientInfo() {
                                   step="0.1"
                                   min="0"
                                   max="180"
-                                  value={rom[stateKey] ?? ''}
-                                  onChange={(e) => setRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
+                                  value={currentRom[stateKey] ?? ''}
+                                  onChange={(e) => setCurrentRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
                                   placeholder="—"
                                   className="w-14 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
                                 />

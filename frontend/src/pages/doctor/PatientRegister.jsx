@@ -22,6 +22,10 @@ const ROM_ROWS = [
   { label: 'DIP (왼손)',   joint: 'DIP', hand: '왼손'  },
   { label: 'DIP (오른손)', joint: 'DIP', hand: '오른손' },
 ];
+const ROM_EXERCISE_TABS = [
+  { key: 'basic',   label: 'Grip'    },
+  { key: 'tapping', label: 'Tapping' },
+];
 
 function Field({ label, children }) {
   return (
@@ -53,7 +57,14 @@ export default function PatientRegister() {
   const [done, setDone]           = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const [rom, setRom]             = useState({});
+  const [rom, setRom]                   = useState({});
+  const [activeRomTab, setActiveRomTab] = useState('basic');
+  const [tappingRom, setTappingRom]     = useState({});
+
+  const romByTab    = { basic: rom,    tapping: tappingRom    };
+  const setRomByTab = { basic: setRom, tapping: setTappingRom };
+  const currentRom    = romByTab[activeRomTab]    ?? {};
+  const setCurrentRom = setRomByTab[activeRomTab];
 
   /* 검색 결과 목록 */
   const [results, setResults] = useState([]);
@@ -65,7 +76,7 @@ export default function PatientRegister() {
     setSearching(true);
     setSearchError('');
     setPatient(null);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({});
+    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({}); setTappingRom({}); setActiveRomTab('basic');
     patientApi.searchPatients(query.trim())
       .then((data) => { setResults(data); })
       .catch((err) => { setResults([]); setSearchError(err.message); })
@@ -75,7 +86,7 @@ export default function PatientRegister() {
   /* 목록에서 환자 선택 */
   const handleSelect = (p) => {
     setPatient(p);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({});
+    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({}); setTappingRom({}); setActiveRomTab('basic');
   };
 
   /* 제출 */
@@ -95,9 +106,17 @@ export default function PatientRegister() {
       current_rehab_phase: stage || undefined,
       appointment_date: appointmentDate || undefined,
     })
-      .then(() => {
-        if (Object.keys(romBody).length === 0) return null;
-        return patientApi.updatePatientRom(patient.patient_id, { rom: romBody });
+      .then(async () => {
+        if (Object.keys(romBody).length > 0) {
+          await patientApi.updatePatientRom(patient.patient_id, { exercise_type: 'grip', rom: romBody });
+        }
+        const tappingBody = {};
+        Object.entries(tappingRom).forEach(([k, v]) => {
+          if (v !== '' && v !== null && v !== undefined) tappingBody[k] = parseFloat(v);
+        });
+        if (Object.keys(tappingBody).length > 0) {
+          await patientApi.updatePatientRom(patient.patient_id, { exercise_type: 'tapping', rom: tappingBody });
+        }
       })
       .then(() => setDone(true))
       .catch((err) => setSubmitError(err.message))
@@ -413,9 +432,26 @@ export default function PatientRegister() {
 
             {/* ── STEP 4: 관절 가동 범위 (ROM) ── */}
             <section className="bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-4">
-              <div className="flex items-center gap-2 pb-3 border-b border-outline-variant">
-                <span className="w-6 h-6 bg-doctor-primary text-white text-label-sm font-bold rounded-full flex items-center justify-center flex-shrink-0">4</span>
-                <h2 className="text-title-md font-bold text-doctor-primary">관절 가동 범위 (ROM)</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-outline-variant">
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-6 bg-doctor-primary text-white text-label-sm font-bold rounded-full flex items-center justify-center flex-shrink-0">4</span>
+                  <h2 className="text-title-md font-bold text-doctor-primary">관절 가동 범위 (ROM)</h2>
+                </div>
+                <div className="flex gap-1.5">
+                  {ROM_EXERCISE_TABS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setActiveRomTab(key)}
+                      className={`px-3 py-1.5 rounded-lg text-label-sm font-semibold transition-colors
+                        ${activeRomTab === key
+                          ? 'bg-doctor-primary text-white shadow-sm'
+                          : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+                        }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <p className="text-label-sm text-on-surface-variant">
                 각 관절의 가동 범위를 입력해주세요. 단위: 도(°), 소수점 1자리까지 입력 가능합니다.
@@ -448,8 +484,8 @@ export default function PatientRegister() {
                                   step="0.1"
                                   min="0"
                                   max="180"
-                                  value={rom[stateKey] ?? ''}
-                                  onChange={(e) => setRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
+                                  value={currentRom[stateKey] ?? ''}
+                                  onChange={(e) => setCurrentRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
                                   placeholder="—"
                                   className="w-14 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
                                 />
