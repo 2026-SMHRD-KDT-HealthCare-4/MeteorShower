@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import PatientNavBar from '../../components/PatientNavBar';
+import { useAuth } from '../../context/AuthContext';
 import { reportApi } from '../../api';
 
 const fallbackRecords = [
@@ -54,7 +55,7 @@ function mapReportToRecord(report, index) {
     name: exercise.name,
     sets: exercise.sets,
     reps: exercise.reps,
-    achievement: null,
+    achievement: exercise.achievement ?? null,
     icon: 'fitness_center',
     badgeColor: 'bg-surface-container-high text-primary',
   }));
@@ -136,7 +137,8 @@ function SmallRecordCard({ record }) {
 }
 
 export default function MedicalRecords() {
-  const [records, setRecords] = useState(fallbackRecords);
+  const { user } = useAuth();
+  const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -144,7 +146,7 @@ export default function MedicalRecords() {
     reportApi.getPatientReports()
       .then(async (items) => {
         if (!items.length) {
-          setRecords(fallbackRecords);
+          setRecords([]);
           return;
         }
         const details = await Promise.all(items.map((item) => reportApi.getPatientReport(item.report_id)));
@@ -162,7 +164,7 @@ export default function MedicalRecords() {
         {/* Greeting */}
         <section className="mb-12 text-center">
           <h1 className="text-headline-lg md:text-display-lg font-display font-bold text-primary mb-2">
-            김망나뇽님, 안녕하세요!
+            {user?.name ?? ''}님, 안녕하세요!
           </h1>
           <p className="text-body-lg text-on-surface-variant max-w-2xl mx-auto">
             지금까지의 재활과 처방 기록을 확인하고, 회복 과정을 함께 점검해요. 💪
@@ -181,6 +183,15 @@ export default function MedicalRecords() {
               {loadError}
             </div>
           )}
+          {/* 기록 없음 */}
+          {!loading && !loadError && records.length === 0 && (
+            <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-card p-12 text-center">
+              <span className="material-symbols-outlined text-outline text-5xl mb-4 block">folder_open</span>
+              <p className="text-label-md font-semibold text-on-surface">아직 진료 기록이 없습니다</p>
+              <p className="text-label-sm text-on-surface-variant mt-1">의사가 리포트를 승인하면 이곳에 표시됩니다.</p>
+            </div>
+          )}
+
           {/* Featured record */}
           {records.filter((r) => r.featured).map((record) => (
             <div key={record.id} className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-card overflow-hidden">

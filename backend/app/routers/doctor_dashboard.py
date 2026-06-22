@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 from database import get_db
 from dependencies import get_token_payload
 from models.exercise_schedule import ExerciseSchedule
+from models.llm_report import LlmReport
 from models.patient import Patient
 from models.prescription import Prescription
 from models.prescription_exercise import PrescriptionExercise
-from models.rehab_exercise_session import RehabExerciseSession
 
 router = APIRouter(prefix="/doctor/me", tags=["doctor-dashboard"])
 
@@ -49,30 +49,25 @@ def get_doctor_dashboard(
     week_start, week_end = _week_range(date.today())
 
     waiting_rows = (
-        db.query(Patient, RehabExerciseSession)
-        .join(Prescription, Prescription.patient_id == Patient.patient_id)
-        .join(PrescriptionExercise, PrescriptionExercise.prescription_id == Prescription.prescription_id)
-        .join(ExerciseSchedule, ExerciseSchedule.prescription_exercise_id == PrescriptionExercise.prescription_exercise_id)
-        .join(RehabExerciseSession, RehabExerciseSession.schedule_id == ExerciseSchedule.schedule_id)
-        .filter(Patient.doctor_id == doctor_id)
-        .order_by(RehabExerciseSession.created_at.desc())
+        db.query(Patient)
+        .join(LlmReport, LlmReport.patient_id == Patient.patient_id)
+        .filter(
+            Patient.doctor_id == doctor_id,
+            LlmReport.doctor_id == doctor_id,
+            LlmReport.approval_status.in_(["대기", "수정"]),
+        )
+        .distinct()
         .all()
     )
 
-    seen_waiting = set()
-    waiting_patients = []
-    for patient, session in waiting_rows:
-        if patient.patient_id in seen_waiting:
-            continue
-        seen_waiting.add(patient.patient_id)
-        waiting_patients.append(
-            {
-                **_patient_card(patient),
-                "urgent": False,
-                "reason": "운동 완료",
-                "last_exercise_date": session.start_time.date().isoformat() if session.start_time else None,
-            }
-        )
+    waiting_patients = [
+        {
+            **_patient_card(patient),
+            "urgent": False,
+            "reason": "리포트 검토 대기",
+        }
+        for patient in waiting_rows
+    ]
 
     weekly_rows = (
         db.query(Patient)

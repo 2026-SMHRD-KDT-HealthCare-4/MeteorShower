@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
 import { doctorApi, patientApi } from '../../api';
 
@@ -55,6 +55,7 @@ export default function DoctorPatientList() {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     patientApi.listPatients()
@@ -78,7 +79,7 @@ export default function DoctorPatientList() {
         setPrescribedPatients((data.weekly_prescriptions ?? []).map((p) => ({ ...p, birth: formatDate(p.birth) })));
       })
       .catch(() => {});
-  }, []);
+  }, [location.key]);
 
   const selectedInfo = allPatients.find((p) => p.id === selectedPatient);
 
@@ -166,7 +167,7 @@ export default function DoctorPatientList() {
                   key={p.id}
                   patient={p}
                   selected={false}
-                  onSelect={() => {}}
+                  onSelect={() => navigate('/doctor/report/daily', { state: { patientId: p.patient_id } })}
                   accent="secondary"
                   showUrgent
                 />
@@ -188,8 +189,8 @@ export default function DoctorPatientList() {
                 <PatientCard
                   key={p.id}
                   patient={p}
-                  selected={false}
-                  onSelect={() => {}}
+                  selected={selectedPatient === p.id}
+                  onSelect={setSelectedPatient}
                   accent="tertiary"
                   showExercises
                 />

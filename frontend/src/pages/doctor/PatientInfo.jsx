@@ -248,7 +248,17 @@ export default function PatientInfo() {
 
     patientApi.getPatientPrescription(patientId).then((data) => {
       if (data) {
-        setPrescription(data.exercises);
+        const apiMap = new Map((data.exercises ?? []).map((ex) => [ex.name, ex]));
+        const merged = defaultPrescription.map((def) => {
+          const api = apiMap.get(def.name);
+          return api ? { ...def, sets: api.sets, reps: api.reps, enabled: true } : { ...def, enabled: false };
+        });
+        (data.exercises ?? []).forEach((api) => {
+          if (!merged.find((m) => m.name === api.name)) {
+            merged.push({ name: api.name, sets: api.sets, reps: api.reps, enabled: true });
+          }
+        });
+        setPrescription(merged);
         setSchedule(data.schedule ?? {});
         setIsEditing(false);
       }
