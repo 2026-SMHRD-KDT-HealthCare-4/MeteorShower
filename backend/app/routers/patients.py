@@ -1,6 +1,9 @@
+import os
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from crud import doctor as doctor_crud
 from crud import patient as patient_crud
@@ -14,10 +17,21 @@ from models.prescription_exercise import PrescriptionExercise
 from models.exercise_schedule import ExerciseSchedule
 from models.patient_rom_setting import PatientRomSetting
 from models.prescription_finger_setting import PrescriptionFingerSetting
-from schemas.patient import PatientAssignRequest, PatientMedicalUpdateRequest, PatientRomUpdateRequest, PatientUpdateRequest
+from models.rehab_exercise_session import RehabExerciseSession
+from models.rehab_exercise_log import RehabExerciseLog
+from models.finger_accuracy import FingerAccuracy
+from schemas.patient import (
+    ExerciseSessionCreateRequest,
+    PatientAssignRequest,
+    PatientMedicalUpdateRequest,
+    PatientRomUpdateRequest,
+    PatientUpdateRequest,
+)
 from schemas.prescription import PrescriptionSaveRequest
 
 router = APIRouter(prefix="/patients", tags=["patients"])
+
+KAKAO_REST_KEY = os.getenv("KAKAO_CLIENT_ID", "")
 
 FINGER_LABELS = {
     "thumb": "엄지",
@@ -279,6 +293,47 @@ def report_exercise_blocked(
     return {"message": "의사에게 알림이 전송되었습니다."}
 
 
+@router.get("/me/nearby-hospitals")
+def get_nearby_hospitals(
+    lat: float,
+    lng: float,
+    radius: int = 2000,
+    payload: dict = Depends(get_token_payload),
+):
+    _require_role(payload, "patient")
+    if not KAKAO_REST_KEY:
+        raise HTTPException(status_code=503, detail="카카오 API 키가 설정되지 않았습니다.")
+
+    with httpx.Client(timeout=5.0) as client:
+        resp = client.get(
+            "https://dapi.kakao.com/v2/local/search/category.json",
+            headers={"Authorization": f"KakaoAK {KAKAO_REST_KEY}"},
+            params={
+                "category_group_code": "HP8",
+                "x": str(lng),
+                "y": str(lat),
+                "radius": radius,
+                "sort": "distance",
+                "size": 10,
+            },
+        )
+
+    print(f"[Kakao] status={resp.status_code} body={resp.text}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"카카오 API 오류 ({resp.status_code}): {resp.text}")
+
+    return [
+        {
+            "name": p["place_name"],
+            "address": p.get("road_address_name") or p.get("address_name", ""),
+            "phone": p.get("phone", ""),
+            "distance": int(p.get("distance", 0)),
+            "place_url": p.get("place_url", ""),
+        }
+        for p in resp.json().get("documents", [])
+    ]
+
+
 @router.get("/me/schedule")
 def get_my_schedule(
     payload: dict = Depends(get_token_payload),
@@ -346,21 +401,131 @@ def get_my_today_exercises(
     exercises = []
     for prescription in prescriptions:
         for pe in sorted(prescription.prescription_exercises, key=lambda x: x.exercise_order):
-            scheduled_today = any(s.exercise_date == today for s in pe.schedules)
-            if pe.schedules and not scheduled_today:
+            today_schedule = next((s for s in pe.schedules if s.exercise_date == today), None)
+            scheduled_today = today_schedule is not None
+            if not scheduled_today:
                 continue
             exercises.append({
                 "id": pe.prescription_exercise_id,
+                "schedule_id": today_schedule.schedule_id if today_schedule else None,
                 "exercise_id": pe.exercise_id,
                 "name": pe.exercise.exercise_name,
                 "sets": pe.target_sets,
                 "reps": pe.target_reps,
                 "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
-                "status": "waiting",
+                "status": "done" if today_schedule and today_schedule.sessions else "waiting",
                 "videoTime": "01:20",
             })
 
     return exercises
+
+
+@router.get("/me/weekly-stats")
+def get_my_weekly_stats(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    today = date.today()
+
+    week_start = today - timedelta(days=today.weekday())  # 이번 주 월요일
+
+    day_labels = ["월", "화", "수", "목", "금", "토", "일"]
+    result = []
+
+    for i in range(7):
+        day_date = week_start + timedelta(days=i)
+        schedules = (
+            db.query(ExerciseSchedule)
+            .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+            .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+            .filter(
+                Prescription.patient_id == patient_id,
+                Prescription.status == "적용중",
+                ExerciseSchedule.exercise_date == day_date,
+            )
+            .all()
+        )
+        total = len(schedules)
+        done = sum(1 for s in schedules if s.sessions)
+        rate = round(done / total * 100) if total > 0 else 0
+        result.append({
+            "day": day_labels[i],
+            "date": day_date.isoformat(),
+            "total": total,
+            "done": done,
+            "rate": rate,
+            "is_today": day_date == today,
+        })
+
+    return result
+
+
+@router.post("/me/exercise-sessions", status_code=201)
+def create_my_exercise_session(
+    body: ExerciseSessionCreateRequest,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+
+    schedule = db.query(ExerciseSchedule).filter(ExerciseSchedule.schedule_id == body.schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Exercise schedule not found")
+
+    prescription = schedule.prescription_exercise.prescription
+    if prescription.patient_id != patient_id:
+        raise HTTPException(status_code=403, detail="Cannot access this schedule")
+
+    existing = (
+        db.query(RehabExerciseSession)
+        .filter(RehabExerciseSession.schedule_id == body.schedule_id)
+        .first()
+    )
+    if existing:
+        log = existing.logs[0] if existing.logs else None
+        return {
+            "rehab_session_id": existing.rehab_session_id,
+            "rehab_exercise_log_id": log.rehab_exercise_log_id if log else None,
+            "already_saved": True,
+        }
+
+    now = datetime.now()
+    session = RehabExerciseSession(schedule_id=body.schedule_id, start_time=now)
+    db.add(session)
+    db.flush()
+
+    log = RehabExerciseLog(
+        rehab_session_id=session.rehab_session_id,
+        performed_reps=body.performed_reps,
+        performed_sets=body.performed_sets,
+        progress_rate=body.progress_rate,
+        end_time=now,
+        end_type=body.end_type,
+    )
+    db.add(log)
+    db.flush()
+
+    for item in body.finger_accuracy:
+        db.add(
+            FingerAccuracy(
+                rehab_exercise_log_id=log.rehab_exercise_log_id,
+                hand_type=item.hand_type,
+                finger_type=item.finger_type,
+                accuracy=item.accuracy,
+                rom=item.rom,
+            )
+        )
+
+    db.commit()
+    db.refresh(session)
+    return {
+        "rehab_session_id": session.rehab_session_id,
+        "rehab_exercise_log_id": log.rehab_exercise_log_id,
+        "already_saved": False,
+    }
 
 
 @router.post("/{patient_id}/prescriptions", status_code=201)

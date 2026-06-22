@@ -45,11 +45,14 @@ export const patientApi = {
   getPatientRom:          (id, exerciseType = 'grip') => api.get(`/patients/${id}/rom?exercise_type=${exerciseType}`),
   updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
   getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),
+  getWeeklyStats:         ()         => api.get('/patients/me/weekly-stats'),
   getMySchedule:          ()         => api.get('/patients/me/schedule'),
   getNotifications:         ()   => api.get('/patients/me/notifications'),
   markNotificationRead:     (id) => api.patch(`/patients/me/notifications/${id}/read`),
   markAllNotificationsRead: ()   => api.patch('/patients/me/notifications/read-all'),
   reportExerciseBlocked:    ()   => api.post('/patients/me/exercise-blocked'),
+  getNearbyHospitals:       (lat, lng, radius = 2000) => api.get(`/patients/me/nearby-hospitals?lat=${lat}&lng=${lng}&radius=${radius}`),
+  saveExerciseSession:      (body) => api.post('/patients/me/exercise-sessions', body),
 };
 
 export const doctorApi = {
@@ -58,6 +61,17 @@ export const doctorApi = {
   getNotifications:         ()   => api.get('/doctor/me/notifications'),
   markNotificationRead:     (id) => api.patch(`/doctor/me/notifications/${id}/read`),
   markAllNotificationsRead: ()   => api.patch('/doctor/me/notifications/read-all'),
+  getDashboard:             ()   => api.get('/doctor/me/dashboard'),
+};
+
+export const reportApi = {
+  createMockReport:    (body)     => api.post('/reports/mock', body),
+  getDoctorReports:    ()         => api.get('/doctor/me/reports'),
+  getDoctorReport:     (id)       => api.get(`/doctor/me/reports/${id}`),
+  updateDoctorReport:  (id, body) => api.patch(`/doctor/me/reports/${id}`, body),
+  approveDoctorReport: (id, body = {}) => api.patch(`/doctor/me/reports/${id}/approve`, body),
+  getPatientReports:   ()         => api.get('/patients/me/reports'),
+  getPatientReport:    (id)       => api.get(`/patients/me/reports/${id}`),
 };
 
 export const authApi = {

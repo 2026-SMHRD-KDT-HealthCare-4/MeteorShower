@@ -1,7 +1,11 @@
+import base64
 import json
 import math
 import os
 import queue
+import shutil
+import tempfile
+import threading
 import time
 import urllib.request
 from datetime import datetime
@@ -32,6 +36,19 @@ if not os.path.exists(MODEL_PATH):
     print("hand_landmarker.task 모델 다운로드 중...")
     urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
     print("다운로드 완료")
+
+# MediaPipe C++ 레이어는 경로에 한글/공백이 있으면 파일을 못 열어요.
+# ASCII 경로가 아니면 임시 폴더로 복사해서 사용합니다.
+try:
+    MODEL_PATH.encode('ascii')
+except UnicodeEncodeError:
+    _tmp_path = os.path.join(tempfile.gettempdir(), "hand_landmarker.task")
+    if not os.path.exists(_tmp_path):
+        shutil.copy2(MODEL_PATH, _tmp_path)
+        print(f"[Model] 임시 경로로 복사 완료: {_tmp_path}")
+    else:
+        print(f"[Model] 임시 경로 사용: {_tmp_path}")
+    MODEL_PATH = _tmp_path
 
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
@@ -321,14 +338,14 @@ def draw_hand(frame, landmarks, handedness, joint_signals=None):
 _options = vision.HandLandmarkerOptions(
     base_options=python.BaseOptions(model_asset_path=MODEL_PATH),
     running_mode=vision.RunningMode.VIDEO,
-    num_hands=2,
-    min_hand_detection_confidence=0.5,
-    min_hand_presence_confidence=0.5,
-    min_tracking_confidence=0.5,
+    num_hands=1,
+    min_hand_detection_confidence=0.7,
+    min_hand_presence_confidence=0.7,
+    min_tracking_confidence=0.7,
 )
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left"):
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False):
     # 1. 외부 입력 데이터가 있으면 그것을 우선 사용
     if finger_rom_targets is not None:
         target_angles = finger_rom_targets
@@ -385,6 +402,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         session_complete_at = None
 
         while cap.isOpened():
+            if stop_event is not None and stop_event.is_set():
+                break
             ret, frame = cap.read()
             if not ret: break
 
@@ -413,7 +432,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             if result.hand_landmarks and result.handedness:
                 for landmarks, handedness_list in zip(result.hand_landmarks, result.handedness):
                     handedness = handedness_list[0]
-                    if handedness.score < 0.5: continue
+                    if handedness.score < 0.7: continue
                     valid_hands.append((landmarks, handedness))
                     if raw_state is None:
                         if count_type == "tap":
@@ -616,7 +635,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 for msg in feedback_messages:
                     print(f"[{time.time():.2f}] [Feedback] {msg['finger']}/{msg['level']} {msg['message']}")
 
-            for landmarks, handedness in valid_hands:
+            if valid_hands:
+                landmarks, handedness = valid_hands[0]
                 draw_hand(frame, landmarks, handedness, joint_signals)
 
             if similarity is not None:
@@ -651,7 +671,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 elif time.time() - session_end_at > 3.0:
                     break
 
-            if q is not None and not session_complete:
+            if q is not None:
                 ex_now     = EXERCISES[current_exercise_idx] if current_exercise_idx < len(EXERCISES) else ex
                 state_lbl  = {"open": "OPEN", "grip": "GRIP", "tap": "TAP"}.get(confirmed_state, "")
                 signal     = (
@@ -674,6 +694,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "feedback_messages": feedback_messages if 'feedback_messages' in locals() else [],
                     "finger_angles":  angles if first_landmarks is not None else None,
                     }
+                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
+                payload["frame"] = base64.b64encode(buf).decode('utf-8')
                 try: q.put_nowait(payload)
                 except queue.Full: pass
 
@@ -724,13 +746,17 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 cv2.addWeighted(ov, 0.35, frame, 0.65, 0, frame)
                 cv2.putText(frame, "SESSION COMPLETE!", (frame.shape[1] // 2 - 220, frame.shape[0] // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 100), 4)
                 if session_complete_at and time.time() - session_complete_at > 3.0:
-                    cv2.imshow("Hand Tracking", frame)
-                    cv2.waitKey(1)
+                    if show_window:
+                        cv2.imshow("Hand Tracking", frame)
+                        cv2.waitKey(1)
                     break
 
-            cv2.imshow("Hand Tracking", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+            if show_window:
+                cv2.imshow("Hand Tracking", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+            else:
+                time.sleep(0.001)
 
         cap.release()
         cv2.destroyAllWindows()

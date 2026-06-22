@@ -19,7 +19,119 @@ const QUESTIONS = [
   '손가락을 구부릴 때 걸리는 느낌이 있나요?',
 ];
 
-function PreExamModal({ onConfirm, onClose }) {
+function BlockedBanner() {
+  const [geoState, setGeoState] = useState('idle'); // idle | locating | loading | done | error
+  const [hospitals, setHospitals] = useState([]);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const findHospitals = () => {
+    if (!navigator.geolocation) {
+      setGeoState('error');
+      setErrorMsg('이 브라우저는 위치 기능을 지원하지 않습니다.');
+      return;
+    }
+    setGeoState('locating');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setGeoState('loading');
+        patientApi.getNearbyHospitals(coords.latitude, coords.longitude)
+          .then((data) => { setHospitals(data); setGeoState('done'); })
+          .catch(() => { setGeoState('error'); setErrorMsg('병원 정보를 불러오지 못했습니다.'); });
+      },
+      () => { setGeoState('error'); setErrorMsg('위치 권한을 허용해주세요.'); },
+      { timeout: 8000 },
+    );
+  };
+
+  return (
+    <div className="mb-stack-md space-y-3">
+      {/* 경고 배너 */}
+      <div className="bg-error-container border border-error/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-start gap-3 flex-1">
+          <span className="material-symbols-outlined text-error text-2xl shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
+          <div>
+            <p className="text-label-md font-bold text-on-error-container">오늘 운동이 차단되었습니다</p>
+            <p className="text-label-sm text-on-error-container/80">사전 문진에서 증상이 확인되어 오늘 하루 운동을 진행할 수 없습니다.</p>
+          </div>
+        </div>
+        {geoState === 'idle' && (
+          <button
+            onClick={findHospitals}
+            className="shrink-0 flex items-center gap-2 px-4 py-2 bg-error text-white text-label-sm font-semibold rounded-lg hover:opacity-90 transition-opacity"
+          >
+            <span className="material-symbols-outlined text-base">location_on</span>
+            주변 병원 찾기
+          </button>
+        )}
+        {(geoState === 'locating' || geoState === 'loading') && (
+          <div className="shrink-0 flex items-center gap-2 px-4 py-2 text-on-error-container text-label-sm">
+            <span className="material-symbols-outlined text-base animate-spin">progress_activity</span>
+            {geoState === 'locating' ? '위치 확인 중...' : '병원 검색 중...'}
+          </div>
+        )}
+        {geoState === 'error' && (
+          <div className="shrink-0 flex items-center gap-2">
+            <p className="text-label-sm text-error font-semibold">{errorMsg}</p>
+            <button onClick={findHospitals} className="text-label-sm text-on-error-container underline">재시도</button>
+          </div>
+        )}
+      </div>
+
+      {/* 병원 리스트 */}
+      {geoState === 'done' && (
+        <div className="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-outline-variant">
+            <span className="material-symbols-outlined text-error text-lg">local_hospital</span>
+            <h4 className="text-label-md font-bold text-on-surface">반경 2km 이내 병원</h4>
+            <span className="ml-auto text-label-sm text-on-surface-variant">{hospitals.length}개</span>
+          </div>
+          {hospitals.length === 0 ? (
+            <p className="p-6 text-center text-on-surface-variant text-label-sm">주변에 병원을 찾을 수 없습니다.</p>
+          ) : (
+            <ul className="divide-y divide-outline-variant">
+              {hospitals.map((h, i) => (
+                <li key={i} className="flex items-center justify-between px-4 py-3 gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-label-md font-semibold text-on-surface truncate">{h.name}</p>
+                    <p className="text-label-sm text-on-surface-variant truncate">{h.address}</p>
+                    {h.phone && (
+                      <a href={`tel:${h.phone}`} className="text-label-sm text-primary hover:underline">{h.phone}</a>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-label-sm font-bold text-on-surface">{h.distance < 1000 ? `${h.distance}m` : `${(h.distance / 1000).toFixed(1)}km`}</span>
+                    {h.place_url && (
+                      <a
+                        href={h.place_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-label-sm text-primary underline"
+                      >
+                        지도 보기
+                      </a>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getBlockedKey(token) {
+  try {
+    const sub = JSON.parse(atob(token.split('.')[1])).sub;
+    return `exercise_blocked_date_${sub}`;
+  } catch {
+    return 'exercise_blocked_date_unknown';
+  }
+}
+
+function PreExamModal({ onConfirm, onClose, onBlocked }) {
+  const { token } = useAuth();
   const [answers, setAnswers] = useState([null, null]);
   const [submitted, setSubmitted] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -32,6 +144,9 @@ function PreExamModal({ onConfirm, onClose }) {
     if (answers.some((a) => a === 'yes')) {
       setBlocked(true);
       patientApi.reportExerciseBlocked().catch(() => {});
+      const today = new Date().toISOString().slice(0, 10);
+      localStorage.setItem(getBlockedKey(token), today);
+      onBlocked?.();
     } else {
       onConfirm();
     }
@@ -144,7 +259,7 @@ function PreExamModal({ onConfirm, onClose }) {
   );
 }
 
-function ExerciseCard({ ex, onStart }) {
+function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
   const navigate = useNavigate();
   const isDone = ex.status === 'done';
   const isInProgress = ex.status === 'in_progress';
@@ -154,7 +269,7 @@ function ExerciseCard({ ex, onStart }) {
 
   const handleStart = () => {
     onStart(ex.id);
-    navigate('/patient/exercise/session');
+    navigate('/patient/exercise/session', { state: { exercise: ex } });
   };
 
   return (
@@ -224,6 +339,14 @@ function ExerciseCard({ ex, onStart }) {
           >
             운동 완료
           </button>
+        ) : isBlocked ? (
+          <button
+            disabled
+            className="w-full md:w-32 h-12 bg-error/10 border border-error/30 text-error text-label-md rounded-lg cursor-not-allowed flex items-center justify-center gap-1"
+          >
+            <span className="material-symbols-outlined text-base">block</span>
+            차단됨
+          </button>
         ) : (
           <button
             onClick={() => setShowModal(true)}
@@ -239,22 +362,36 @@ function ExerciseCard({ ex, onStart }) {
         <PreExamModal
           onConfirm={() => { setShowModal(false); handleStart(); }}
           onClose={() => setShowModal(false)}
+          onBlocked={() => { setShowModal(false); onBlocked?.(); }}
         />
       )}
     </div>
   );
 }
 
+const DEFAULT_WEEKLY = ['월', '화', '수', '목', '금', '토', '일'].map((day) => ({
+  day, rate: 0, total: 0, done: 0, is_today: false,
+}));
+
 export default function TodayExercise() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [weeklyStats, setWeeklyStats] = useState(DEFAULT_WEEKLY);
+  const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    setIsBlocked(localStorage.getItem(getBlockedKey(token)) === today);
+
     patientApi.getTodayExercises()
       .then((data) => setExercises(data))
       .catch(() => setExercises(INITIAL_EXERCISES))
       .finally(() => setLoading(false));
+
+    patientApi.getWeeklyStats()
+      .then((data) => setWeeklyStats(data))
+      .catch(() => {});
   }, []);
 
   const sortedExercises = useMemo(
@@ -306,15 +443,7 @@ export default function TodayExercise() {
             <div className="relative z-10">
               <h3 className="text-label-lg md:text-title-md font-display font-bold mb-2 md:mb-3">주간 운동 달성률</h3>
               <div className="flex gap-2 items-end h-16 md:h-24">
-                {[
-                  { day: '월', rate: 100 },
-                  { day: '화', rate: 80 },
-                  { day: '수', rate: 60 },
-                  { day: '목', rate: achievementRate },
-                  { day: '금', rate: 0 },
-                  { day: '토', rate: 0 },
-                  { day: '일', rate: 0 },
-                ].map(({ day, rate }) => (
+                {weeklyStats.map(({ day, rate, is_today }) => (
                   <div key={day} className="flex-1 flex flex-col items-center gap-1 h-full">
                     <span className="text-xs opacity-70 shrink-0">{rate > 0 ? `${rate}%` : ''}</span>
                     <div className="flex-1 w-full flex items-end">
@@ -322,11 +451,15 @@ export default function TodayExercise() {
                         className="w-full rounded-t-md transition-all duration-700"
                         style={{
                           height: rate > 0 ? `${rate}%` : '4px',
-                          background: rate > 0 ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)',
+                          background: is_today
+                            ? 'rgba(255,255,255,0.9)'
+                            : rate > 0
+                            ? 'rgba(255,255,255,0.5)'
+                            : 'rgba(255,255,255,0.15)',
                         }}
                       />
                     </div>
-                    <span className="text-label-sm font-semibold shrink-0">{day}</span>
+                    <span className={`text-label-sm font-semibold shrink-0 ${is_today ? 'underline underline-offset-2' : ''}`}>{day}</span>
                   </div>
                 ))}
               </div>
@@ -379,6 +512,9 @@ export default function TodayExercise() {
           </span>
         </div>
 
+        {/* 차단 배너 + 주변 병원 추천 */}
+        {isBlocked && <BlockedBanner />}
+
         <div className="space-y-stack-md">
           {loading ? (
             <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 text-center text-on-surface-variant">
@@ -386,7 +522,13 @@ export default function TodayExercise() {
             </div>
           ) : sortedExercises.length > 0 ? (
             sortedExercises.map((ex) => (
-              <ExerciseCard key={ex.id} ex={ex} onStart={handleStart} />
+              <ExerciseCard
+                key={ex.id}
+                ex={ex}
+                onStart={handleStart}
+                isBlocked={isBlocked}
+                onBlocked={() => setIsBlocked(true)}
+              />
             ))
           ) : (
             <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 text-center text-on-surface-variant">

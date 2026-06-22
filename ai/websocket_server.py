@@ -4,21 +4,20 @@ import queue as stdlib_queue
 import sys
 import threading
 from contextlib import asynccontextmanager
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uvicorn
 
-# hand_tracking.py 가 같은 ai/ 폴더에 있으므로 경로 추가
 sys.path.insert(0, os.path.dirname(__file__))
 from hand_tracking import run_tracking
 
-# ── 공유 큐 (hand_tracking → WebSocket 브로드캐스트) ──────────
-# maxsize=10: 처리 지연 시 오래된 프레임 드롭
 data_queue: stdlib_queue.Queue = stdlib_queue.Queue(maxsize=10)
 
+_tracking_thread: Optional[threading.Thread] = None
+_stop_event: Optional[threading.Event] = None
+_tracking_lock = threading.Lock()
 
-# ── WebSocket 연결 관리 ────────────────────────────────────────
 
 class ConnectionManager:
     def __init__(self):
@@ -44,97 +43,107 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
+    @property
+    def count(self):
+        return len(self._connections)
+
 
 manager = ConnectionManager()
 
 
-# ── 브로드캐스트 루프 ─────────────────────────────────────────
-# 큐에서 데이터를 꺼내 연결된 모든 클라이언트에게 전송.
-# hand_tracking 스레드가 put_nowait 하면 여기서 소비.
+def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None):
+    global _tracking_thread, _stop_event
+    with _tracking_lock:
+        if _tracking_thread is not None and _tracking_thread.is_alive():
+            return
+        _stop_event = threading.Event()
+        _tracking_thread = threading.Thread(
+            target=run_tracking,
+            kwargs={
+                "q": data_queue,
+                "finger_rom_targets": finger_rom_targets,
+                "patient_id": patient_id,
+                "doctor_id": doctor_id,
+                "hand": hand,
+                "stop_event": _stop_event,
+                "show_window": False,
+            },
+            daemon=True,
+            name="hand_tracking",
+        )
+        _tracking_thread.start()
+        print("[Server] hand_tracking thread started")
+
+
+def stop_tracking():
+    global _tracking_thread, _stop_event
+    with _tracking_lock:
+        if _stop_event is not None:
+            _stop_event.set()
+        _tracking_thread = None
+        _stop_event = None
+        print("[Server] hand_tracking stop requested")
+
+
+_frame_log_counter = 0
 
 async def broadcast_loop():
+    global _frame_log_counter
     while True:
         try:
             data = data_queue.get_nowait()
-            if manager._connections:
+            if manager.count > 0:
                 await manager.broadcast(data)
+                _frame_log_counter += 1
+                if _frame_log_counter % 30 == 1:  # 30프레임마다 한 번 출력
+                    has_frame = "frame" in data and bool(data["frame"])
+                    print(f"[Broadcast] frame #{_frame_log_counter}  has_frame={has_frame}  clients={manager.count}")
         except stdlib_queue.Empty:
-            await asyncio.sleep(0.016)   # ~60 fps 폴링
-        except Exception:
+            await asyncio.sleep(0.016)
+        except Exception as e:
+            print(f"[Broadcast Error] {e}")
             await asyncio.sleep(0.016)
 
 
-# ── Lifespan: 트래킹 스레드 + 브로드캐스트 태스크 ────────────
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # hand_tracking을 데몬 스레드로 실행
-    tracking_thread = threading.Thread(
-        target=run_tracking,
-        args=(data_queue,),
-        daemon=True,
-        name="hand_tracking",
-    )
-    tracking_thread.start()
-    print("[Server] hand_tracking thread started")
-
     task = asyncio.create_task(broadcast_loop())
     yield
-
     task.cancel()
+    stop_tracking()
     print("[Server] shutdown")
 
-
-# ── FastAPI 앱 ────────────────────────────────────────────────
 
 app = FastAPI(lifespan=lifespan)
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """ws://localhost:8000/ws
-
-    송신: JSON 프레임 (hand_tracking 결과)
-    수신: 클라이언트 메시지 무시 (연결 종료 감지 용도)
-
-    JSON 형식:
-    {
-        "landmarks":   [[x,y,z], ...],   // 21개, 손 미검출 시 []
-        "count":       5,
-        "state":       "OPEN",           // "OPEN" / "GRIP" / "TAP" / ""
-        "similarity":  78.3,             // DTW + ROM 가중 평균, null 가능
-        "signal":      "green",          // green / yellow / red / gray
-        "overload":    false,
-        "session_end": false,
-        "exercise":    "full_fist",      // 현재 운동 이름
-        "set":         2,                // 현재 세트 번호 (1-indexed)
-        "total_sets":  3,                // 총 세트 수
-        "rom_score":   82.4,             // 손가락 굴곡 각도 기반 ROM 점수(0~100), null 가능
-        "joint_signals": {               // 21개 랜드마크 인덱스(문자열 키)별 신호등 색상, null 가능
-            "0": "green", "4": "green", "8": "yellow", "...": "..."
-        },
-        "finger_angles": {               // 손가락별 굴곡 각도(도), 손 미검출 시 null
-            "thumb": 118.2, "index": 62.5, "middle": 58.9, "ring": 71.3, "pinky": 65.0
-        },
-        "feedback_messages": [           // (신규) 이번 프레임에 새로 발생한 실시간 피드백 메시지 목록.
-                                          // feedback_trigger.FeedbackTracker가 손가락별 yellow/red
-                                          // 신호 지속시간·쿨다운을 추적해 생성. 보통 빈 배열([]).
-            {"finger": "index", "level": "yellow", "message": "검지 동작을 조금 더 정확하게 해보세요"}
-        ]
-    }
-    """
     await manager.connect(websocket)
     try:
         while True:
-            # 클라이언트 메시지 대기 → WebSocketDisconnect 감지
-            await websocket.receive_text()
+            msg = await websocket.receive_json()
+            action = msg.get("action")
+            if action == "start":
+                start_tracking(
+                    patient_id=msg.get("patient_id"),
+                    doctor_id=msg.get("doctor_id"),
+                    hand=msg.get("hand", "left"),
+                    finger_rom_targets=msg.get("finger_rom_targets"),
+                )
+                await websocket.send_json({"status": "tracking_started"})
+            elif action == "stop":
+                stop_tracking()
+                await websocket.send_json({"status": "tracking_stopped"})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+        if manager.count == 0:
+            stop_tracking()
     except Exception:
         manager.disconnect(websocket)
+        if manager.count == 0:
+            stop_tracking()
 
-
-# ── 진입점 ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
     uvicorn.run(
