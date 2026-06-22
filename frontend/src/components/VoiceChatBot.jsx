@@ -1,33 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMicVAD } from '@ricky0123/vad-react';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8001';
 
-function float32ToWav(samples, sampleRate = 16000) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-  const write = (off, str) => { for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i)); };
-  write(0, 'RIFF');
-  view.setUint32(4, 36 + samples.length * 2, true);
-  write(8, 'WAVE');
-  write(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  write(36, 'data');
-  view.setUint32(40, samples.length * 2, true);
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    offset += 2;
-  }
-  return new Blob([buffer], { type: 'audio/wav' });
-}
+const RMS_THRESHOLD   = 0.012; // 이 볼륨 이상이면 목소리로 판단
+const SPEECH_FRAMES   = 8;     // N프레임 연속이어야 녹음 시작 (오감지 방지)
+const SILENCE_FRAMES  = 40;    // 40 × 50ms = 2초 침묵이면 자동 전송
 
 function BotFace({ isSpeaking, isRecording }) {
   return (
@@ -66,105 +43,157 @@ function BotCharacter({ isSpeaking, isRecording, isOpen, onClick }) {
 }
 
 export default function VoiceChatBot() {
-  const [isOpen, setIsOpen]       = useState(false);
+  const [isOpen, setIsOpen]         = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking]   = useState(false);
   const [isLoading, setIsLoading]     = useState(false);
   const [vadActive, setVadActive]     = useState(false);
   const [messages, setMessages] = useState([
-    { role: 'assistant', text: '안녕하세요! 아래 마이크 버튼을 눌러 자동 감지 모드를 켜거나, 마이크를 길게 눌러 직접 녹음하세요.' },
+    { role: 'assistant', text: '안녕하세요! 👂 버튼을 켜면 말할 때 자동으로 전송되고, 🎤 버튼을 길게 눌러 직접 녹음할 수도 있어요.' },
   ]);
 
-  const audioRef      = useRef(null);
+  const audioRef       = useRef(null);
   const messagesEndRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef   = useRef([]);
+  // push-to-talk
+  const manualRecRef   = useRef(null);
+  const manualChunks   = useRef([]);
+  // VAD
+  const vadRef         = useRef({ active: false, audioCtx: null, stream: null, recorder: null, chunks: [], speechCnt: 0, silenceCnt: 0 });
+  const isLoadingRef   = useRef(false);
+  const isSpeakingRef  = useRef(false);
+
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
+  useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // ── VAD ──────────────────────────────────────────────────────────
-  const vad = useMicVAD({
-    startOnLoad: false,
-    onSpeechStart: () => {
-      if (!isLoading && !isSpeaking) setIsRecording(true);
-    },
-    onSpeechEnd: (audio) => {
-      setIsRecording(false);
-      if (isLoading || isSpeaking) return;
-      const blob = float32ToWav(audio);
-      sendVoice(blob, 'audio/wav');
-    },
-    onVADMisfire: () => setIsRecording(false),
-  });
-
-  const toggleVad = () => {
-    if (vadActive) {
-      vad.pause();
-      setVadActive(false);
-      setIsRecording(false);
-    } else {
-      vad.start();
-      setVadActive(true);
+  // ── VAD (Web Audio API) ───────────────────────────────────────────
+  const startVad = async () => {
+    const state = vadRef.current;
+    try {
+      state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setMessages((p) => [...p, { role: 'assistant', text: '마이크 권한이 필요합니다.' }]);
+      return;
     }
+
+    state.audioCtx = new AudioContext();
+    const source   = state.audioCtx.createMediaStreamSource(state.stream);
+    const analyser = state.audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+
+    const buf = new Float32Array(analyser.frequencyBinCount);
+    state.speechCnt  = 0;
+    state.silenceCnt = 0;
+    state.recorder   = null;
+    state.chunks     = [];
+    state.active     = true;
+
+    const tick = () => {
+      if (!state.active) return;
+
+      analyser.getFloatTimeDomainData(buf);
+      const rms = Math.sqrt(buf.reduce((s, v) => s + v * v, 0) / buf.length);
+      const loud = rms > RMS_THRESHOLD;
+
+      if (loud) {
+        state.silenceCnt = 0;
+        state.speechCnt++;
+        if (state.speechCnt >= SPEECH_FRAMES && !state.recorder) {
+          const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+          state.recorder = new MediaRecorder(state.stream, { mimeType });
+          state.chunks   = [];
+          state.recorder.ondataavailable = (e) => state.chunks.push(e.data);
+          state.recorder.onstop = () => {
+            const blob = new Blob(state.chunks, { type: state.recorder.mimeType });
+            sendVoice(blob, state.recorder.mimeType);
+            state.recorder = null;
+            state.chunks   = [];
+          };
+          state.recorder.start();
+          setIsRecording(true);
+        }
+      } else {
+        state.speechCnt = 0;
+        if (state.recorder?.state === 'recording') {
+          state.silenceCnt++;
+          if (state.silenceCnt >= SILENCE_FRAMES) {
+            state.recorder.stop();
+            setIsRecording(false);
+            state.silenceCnt = 0;
+          }
+        }
+      }
+      setTimeout(tick, 50);
+    };
+    tick();
+    setVadActive(true);
   };
 
-  // ── Push-to-talk (수동) ───────────────────────────────────────────
-  const startManualRecording = async () => {
+  const stopVad = () => {
+    const state = vadRef.current;
+    state.active = false;
+    state.recorder?.state === 'recording' && state.recorder.stop();
+    state.stream?.getTracks().forEach((t) => t.stop());
+    state.audioCtx?.close();
+    state.recorder = null;
+    setVadActive(false);
+    setIsRecording(false);
+  };
+
+  const toggleVad = () => (vadActive ? stopVad() : startVad());
+
+  // ── Push-to-talk ─────────────────────────────────────────────────
+  const startManual = async () => {
     if (isLoading || isSpeaking || isRecording || vadActive) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
-      audioChunksRef.current = [];
-      recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
-      recorder.onstop = () => {
+      const rec = new MediaRecorder(stream, { mimeType });
+      manualRecRef.current = rec;
+      manualChunks.current = [];
+      rec.ondataavailable = (e) => manualChunks.current.push(e.data);
+      rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        sendVoice(blob, mimeType);
+        sendVoice(new Blob(manualChunks.current, { type: mimeType }), mimeType);
       };
-      recorder.start();
+      rec.start();
       setIsRecording(true);
     } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', text: '마이크 권한이 필요합니다. 브라우저 설정을 확인해주세요.' }]);
+      setMessages((p) => [...p, { role: 'assistant', text: '마이크 권한이 필요합니다.' }]);
     }
   };
 
-  const stopManualRecording = () => {
+  const stopManual = () => {
     if (!isRecording || vadActive) return;
-    mediaRecorderRef.current?.stop();
+    manualRecRef.current?.stop();
     setIsRecording(false);
   };
 
   // ── 공통 전송 ─────────────────────────────────────────────────────
   const sendVoice = async (blob, mimeType) => {
+    if (isLoadingRef.current || isSpeakingRef.current) return;
     setIsLoading(true);
     const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('webm') ? 'webm' : 'mp4';
-    const formData = new FormData();
-    formData.append('audio', blob, `recording.${ext}`);
-    formData.append('history', JSON.stringify(messages.map((m) => ({ role: m.role, content: m.text }))));
+    const fd  = new FormData();
+    fd.append('audio', blob, `rec.${ext}`);
+    fd.append('history', JSON.stringify(messages.map((m) => ({ role: m.role, content: m.text }))));
 
     try {
-      const res = await fetch(`${API_BASE}/chat/voice`, { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail ?? '서버 오류');
-      }
+      const res  = await fetch(`${API_BASE}/chat/voice`, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? '서버 오류');
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        { role: 'user', text: data.user_text },
-        { role: 'assistant', text: data.bot_text },
-      ]);
+      setMessages((p) => [...p, { role: 'user', text: data.user_text }, { role: 'assistant', text: data.bot_text }]);
       const audio = new Audio(`data:audio/mp3;base64,${data.audio_base64}`);
       audioRef.current = audio;
       setIsSpeaking(true);
       audio.onended = () => setIsSpeaking(false);
       audio.play();
     } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', text: err.message === '음성을 인식하지 못했습니다.' ? err.message : '오류가 발생했습니다. 다시 시도해주세요.' }]);
+      setMessages((p) => [...p, { role: 'assistant', text: err.message === '음성을 인식하지 못했습니다.' ? err.message : '오류가 발생했습니다. 다시 시도해주세요.' }]);
     } finally {
       setIsLoading(false);
     }
@@ -239,10 +268,10 @@ export default function VoiceChatBot() {
 
               {/* 수동 push-to-talk */}
               <button
-                onMouseDown={startManualRecording}
-                onMouseUp={stopManualRecording}
-                onTouchStart={(e) => { e.preventDefault(); startManualRecording(); }}
-                onTouchEnd={stopManualRecording}
+                onMouseDown={startManual}
+                onMouseUp={stopManual}
+                onTouchStart={(e) => { e.preventDefault(); startManual(); }}
+                onTouchEnd={stopManual}
                 disabled={isLoading || vadActive}
                 title="누르고 말하기"
                 className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 ${
