@@ -338,10 +338,10 @@ def draw_hand(frame, landmarks, handedness, joint_signals=None):
 _options = vision.HandLandmarkerOptions(
     base_options=python.BaseOptions(model_asset_path=MODEL_PATH),
     running_mode=vision.RunningMode.VIDEO,
-    num_hands=2,
-    min_hand_detection_confidence=0.5,
-    min_hand_presence_confidence=0.5,
-    min_tracking_confidence=0.5,
+    num_hands=1,
+    min_hand_detection_confidence=0.7,
+    min_hand_presence_confidence=0.7,
+    min_tracking_confidence=0.7,
 )
 
 
@@ -432,7 +432,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             if result.hand_landmarks and result.handedness:
                 for landmarks, handedness_list in zip(result.hand_landmarks, result.handedness):
                     handedness = handedness_list[0]
-                    if handedness.score < 0.5: continue
+                    if handedness.score < 0.7: continue
                     valid_hands.append((landmarks, handedness))
                     if raw_state is None:
                         if count_type == "tap":
@@ -635,7 +635,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 for msg in feedback_messages:
                     print(f"[{time.time():.2f}] [Feedback] {msg['finger']}/{msg['level']} {msg['message']}")
 
-            for landmarks, handedness in valid_hands:
+            if valid_hands:
+                landmarks, handedness = valid_hands[0]
                 draw_hand(frame, landmarks, handedness, joint_signals)
 
             if similarity is not None:
