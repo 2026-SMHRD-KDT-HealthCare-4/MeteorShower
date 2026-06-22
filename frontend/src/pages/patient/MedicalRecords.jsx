@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import PatientNavBar from '../../components/PatientNavBar';
+import { reportApi } from '../../api';
 
-const records = [
+const fallbackRecords = [
   {
     id: 1,
     date: '2026.03.28',
@@ -42,6 +43,43 @@ const records = [
     featured: false,
   },
 ];
+
+function formatRecordDate(dateStr) {
+  if (!dateStr) return '';
+  return dateStr.replace(/-/g, '.');
+}
+
+function mapReportToRecord(report, index) {
+  const exercises = (report.exercises ?? []).map((exercise) => ({
+    name: exercise.name,
+    sets: exercise.sets,
+    reps: exercise.reps,
+    achievement: null,
+    icon: 'fitness_center',
+    badgeColor: 'bg-surface-container-high text-primary',
+  }));
+
+  return {
+    id: report.report_id,
+    date: formatRecordDate(report.report_date),
+    doctor: report.doctor_name ? `${report.doctor_name} 의사` : '담당 의사',
+    specialty: '재활의학과',
+    status: '진료 완료',
+    statusColor: index === 0 ? 'bg-primary-fixed text-on-primary-fixed' : 'bg-surface-container-high text-on-surface-variant',
+    feedback: report.content ?? report.edited_content ?? '',
+    exercises: exercises.length > 0
+      ? exercises
+      : [{
+          name: 'LLM 재활 리포트',
+          sets: null,
+          reps: null,
+          achievement: null,
+          icon: 'description',
+          badgeColor: 'bg-surface-container-high text-primary',
+        }],
+    featured: index === 0,
+  };
+}
 
 function SmallRecordCard({ record }) {
   const [expanded, setExpanded] = useState(false);
@@ -98,6 +136,24 @@ function SmallRecordCard({ record }) {
 }
 
 export default function MedicalRecords() {
+  const [records, setRecords] = useState(fallbackRecords);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    reportApi.getPatientReports()
+      .then(async (items) => {
+        if (!items.length) {
+          setRecords(fallbackRecords);
+          return;
+        }
+        const details = await Promise.all(items.map((item) => reportApi.getPatientReport(item.report_id)));
+        setRecords(details.map(mapReportToRecord));
+      })
+      .catch((err) => setLoadError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="min-h-screen bg-background pb-24 md:pb-0">
       <PatientNavBar />
@@ -115,6 +171,16 @@ export default function MedicalRecords() {
 
         {/* Records */}
         <section className="space-y-6 max-w-4xl mx-auto">
+          {loading && (
+            <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-card p-6 text-center text-on-surface-variant">
+              진료 기록을 불러오는 중입니다.
+            </div>
+          )}
+          {loadError && (
+            <div className="bg-error-container rounded-2xl border border-outline-variant shadow-card p-6 text-center text-on-error-container font-semibold">
+              {loadError}
+            </div>
+          )}
           {/* Featured record */}
           {records.filter((r) => r.featured).map((record) => (
             <div key={record.id} className="bg-surface-container-lowest rounded-2xl border border-outline-variant shadow-card overflow-hidden">
