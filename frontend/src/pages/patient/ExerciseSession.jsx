@@ -5,59 +5,6 @@ import VoiceChatBot from '../../components/VoiceChatBot';
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
 
-const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],
-  [0,5],[5,6],[6,7],[7,8],
-  [5,9],[9,10],[10,11],[11,12],
-  [9,13],[13,14],[14,15],[15,16],
-  [13,17],[17,18],[18,19],[19,20],
-  [0,17],
-];
-
-const SIGNAL_COLOR = { green: '#00dc96', yellow: '#fbbf24', red: '#ef4444' };
-
-function LandmarkCanvas({ data }) {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !data?.landmarks?.length) return;
-    const ctx = canvas.getContext('2d');
-    const { width, height } = canvas;
-    ctx.clearRect(0, 0, width, height);
-
-    const lm = data.landmarks;
-    const signals = data.joint_signals ?? {};
-
-    HAND_CONNECTIONS.forEach(([a, b]) => {
-      const color = SIGNAL_COLOR[signals[String(a)] ?? 'green'] ?? '#00dc96';
-      ctx.beginPath();
-      ctx.moveTo(lm[a][0] * width, lm[a][1] * height);
-      ctx.lineTo(lm[b][0] * width, lm[b][1] * height);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    });
-
-    lm.forEach((pt, i) => {
-      const color = SIGNAL_COLOR[signals[String(i)] ?? 'green'] ?? '#00dc96';
-      ctx.beginPath();
-      ctx.arc(pt[0] * width, pt[1] * height, 6, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    });
-  }, [data]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      width={640}
-      height={480}
-      className="absolute inset-0 w-full h-full"
-    />
-  );
-}
-
 export default function ExerciseSession() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -172,9 +119,6 @@ export default function ExerciseSession() {
           <p className="text-white text-sm">카메라 연결 중... (최대 30초 소요)</p>
         </div>
       )}
-
-      {/* 랜드마크 오버레이 */}
-      <LandmarkCanvas data={wsData} />
 
       {/* idle: 시작 버튼 */}
       {phase === 'idle' && (
