@@ -5,6 +5,7 @@ from .exercise import Exercise
 from .prescription import Prescription
 from .prescription_exercise import PrescriptionExercise
 from .prescription_finger_setting import PrescriptionFingerSetting
+from .patient_rom_setting import PatientRomSetting
 from .exercise_schedule import ExerciseSchedule
 from .rehab_exercise_session import RehabExerciseSession
 from .rehab_exercise_log import RehabExerciseLog
@@ -12,3 +13,4 @@ from .finger_accuracy import FingerAccuracy
 from .rehab_exercise_capture import RehabExerciseCapture
 from .llm_report import LlmReport
 from .doctor_notification import DoctorNotification
+from .patient_notification import PatientNotification

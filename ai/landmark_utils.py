@@ -91,28 +91,46 @@ def extract_features_tapping(coords):
     return np.array(thumb_dists + wrist_dists, dtype=np.float32)
 
 
-def compute_finger_angles(coords):
-    """5개 손가락 꺾임 각도 → (5,) float32 [thumb, index, middle, ring, pinky].
+def calculate_joint_angle(p1, p2, p3):
+    """세 점(p1, p2, p3)으로 p2를 꼭짓점으로 하는 내부 각도(0~180도)를 계산.
 
-    각 손가락의 첫 번째 관절(A)→두 번째 관절(B)→끝 관절(C) 방향벡터 사이의 각도.
-    상대 벡터만 사용하므로 회전·이동·스케일에 무관하다.
-    엄지: CMC(1)→MCP(2)→TIP(4), 나머지: MCP→PIP→TIP.
-    주먹을 꽉 쥘수록 각도가 0°에 가까워진다.
+    v1 = p1-p2, v2 = p3-p2 사이의 각도. 곧게 펴졌을 때 180°에 가깝고,
+    관절이 굽을수록 0°에 가까워진다 (해부학적 굴곡각 관례와 동일한 방향).
     """
-    angles = []
-    finger_indices = [(1, 2, 4), (5, 6, 8), (9, 10, 12), (13, 14, 16), (17, 18, 20)]
-    for a, b, c in finger_indices:
-        v1 = coords[b] - coords[a]
-        v2 = coords[c] - coords[b]
-        n1 = np.linalg.norm(v1)
-        n2 = np.linalg.norm(v2)
-        if n1 < 1e-6 or n2 < 1e-6:
-            angles.append(180.0)
-            continue
-        cos_theta = np.dot(v1, v2) / (n1 * n2)
-        angle = np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0)))
-        angles.append(angle)
-    return np.array(angles, dtype=np.float32)
+    p1 = np.asarray(p1, dtype=np.float32)
+    p2 = np.asarray(p2, dtype=np.float32)
+    p3 = np.asarray(p3, dtype=np.float32)
+    v1 = p1 - p2
+    v2 = p3 - p2
+    n1 = np.linalg.norm(v1)
+    n2 = np.linalg.norm(v2)
+    if n1 < 1e-6 or n2 < 1e-6:
+        return 180.0
+    cos_theta = np.dot(v1, v2) / (n1 * n2)
+    return float(np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0))))
+
+
+# 손가락별 (p1, p2, p3) 랜드마크 인덱스. p2가 각도를 측정할 관절.
+# 검지/중지/약지/새끼: 손목(0)을 기준점으로 MCP 각도까지 포함.
+# 엄지: CMC(1)을 기준점으로 사용 (손목 대신 CMC가 구조상 더 적합).
+_FINGER_JOINT_INDICES = {
+    "thumb":  {"MCP": (1, 2, 3),   "IP":  (2, 3, 4)},
+    "index":  {"MCP": (0, 5, 6),   "PIP": (5, 6, 7),   "DIP": (6, 7, 8)},
+    "middle": {"MCP": (0, 9, 10),  "PIP": (9, 10, 11), "DIP": (10, 11, 12)},
+    "ring":   {"MCP": (0, 13, 14), "PIP": (13, 14, 15), "DIP": (14, 15, 16)},
+    "pinky":  {"MCP": (0, 17, 18), "PIP": (17, 18, 19), "DIP": (18, 19, 20)},
+}
+
+
+def compute_finger_angles(coords):
+    # 이 구조로 반환되는지 확인하세요
+    return {
+        finger: {
+            joint_name: calculate_joint_angle(coords[a], coords[b], coords[c])
+            for joint_name, (a, b, c) in joints.items()
+        }
+        for finger, joints in _FINGER_JOINT_INDICES.items()
+    }
 
 
 def mirror_guide_to_right_hand(guide_np):

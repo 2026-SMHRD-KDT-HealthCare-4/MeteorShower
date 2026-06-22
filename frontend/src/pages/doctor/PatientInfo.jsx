@@ -192,21 +192,31 @@ const defaultPrescription = [
 ];
 
 const ROM_FINGERS = [
-  { key: 'thumb',  label: '엄지 (Thumb)',  joints: ['MCP', 'IP', 'DIP'] },
-  { key: 'index',  label: '검지 (Index)',  joints: ['MCP', 'PIP', 'DIP'] },
-  { key: 'middle', label: '중지 (Middle)', joints: ['MCP', 'PIP', 'DIP'] },
-  { key: 'ring',   label: '약지 (Ring)',   joints: ['MCP', 'PIP', 'DIP'] },
-  { key: 'pinky',  label: '소지 (Pinky)', joints: ['MCP', 'PIP', 'DIP'] },
+  { key: 'thumb',  label: '엄지 (Thumb)'  },
+  { key: 'index',  label: '검지 (Index)'  },
+  { key: 'middle', label: '중지 (Middle)' },
+  { key: 'ring',   label: '약지 (Ring)'   },
+  { key: 'pinky',  label: '소지 (Pinky)'  },
 ];
-const ROM_ROW_LABELS = ['MCP', 'PIP / IP', 'DIP'];
+const ROM_ROWS = [
+  { label: 'MCP (왼손)',   joint: 'MCP', hand: '왼손'  },
+  { label: 'MCP (오른손)', joint: 'MCP', hand: '오른손' },
+  { label: 'PIP (왼손)',   joint: 'PIP', hand: '왼손'  },
+  { label: 'PIP (오른손)', joint: 'PIP', hand: '오른손' },
+  { label: 'DIP (왼손)',   joint: 'DIP', hand: '왼손'  },
+  { label: 'DIP (오른손)', joint: 'DIP', hand: '오른손' },
+];
+const ROM_EXERCISE_TABS = [
+  { key: 'basic',   label: 'Grip'    },
+  { key: 'tapping', label: 'Tapping' },
+];
 
 export default function PatientInfo() {
   const navigate = useNavigate();
   const { patientId } = useParams();
   const [patient, setPatient] = useState(null);
-  const [nextAppointment, setNextAppointment] = useState('');
-  const [editingAppointment, setEditingAppointment] = useState(false);
-  const [appointmentInput, setAppointmentInput] = useState('');
+  const [medicalEditing, setMedicalEditing] = useState(false);
+  const [medEdit, setMedEdit] = useState({ surgery_name: '', surgery_area: '', surgery_date: '', rehab_start_date: '', current_rehab_phase: '', appointment_date: '' });
 
   const [prescription, setPrescription] = useState(defaultPrescription);
   const [aiAdjust, setAiAdjust] = useState(true);
@@ -216,16 +226,24 @@ export default function PatientInfo() {
   const [selectedSession, setSelectedSession] = useState(0);
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
   const [isEditing, setIsEditing] = useState(true);
-  const [isEditingRom, setIsEditingRom] = useState(true);
-  const [rom, setRom] = useState({});
+  const [isEditingRom, setIsEditingRom] = useState(false);
+  const [rom, setRom]                   = useState({});
+  const [activeRomTab, setActiveRomTab] = useState('basic');
+  const [tappingRom, setTappingRom]     = useState({});
   const [prescriptionLoaded, setPrescriptionLoaded] = useState(false);
 
   useEffect(() => {
     if (!patientId) return;
     patientApi.getPatient(patientId).then((data) => {
       setPatient(data);
-      setNextAppointment(data.appointment_date ?? '');
-      setAppointmentInput(data.appointment_date ?? '');
+      setMedEdit({
+        surgery_name:        data.surgery_name         ?? '',
+        surgery_area:        data.surgery_area         ?? '',
+        surgery_date:        data.surgery_date         ?? '',
+        rehab_start_date:    data.rehab_start_date     ?? '',
+        current_rehab_phase: data.current_rehab_phase  ?? '',
+        appointment_date:    data.appointment_date      ?? '',
+      });
     }).catch(() => {});
 
     patientApi.getPatientPrescription(patientId).then((data) => {
@@ -236,10 +254,56 @@ export default function PatientInfo() {
       }
       setPrescriptionLoaded(true);
     }).catch(() => { setPrescriptionLoaded(true); });
+
+    patientApi.getPatientRom(patientId, 'grip')
+      .then((data) => setRom(data.rom ?? {}))
+      .catch(() => {});
+    patientApi.getPatientRom(patientId, 'tapping')
+      .then((data) => setTappingRom(data.rom ?? {}))
+      .catch(() => {});
   }, [patientId]);
 
-  const handleRomSave = () => setIsEditingRom(false);
-  const handleRomCancel = () => { setRom({}); setIsEditingRom(false); };
+  const handleMedicalSave = () => {
+    const body = {};
+    Object.entries(medEdit).forEach(([k, v]) => { if (v !== '') body[k] = v; });
+    patientApi.updatePatientMedical(patientId, body)
+      .then((data) => { setPatient(data); setMedicalEditing(false); })
+      .catch(() => {});
+  };
+  const handleMedicalCancel = () => {
+    setMedEdit({
+      surgery_name:        patient?.surgery_name         ?? '',
+      surgery_area:        patient?.surgery_area         ?? '',
+      surgery_date:        patient?.surgery_date         ?? '',
+      rehab_start_date:    patient?.rehab_start_date     ?? '',
+      current_rehab_phase: patient?.current_rehab_phase  ?? '',
+      appointment_date:    patient?.appointment_date      ?? '',
+    });
+    setMedicalEditing(false);
+  };
+
+  const romByTab    = { basic: rom,    tapping: tappingRom    };
+  const setRomByTab = { basic: setRom, tapping: setTappingRom };
+  const currentRom    = romByTab[activeRomTab]    ?? {};
+  const setCurrentRom = setRomByTab[activeRomTab];
+
+  const hasRomData = Object.values(currentRom).some((v) => v !== '' && v !== null && v !== undefined);
+
+  const handleRomSave = () => {
+    const body = {};
+    Object.entries(currentRom).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) body[k] = parseFloat(v);
+    });
+    const exerciseType = activeRomTab === 'basic' ? 'grip' : 'tapping';
+    patientApi.updatePatientRom(patientId, { exercise_type: exerciseType, rom: body })
+      .then((data) => {
+        if (activeRomTab === 'basic') setRom(data.rom ?? {});
+        else setTappingRom(data.rom ?? {});
+        setIsEditingRom(false);
+      })
+      .catch(() => {});
+  };
+  const handleRomCancel = () => { setIsEditingRom(false); };
 
   const updatePrescription = (idx, field, val) =>
     setPrescription((prev) => prev.map((row, i) => (i === idx ? { ...row, [field]: val } : row)));
@@ -253,14 +317,22 @@ export default function PatientInfo() {
 
   const handleSave = () => {
     if (!canSave) return;
-    setJustSaved(true);
-    setIsEditing(false);
-    setTimeout(() => setJustSaved(false), 2000);
+    patientApi.savePatientPrescription(patientId, {
+      rehab_phase: patient?.current_rehab_phase || undefined,
+      exercises: prescription,
+      schedule,
+      rom,
+    })
+      .then(() => {
+        setJustSaved(true);
+        setIsEditing(false);
+        setTimeout(() => setJustSaved(false), 2000);
+      })
+      .catch(() => {});
   };
 
   const handleEditStart = () => {
     setIsEditing(true);
-    setSchedule({});
   };
 
   const handleEditCancel = () => {
@@ -388,10 +460,25 @@ export default function PatientInfo() {
 
         {/* 환자 정보 */}
         <section className="bg-white border border-outline-variant rounded-2xl overflow-hidden shadow-card">
-          <div className="flex items-center gap-2 px-6 py-4 border-b border-outline-variant bg-surface-container-low">
-            <span className="material-symbols-outlined text-doctor-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
-            <h2 className="text-title-md font-bold text-doctor-primary">기본 정보</h2>
+          {/* 섹션 헤더 */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant bg-surface-container-low">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-doctor-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>person</span>
+              <h2 className="text-title-md font-bold text-doctor-primary">기본 정보</h2>
+            </div>
+            {medicalEditing ? (
+              <div className="flex gap-2">
+                <button onClick={handleMedicalSave} className="px-4 py-1.5 bg-doctor-primary text-white rounded-xl text-label-sm font-semibold hover:opacity-90 transition-opacity">저장</button>
+                <button onClick={handleMedicalCancel} className="px-4 py-1.5 border border-outline-variant text-on-surface-variant rounded-xl text-label-sm font-semibold hover:bg-surface-container transition-colors">취소</button>
+              </div>
+            ) : (
+              <button onClick={() => setMedicalEditing(true)} className="flex items-center gap-1.5 px-4 py-1.5 border-2 border-doctor-primary text-doctor-primary rounded-xl text-label-sm font-semibold hover:bg-[#e8f0fe] transition-colors">
+                <span className="material-symbols-outlined text-sm">edit</span>편집
+              </button>
+            )}
           </div>
+
+          {/* 읽기 전용 — 성명·환자번호·성별·생년월일·연락처·병원명 */}
           <div className="grid grid-cols-1 sm:grid-cols-2">
             {[
               { label: '성명 (Name)',        value: patient?.name },
@@ -399,63 +486,61 @@ export default function PatientInfo() {
               { label: '성별 (Gender)',      value: patient?.gender },
               { label: '생년월일 (Birth)',   value: formatDate(patient?.birth_date) },
               { label: '연락처 (Phone)',     value: patient?.phone },
-              { label: '수술명 (Surgery)',   value: patient?.surgery_name },
-              { label: '수술일 (Date)',      value: formatDate(patient?.surgery_date) },
-              { label: '진행 단계 (Stage)', value: patient?.current_rehab_phase },
-              { label: '재활 시작일',        value: formatDate(patient?.rehab_start_date) },
               { label: '병원명',             value: patient?.hospital_name },
             ].map((item, i) => (
-              <div key={i} className={`flex ${cellBorder(i)}`}>
+              <div key={i} className={`flex border-outline-variant ${i < 4 ? 'border-b' : ''} ${i % 2 === 0 ? 'sm:border-r' : ''}`}>
                 <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
                   {item.label}
                 </div>
-                <div className="flex-1 min-w-0 px-4 py-3 text-body-md text-on-surface">
-                  {item.value ?? '—'}
-                </div>
+                <div className="flex-1 min-w-0 px-4 py-3 text-body-md text-on-surface">{item.value ?? '—'}</div>
               </div>
             ))}
           </div>
 
-          {/* 진료 예정일 — 편집 가능 */}
-          <div className="border-t border-outline-variant flex">
-            <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
-              진료 예정일
-            </div>
-            {editingAppointment ? (
-              <div className="flex-1 px-4 py-2 flex items-center gap-3 flex-wrap">
-                <input
-                  type="date"
-                  value={appointmentInput}
-                  onChange={(e) => setAppointmentInput(e.target.value)}
-                  className="border border-outline-variant rounded-xl px-3 py-2 text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary"
-                />
-                <button
-                  onClick={() => { setNextAppointment(appointmentInput); setEditingAppointment(false); }}
-                  className="px-4 py-2 bg-doctor-primary text-white rounded-xl text-label-sm font-semibold hover:opacity-90 transition-opacity"
-                >
-                  저장
-                </button>
-                <button
-                  onClick={() => { setAppointmentInput(nextAppointment); setEditingAppointment(false); }}
-                  className="px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-sm font-semibold hover:bg-surface-container transition-colors"
-                >
-                  취소
-                </button>
+          {/* 편집 가능 — 수술명·수술부위·수술일·재활시작일·재활진행단계·진료예정일 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 border-t border-outline-variant">
+            {[
+              { label: '수술명',        key: 'surgery_name',        type: 'text',   placeholder: '예: 손가락 골절 수술' },
+              { label: '수술 부위',     key: 'surgery_area',        type: 'text',   placeholder: '예: 손가락' },
+              { label: '수술일',        key: 'surgery_date',        type: 'date',   placeholder: '' },
+              { label: '재활 시작일',   key: 'rehab_start_date',    type: 'date',   placeholder: '' },
+              { label: '재활 진행단계', key: 'current_rehab_phase', type: 'select', placeholder: '' },
+              { label: '진료 예정일',   key: 'appointment_date',    type: 'date',   placeholder: '' },
+            ].map((item, i) => (
+              <div key={i} className={`flex border-outline-variant ${i < 4 ? 'border-b' : ''} ${i % 2 === 0 ? 'sm:border-r' : ''}`}>
+                <div className="w-36 sm:w-44 flex-shrink-0 bg-surface-container-low px-4 py-3 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
+                  {item.label}
+                </div>
+                <div className="flex-1 min-w-0 px-4 py-2 flex items-center">
+                  {medicalEditing ? (
+                    item.type === 'select' ? (
+                      <select
+                        value={medEdit[item.key]}
+                        onChange={(e) => setMedEdit((p) => ({ ...p, [item.key]: e.target.value }))}
+                        className="w-full border border-outline-variant rounded-lg px-3 py-1.5 text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary bg-white"
+                      >
+                        <option value="">선택 안함</option>
+                        <option value="초기">초기</option>
+                        <option value="중기">중기</option>
+                        <option value="후기">후기</option>
+                      </select>
+                    ) : (
+                      <input
+                        type={item.type}
+                        value={medEdit[item.key]}
+                        onChange={(e) => setMedEdit((p) => ({ ...p, [item.key]: e.target.value }))}
+                        placeholder={item.placeholder}
+                        className="w-full border border-outline-variant rounded-lg px-3 py-1.5 text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
+                      />
+                    )
+                  ) : (
+                    <span className="text-body-md text-on-surface">
+                      {item.type === 'date' ? formatDate(medEdit[item.key]) || '—' : medEdit[item.key] || '—'}
+                    </span>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="flex-1 min-w-0 px-4 py-3 flex items-center justify-between gap-2">
-                <span className="text-body-md text-on-surface">
-                  {nextAppointment ? nextAppointment.replace(/-/g, '.') : '미정'}
-                </span>
-                <button
-                  onClick={() => { setAppointmentInput(nextAppointment); setEditingAppointment(true); }}
-                  className="flex items-center gap-1 text-label-sm text-doctor-primary hover:underline font-semibold flex-shrink-0"
-                >
-                  <span className="material-symbols-outlined text-sm">edit_calendar</span>
-                  변경
-                </button>
-              </div>
-            )}
+            ))}
           </div>
         </section>
 
@@ -527,19 +612,36 @@ export default function PatientInfo() {
               <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>straighten</span>
               관절 가동 범위 (ROM)
             </h2>
-            {!isEditingRom && null && (
-              <button
-                onClick={() => setIsEditingRom(true)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">edit</span>
-                수정
-              </button>
-            )}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex gap-1.5">
+                {ROM_EXERCISE_TABS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => { setActiveRomTab(key); setIsEditingRom(false); }}
+                    className={`px-3 py-1.5 rounded-lg text-label-sm font-semibold transition-colors
+                      ${activeRomTab === key
+                        ? 'bg-doctor-primary text-white shadow-sm'
+                        : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+                      }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {!isEditingRom && (
+                <button
+                  onClick={() => setIsEditingRom(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">edit</span>
+                  수정
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 데이터 없음 */}
-          {!isEditingRom && !null && (
+          {!isEditingRom && !hasRomData && (
             <div className="flex flex-col items-center justify-center py-8 gap-4 text-center">
               <div className="w-14 h-14 bg-surface-container rounded-full flex items-center justify-center">
                 <span className="material-symbols-outlined text-outline text-3xl">straighten</span>
@@ -559,38 +661,34 @@ export default function PatientInfo() {
           )}
 
           {/* 조회 모드 */}
-          {!isEditingRom && null && (
+          {!isEditingRom && hasRomData && (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[540px] border-collapse">
+              <table className="w-full min-w-[580px] border-collapse">
                 <thead>
                   <tr className="bg-[#f0f6ff]">
-                    <th className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-20">관절</th>
+                    <th className="px-2 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-36 whitespace-nowrap">관절</th>
                     {ROM_FINGERS.map((f) => (
-                      <th key={f.key} className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
+                      <th key={f.key} className="px-1 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
                         {f.label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {ROM_ROW_LABELS.map((rowLabel, rowIdx) => (
-                    <tr key={rowLabel} className="hover:bg-surface-container-lowest transition-colors">
-                      <td className="px-3 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low">
-                        {rowLabel}
+                  {ROM_ROWS.map(({ label, joint, hand }) => (
+                    <tr key={`${joint}_${hand}`} className="hover:bg-surface-container-lowest transition-colors">
+                      <td className="px-2 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low whitespace-nowrap">
+                        {label}
                       </td>
                       {ROM_FINGERS.map((f) => {
-                        const jointName = f.joints[rowIdx];
-                        const stateKey = jointName ? `${f.key}_${jointName}` : null;
-                        const val = stateKey ? null[stateKey] : undefined;
+                        const stateKey = `${f.key}_${joint}_${hand}`;
+                        const val = currentRom[stateKey];
                         return (
-                          <td key={f.key} className="px-3 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
-                            {stateKey ? (
-                              val !== undefined
-                                ? `${val}°`
-                                : <span className="text-outline font-normal">—</span>
-                            ) : (
-                              <span className="text-outline font-normal">—</span>
-                            )}
+                          <td key={f.key} className="px-1 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
+                            {val !== undefined
+                              ? `${val}°`
+                              : <span className="text-outline font-normal">—</span>
+                            }
                           </td>
                         );
                       })}
@@ -608,45 +706,40 @@ export default function PatientInfo() {
                 각 관절의 가동 범위를 입력해주세요. 단위: 도(°), 소수점 1자리까지 입력 가능합니다.
               </p>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[540px] border-collapse">
+                <table className="w-full min-w-[580px] border-collapse">
                   <thead>
                     <tr className="bg-[#f0f6ff]">
-                      <th className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-20">관절</th>
+                      <th className="px-2 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-36 whitespace-nowrap">관절</th>
                       {ROM_FINGERS.map((f) => (
-                        <th key={f.key} className="px-3 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
+                        <th key={f.key} className="px-1 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
                           {f.label}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {ROM_ROW_LABELS.map((rowLabel, rowIdx) => (
-                      <tr key={rowLabel} className="hover:bg-surface-container-lowest transition-colors">
-                        <td className="px-3 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low">
-                          {rowLabel}
+                    {ROM_ROWS.map(({ label, joint, hand }) => (
+                      <tr key={`${joint}_${hand}`} className="hover:bg-surface-container-lowest transition-colors">
+                        <td className="px-2 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low whitespace-nowrap">
+                          {label}
                         </td>
                         {ROM_FINGERS.map((f) => {
-                          const jointName = f.joints[rowIdx];
-                          const stateKey = jointName ? `${f.key}_${jointName}` : null;
+                          const stateKey = `${f.key}_${joint}_${hand}`;
                           return (
-                            <td key={f.key} className="px-2 py-2 border border-outline-variant text-center">
-                              {stateKey ? (
-                                <div className="flex items-center justify-center gap-1">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    max="180"
-                                    value={rom[stateKey] ?? ''}
-                                    onChange={(e) => setRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
-                                    placeholder="—"
-                                    className="w-16 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
-                                  />
-                                  <span className="text-label-sm text-on-surface-variant">°</span>
-                                </div>
-                              ) : (
-                                <span className="text-outline text-label-md">—</span>
-                              )}
+                            <td key={f.key} className="px-1 py-2 border border-outline-variant text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="180"
+                                  value={currentRom[stateKey] ?? ''}
+                                  onChange={(e) => setCurrentRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
+                                  placeholder="—"
+                                  className="w-14 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
+                                />
+                                <span className="text-label-sm text-on-surface-variant">°</span>
+                              </div>
                             </td>
                           );
                         })}
@@ -656,7 +749,7 @@ export default function PatientInfo() {
                 </table>
               </div>
               <div className="flex justify-end gap-3 pt-2 border-t border-outline-variant">
-                {null && (
+                {hasRomData && (
                   <button
                     onClick={handleRomCancel}
                     className="px-5 py-2.5 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md"

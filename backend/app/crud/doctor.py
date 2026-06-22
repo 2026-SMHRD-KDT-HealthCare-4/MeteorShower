@@ -20,6 +20,15 @@ def get_doctor_by_license_number(db: Session, license_number: str):
     return db.query(Doctor).filter(Doctor.license_number == license_number).first()
 
 
+def update_doctor(db: Session, doctor, values: dict):
+    for key, value in values.items():
+        if value is not None:
+            setattr(doctor, key, value)
+    db.commit()
+    db.refresh(doctor)
+    return doctor
+
+
 def create_doctor(db: Session, body: DoctorSignupRequest, hashed_password: str):
     doctor = Doctor(
         login_id=body.login_id,

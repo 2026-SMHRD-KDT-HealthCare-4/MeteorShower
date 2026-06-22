@@ -39,7 +39,25 @@ export const patientApi = {
   getPatient:      (id)       => api.get(`/patients/${id}`),
   searchPatients:       (q)        => api.get(`/patients/search?q=${encodeURIComponent(q)}`),
   assignPatient:        (id, body) => api.patch(`/patients/${id}/register`, body),
-  getPatientPrescription: (id)     => api.get(`/patients/${id}/prescriptions`),
+  getPatientPrescription:  (id)       => api.get(`/patients/${id}/prescriptions`),
+  savePatientPrescription: (id, body) => api.post(`/patients/${id}/prescriptions`, body),
+  updatePatientMedical:   (id, body) => api.patch(`/patients/${id}/medical`, body),
+  getPatientRom:          (id, exerciseType = 'grip') => api.get(`/patients/${id}/rom?exercise_type=${exerciseType}`),
+  updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
+  getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),
+  getMySchedule:          ()         => api.get('/patients/me/schedule'),
+  getNotifications:         ()   => api.get('/patients/me/notifications'),
+  markNotificationRead:     (id) => api.patch(`/patients/me/notifications/${id}/read`),
+  markAllNotificationsRead: ()   => api.patch('/patients/me/notifications/read-all'),
+  reportExerciseBlocked:    ()   => api.post('/patients/me/exercise-blocked'),
+};
+
+export const doctorApi = {
+  getMyProfile:    ()     => api.get('/auth/me'),
+  updateMyProfile: (body) => api.patch('/auth/doctor/me', body),
+  getNotifications:         ()   => api.get('/doctor/me/notifications'),
+  markNotificationRead:     (id) => api.patch(`/doctor/me/notifications/${id}/read`),
+  markAllNotificationsRead: ()   => api.patch('/doctor/me/notifications/read-all'),
 };
 
 export const authApi = {
@@ -51,6 +69,11 @@ export const authApi = {
 
   patientLogin: (login_id, password) =>
     request('POST', '/auth/patient/login', { login_id, password }),
+
+  getSocialLoginUrl: (provider, redirectUri) =>
+    request('GET', `/auth/social/${provider}/url?redirect_uri=${encodeURIComponent(redirectUri)}`),
+  socialLogin: (provider, body) => request('POST', `/auth/social/${provider}`, body),
+  socialSignup: (body) => request('POST', '/auth/social-signup', body),
 
   doctorSignup: (form) =>
     request('POST', '/auth/doctor/signup', {
