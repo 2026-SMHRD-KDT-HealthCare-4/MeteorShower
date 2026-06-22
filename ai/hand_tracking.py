@@ -88,10 +88,10 @@ FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 # 새로 추가: 탭핑 전용 타겟 (각도가 그립보다 더 완만해야 함)
 TAP_FINGER_ROM_TARGETS = {
     "thumb":  {"IP": 80},
-    "index":  {"MCP": 120, "PIP": 100, "DIP": 140},
-    "middle": {"MCP": 120, "PIP": 105, "DIP": 140},
-    "ring":   {"MCP": 125, "PIP": 110, "DIP": 145},
-    "pinky":  {"MCP": 130, "PIP": 100, "DIP": 140},
+    "index":  {"MCP": 150, "PIP": 100, "DIP": 140},
+    "middle": {"MCP": 150, "PIP": 105, "DIP": 140},
+    "ring":   {"MCP": 150, "PIP": 110, "DIP": 145},
+    "pinky":  {"MCP": 150, "PIP": 100, "DIP": 140},
 }
 
 
