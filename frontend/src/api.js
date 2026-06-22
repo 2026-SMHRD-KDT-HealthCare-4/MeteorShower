@@ -60,6 +60,16 @@ export const doctorApi = {
   markAllNotificationsRead: ()   => api.patch('/doctor/me/notifications/read-all'),
 };
 
+export const reportApi = {
+  createMockReport:    (body)     => api.post('/reports/mock', body),
+  getDoctorReports:    ()         => api.get('/doctor/me/reports'),
+  getDoctorReport:     (id)       => api.get(`/doctor/me/reports/${id}`),
+  updateDoctorReport:  (id, body) => api.patch(`/doctor/me/reports/${id}`, body),
+  approveDoctorReport: (id, body = {}) => api.patch(`/doctor/me/reports/${id}/approve`, body),
+  getPatientReports:   ()         => api.get('/patients/me/reports'),
+  getPatientReport:    (id)       => api.get(`/patients/me/reports/${id}`),
+};
+
 export const authApi = {
   doctorCheckId:  (login_id)  => request('GET', `/auth/doctor/check-id?login_id=${login_id}`),
   patientCheckId: (login_id)  => request('GET', `/auth/patient/check-id?login_id=${login_id}`),

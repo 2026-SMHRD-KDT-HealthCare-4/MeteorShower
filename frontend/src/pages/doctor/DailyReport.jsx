@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
+import { patientApi, reportApi } from '../../api';
 
 /* ── 날짜 유틸 ── */
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
@@ -254,6 +255,7 @@ const defaultOpinion =
 /* ── 컴포넌트 ── */
 export default function DailyReport() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [opinion, setOpinion]               = useState(defaultOpinion);
   const [editingOpinion, setEditingOpinion] = useState(false);
@@ -264,15 +266,59 @@ export default function DailyReport() {
   const [aiAdjust, setAiAdjust]             = useState(true);
   const [schedule, setSchedule]             = useState({});
   const [justSaved, setJustSaved]           = useState(false);
+  const [patients, setPatients]             = useState([]);
+  const [selectedPatientId, setSelectedPatientId] = useState(location.state?.patientId ?? '');
+  const [reports, setReports]               = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [reportMessage, setReportMessage]   = useState('');
+  const [reportBusy, setReportBusy]         = useState(false);
+
+  const selectedPatient = patients.find((p) => String(p.patient_id) === String(selectedPatientId));
 
   const overallCompliance = Math.round(
     exerciseResults.reduce((s, e) => s + e.value, 0) / exerciseResults.length
   );
   const accuracyAvg = 77.0;
 
-  const hasChecked  = prescription.some((ex) => ex.enabled);
-  const hasSchedule = Object.values(schedule).some(Boolean);
-  const canSave     = hasChecked && hasSchedule;
+  const loadReports = () =>
+    reportApi.getDoctorReports()
+      .then((data) => {
+        setReports(data);
+        return data;
+      })
+      .catch(() => []);
+
+  const openReport = (reportId) => {
+    if (!reportId) return;
+    reportApi.getDoctorReport(reportId)
+      .then((data) => {
+        setSelectedReport(data);
+        setSelectedPatientId(data.patient_id);
+        setOpinion(data.edited_content || data.draft_content || data.content || '');
+        setEditingOpinion(false);
+      })
+      .catch(() => setReportMessage('리포트를 불러오지 못했습니다.'));
+  };
+
+  useEffect(() => {
+    patientApi.listPatients()
+      .then((data) => {
+        setPatients(data);
+        if (!selectedPatientId && data.length > 0) setSelectedPatientId(data[0].patient_id);
+      })
+      .catch(() => {});
+    loadReports();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPatientId) return;
+    const report = reports.find((r) => String(r.patient_id) === String(selectedPatientId));
+    if (report) openReport(report.report_id);
+    else {
+      setSelectedReport(null);
+      setOpinion(defaultOpinion);
+    }
+  }, [selectedPatientId, reports]);
 
   const updatePrescription = (idx, field, val) =>
     setPrescription((prev) => prev.map((row, i) => (i === idx ? { ...row, [field]: val } : row)));
@@ -282,12 +328,68 @@ export default function DailyReport() {
 
   const handleOpinionChange = (val) => setOpinion(val);
 
-  const handleSave = () => {
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 2000);
+  const handleCreateMockReport = () => {
+    if (!selectedPatientId) {
+      setReportMessage('환자를 먼저 선택해 주세요.');
+      return;
+    }
+    setReportBusy(true);
+    setReportMessage('');
+    reportApi.createMockReport({
+      patient_id: Number(selectedPatientId),
+      report_date: new Date().toISOString().slice(0, 10),
+      exercise_blocked: false,
+    })
+      .then((data) => {
+        setSelectedReport(data);
+        setOpinion(data.draft_content || data.content || '');
+        setReportMessage('mock 리포트가 생성되었습니다.');
+        return loadReports();
+      })
+      .catch((err) => setReportMessage(err.message))
+      .finally(() => setReportBusy(false));
   };
 
-  const handleSend = () => navigate('/doctor/patients');
+  const handleSave = () => {
+    if (!selectedReport) {
+      setReportMessage('먼저 mock 리포트를 생성해 주세요.');
+      return;
+    }
+    setReportBusy(true);
+    reportApi.updateDoctorReport(selectedReport.report_id, { edited_content: opinion })
+      .then((data) => {
+        setSelectedReport(data);
+        setJustSaved(true);
+        setReportMessage('수정 내용이 DB에 저장되었습니다.');
+        setTimeout(() => setJustSaved(false), 2000);
+        return loadReports();
+      })
+      .catch((err) => setReportMessage(err.message))
+      .finally(() => setReportBusy(false));
+  };
+
+  const handleSend = () => {
+    if (!selectedReport) {
+      setReportMessage('먼저 mock 리포트를 생성해 주세요.');
+      return;
+    }
+    setReportBusy(true);
+    reportApi.approveDoctorReport(selectedReport.report_id, {
+      edited_content: opinion,
+      rehab_phase: selectedPatient?.current_rehab_phase,
+      exercises: prescription,
+      schedule,
+      prescription_date: new Date().toISOString().slice(0, 10),
+    })
+      .then((data) => {
+        setSelectedReport(data);
+        setOpinion(data.edited_content || data.draft_content || data.content || '');
+        setReportMessage('승인 완료: 환자 진료기록 화면에 표시됩니다.');
+        return loadReports();
+      })
+      .catch((err) => setReportMessage(err.message))
+      .finally(() => setReportBusy(false));
+  };
 
   /* 환자 정보 셀 border 헬퍼 */
   const cellBorder = (i) => {
@@ -397,9 +499,62 @@ export default function DailyReport() {
             일일 운동 레포트
           </h1>
           <p className="text-body-md text-on-surface-variant mt-1">
-            김망나뇽 환자 · 2026년 2월 15일 세션
+            {selectedPatient ? `${selectedPatient.name} 환자` : '환자를 선택해 주세요'} · LLM mock 리포트
           </p>
         </div>
+
+        <section className="bg-white border border-outline-variant rounded-2xl p-5 shadow-card space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="space-y-1">
+              <span className="text-label-sm font-semibold text-on-surface-variant">환자 선택</span>
+              <select
+                value={selectedPatientId}
+                onChange={(e) => setSelectedPatientId(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl border border-outline-variant bg-white text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary"
+              >
+                <option value="">환자 선택</option>
+                {patients.map((patient) => (
+                  <option key={patient.patient_id} value={patient.patient_id}>
+                    {patient.name} ({patient.patient_code})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-label-sm font-semibold text-on-surface-variant">저장된 리포트</span>
+              <select
+                value={selectedReport?.report_id ?? ''}
+                onChange={(e) => openReport(e.target.value)}
+                className="w-full h-11 px-3 rounded-xl border border-outline-variant bg-white text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary"
+              >
+                <option value="">리포트 선택</option>
+                {reports.map((report) => (
+                  <option key={report.report_id} value={report.report_id}>
+                    {report.report_date} · {report.patient_name} · {report.approval_status}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleCreateMockReport}
+              disabled={reportBusy || !selectedPatientId}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-doctor-primary text-white font-semibold text-label-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="material-symbols-outlined text-base">auto_awesome</span>
+              mock 리포트 생성
+            </button>
+            {selectedReport && (
+              <span className="px-3 py-1.5 rounded-lg bg-surface-container text-label-sm font-semibold text-on-surface-variant">
+                상태: {selectedReport.approval_status}
+              </span>
+            )}
+            {reportMessage && (
+              <span className="text-label-sm font-semibold text-doctor-primary">{reportMessage}</span>
+            )}
+          </div>
+        </section>
 
         {/* ── 환자 정보 ── */}
         <section className="bg-white border border-outline-variant rounded-2xl overflow-hidden shadow-card">
@@ -752,9 +907,9 @@ export default function DailyReport() {
         <div className="flex justify-end gap-3 pb-4">
           <button
             onClick={handleSave}
-            disabled={!canSave}
+            disabled={!selectedReport || reportBusy}
             className={`flex items-center gap-2 px-6 sm:px-8 py-3 border-2 font-semibold rounded-xl transition-all text-label-md
-              ${canSave
+              ${selectedReport && !reportBusy
                 ? 'border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] active:scale-95'
                 : 'border-outline-variant text-on-surface-variant cursor-not-allowed opacity-50'
               }`}
@@ -762,21 +917,22 @@ export default function DailyReport() {
             {justSaved ? (
               <>
                 <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                저장 완료
+                DB 저장 완료
               </>
             ) : (
               <>
                 <span className="material-symbols-outlined text-base">save</span>
-                저장 (Save)
+                수정 저장
               </>
             )}
           </button>
           <button
             onClick={handleSend}
-            className="flex items-center gap-2 px-6 sm:px-8 py-3 bg-doctor-primary text-white font-semibold rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-md text-label-md"
+            disabled={!selectedReport || reportBusy}
+            className="flex items-center gap-2 px-6 sm:px-8 py-3 bg-doctor-primary text-white font-semibold rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-md text-label-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-base">send</span>
-            발송 (Send)
+            승인
           </button>
         </div>
 

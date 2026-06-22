@@ -223,7 +223,7 @@ export default function DoctorPatientList() {
                 환자 정보
               </button>
               <button
-                onClick={() => navigate('/doctor/report/daily')}
+                onClick={() => navigate('/doctor/report/daily', { state: { patientId: selectedInfo.patient_id } })}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-md hover:bg-doctor-primary hover:text-white transition-all"
               >
                 <span className="material-symbols-outlined text-sm">today</span>
