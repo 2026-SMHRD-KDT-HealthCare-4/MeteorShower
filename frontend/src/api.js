@@ -45,6 +45,7 @@ export const patientApi = {
   getPatientRom:          (id, exerciseType = 'grip') => api.get(`/patients/${id}/rom?exercise_type=${exerciseType}`),
   updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
   getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),
+  getWeeklyStats:         ()         => api.get('/patients/me/weekly-stats'),
   getMySchedule:          ()         => api.get('/patients/me/schedule'),
   getNotifications:         ()   => api.get('/patients/me/notifications'),
   markNotificationRead:     (id) => api.patch(`/patients/me/notifications/${id}/read`),

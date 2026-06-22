@@ -245,16 +245,25 @@ function ExerciseCard({ ex, onStart }) {
   );
 }
 
+const DEFAULT_WEEKLY = ['월', '화', '수', '목', '금', '토', '일'].map((day) => ({
+  day, rate: 0, total: 0, done: 0, is_today: false,
+}));
+
 export default function TodayExercise() {
   const { user } = useAuth();
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [weeklyStats, setWeeklyStats] = useState(DEFAULT_WEEKLY);
 
   useEffect(() => {
     patientApi.getTodayExercises()
       .then((data) => setExercises(data))
       .catch(() => setExercises(INITIAL_EXERCISES))
       .finally(() => setLoading(false));
+
+    patientApi.getWeeklyStats()
+      .then((data) => setWeeklyStats(data))
+      .catch(() => {});
   }, []);
 
   const sortedExercises = useMemo(
@@ -306,15 +315,7 @@ export default function TodayExercise() {
             <div className="relative z-10">
               <h3 className="text-label-lg md:text-title-md font-display font-bold mb-2 md:mb-3">주간 운동 달성률</h3>
               <div className="flex gap-2 items-end h-16 md:h-24">
-                {[
-                  { day: '월', rate: 100 },
-                  { day: '화', rate: 80 },
-                  { day: '수', rate: 60 },
-                  { day: '목', rate: achievementRate },
-                  { day: '금', rate: 0 },
-                  { day: '토', rate: 0 },
-                  { day: '일', rate: 0 },
-                ].map(({ day, rate }) => (
+                {weeklyStats.map(({ day, rate, is_today }) => (
                   <div key={day} className="flex-1 flex flex-col items-center gap-1 h-full">
                     <span className="text-xs opacity-70 shrink-0">{rate > 0 ? `${rate}%` : ''}</span>
                     <div className="flex-1 w-full flex items-end">
@@ -322,11 +323,15 @@ export default function TodayExercise() {
                         className="w-full rounded-t-md transition-all duration-700"
                         style={{
                           height: rate > 0 ? `${rate}%` : '4px',
-                          background: rate > 0 ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)',
+                          background: is_today
+                            ? 'rgba(255,255,255,0.9)'
+                            : rate > 0
+                            ? 'rgba(255,255,255,0.5)'
+                            : 'rgba(255,255,255,0.15)',
                         }}
                       />
                     </div>
-                    <span className="text-label-sm font-semibold shrink-0">{day}</span>
+                    <span className={`text-label-sm font-semibold shrink-0 ${is_today ? 'underline underline-offset-2' : ''}`}>{day}</span>
                   </div>
                 ))}
               </div>

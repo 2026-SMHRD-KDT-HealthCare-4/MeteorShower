@@ -14,6 +14,8 @@ from models.llm_report import LlmReport
 from models.patient_notification import PatientNotification
 from models.prescription import Prescription
 from models.prescription_exercise import PrescriptionExercise
+from models.rehab_exercise_log import RehabExerciseLog
+from models.rehab_exercise_session import RehabExerciseSession
 from schemas.report import MockReportCreateRequest, ReportApproveRequest, ReportUpdateRequest
 
 router = APIRouter(tags=["reports"])
@@ -80,6 +82,33 @@ def _prescription_exercises_to_dict(prescription: Optional[Prescription]) -> lis
             }
         )
     return exercises
+
+
+def _get_date_achievements(db: Session, patient_id: int, report_date) -> dict:
+    """리포트 날짜 기준 운동별 달성률 {exercise_name: rate%}"""
+    if not report_date:
+        return {}
+    schedules = (
+        db.query(ExerciseSchedule)
+        .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(
+            Prescription.patient_id == patient_id,
+            ExerciseSchedule.exercise_date == report_date,
+        )
+        .all()
+    )
+    achievements = {}
+    for schedule in schedules:
+        name = schedule.prescription_exercise.exercise.exercise_name if schedule.prescription_exercise.exercise else None
+        if not name:
+            continue
+        for session in schedule.sessions:
+            for log in session.logs:
+                if log.progress_rate is not None:
+                    achievements[name] = round(float(log.progress_rate))
+                    break
+    return achievements
 
 
 def _save_prescription_from_report(
@@ -176,12 +205,16 @@ def _report_summary(report: LlmReport) -> dict:
 def _report_detail(report: LlmReport, db: Session, include_draft: bool = True) -> dict:
     content = report.edited_content or report.draft_content
     prescription = _latest_active_prescription(db, report.patient_id)
+    exercises = _prescription_exercises_to_dict(prescription)
+    achievements = _get_date_achievements(db, report.patient_id, report.report_date)
+    for ex in exercises:
+        ex["achievement"] = achievements.get(ex["name"])
     data = {
         **_report_summary(report),
         "content": content,
         "edited_content": report.edited_content,
         "guardian_sent_status": report.guardian_sent_status,
-        "exercises": _prescription_exercises_to_dict(prescription),
+        "exercises": exercises,
     }
     if include_draft:
         data["draft_content"] = report.draft_content
