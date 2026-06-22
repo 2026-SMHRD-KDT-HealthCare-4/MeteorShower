@@ -51,6 +51,7 @@ export const patientApi = {
   markNotificationRead:     (id) => api.patch(`/patients/me/notifications/${id}/read`),
   markAllNotificationsRead: ()   => api.patch('/patients/me/notifications/read-all'),
   reportExerciseBlocked:    ()   => api.post('/patients/me/exercise-blocked'),
+  getNearbyHospitals:       (lat, lng, radius = 2000) => api.get(`/patients/me/nearby-hospitals?lat=${lat}&lng=${lng}&radius=${radius}`),
   saveExerciseSession:      (body) => api.post('/patients/me/exercise-sessions', body),
 };
 

@@ -1,3 +1,6 @@
+import os
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timedelta
@@ -27,6 +30,8 @@ from schemas.patient import (
 from schemas.prescription import PrescriptionSaveRequest
 
 router = APIRouter(prefix="/patients", tags=["patients"])
+
+KAKAO_REST_KEY = os.getenv("KAKAO_CLIENT_ID", "")
 
 FINGER_LABELS = {
     "thumb": "엄지",
@@ -288,6 +293,47 @@ def report_exercise_blocked(
     return {"message": "의사에게 알림이 전송되었습니다."}
 
 
+@router.get("/me/nearby-hospitals")
+def get_nearby_hospitals(
+    lat: float,
+    lng: float,
+    radius: int = 2000,
+    payload: dict = Depends(get_token_payload),
+):
+    _require_role(payload, "patient")
+    if not KAKAO_REST_KEY:
+        raise HTTPException(status_code=503, detail="카카오 API 키가 설정되지 않았습니다.")
+
+    with httpx.Client(timeout=5.0) as client:
+        resp = client.get(
+            "https://dapi.kakao.com/v2/local/search/category.json",
+            headers={"Authorization": f"KakaoAK {KAKAO_REST_KEY}"},
+            params={
+                "category_group_code": "HP8",
+                "x": str(lng),
+                "y": str(lat),
+                "radius": radius,
+                "sort": "distance",
+                "size": 10,
+            },
+        )
+
+    print(f"[Kakao] status={resp.status_code} body={resp.text}")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"카카오 API 오류 ({resp.status_code}): {resp.text}")
+
+    return [
+        {
+            "name": p["place_name"],
+            "address": p.get("road_address_name") or p.get("address_name", ""),
+            "phone": p.get("phone", ""),
+            "distance": int(p.get("distance", 0)),
+            "place_url": p.get("place_url", ""),
+        }
+        for p in resp.json().get("documents", [])
+    ]
+
+
 @router.get("/me/schedule")
 def get_my_schedule(
     payload: dict = Depends(get_token_payload),
@@ -357,7 +403,7 @@ def get_my_today_exercises(
         for pe in sorted(prescription.prescription_exercises, key=lambda x: x.exercise_order):
             today_schedule = next((s for s in pe.schedules if s.exercise_date == today), None)
             scheduled_today = today_schedule is not None
-            if pe.schedules and not scheduled_today:
+            if not scheduled_today:
                 continue
             exercises.append({
                 "id": pe.prescription_exercise_id,
