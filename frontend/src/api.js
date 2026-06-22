@@ -50,6 +50,7 @@ export const patientApi = {
   markNotificationRead:     (id) => api.patch(`/patients/me/notifications/${id}/read`),
   markAllNotificationsRead: ()   => api.patch('/patients/me/notifications/read-all'),
   reportExerciseBlocked:    ()   => api.post('/patients/me/exercise-blocked'),
+  saveExerciseSession:      (body) => api.post('/patients/me/exercise-sessions', body),
 };
 
 export const doctorApi = {
@@ -58,6 +59,7 @@ export const doctorApi = {
   getNotifications:         ()   => api.get('/doctor/me/notifications'),
   markNotificationRead:     (id) => api.patch(`/doctor/me/notifications/${id}/read`),
   markAllNotificationsRead: ()   => api.patch('/doctor/me/notifications/read-all'),
+  getDashboard:             ()   => api.get('/doctor/me/dashboard'),
 };
 
 export const reportApi = {

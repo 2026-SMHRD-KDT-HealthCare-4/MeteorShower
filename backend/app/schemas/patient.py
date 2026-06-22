@@ -33,6 +33,22 @@ class PatientRomUpdateRequest(BaseModel):
     rom: Dict[str, float] = {}
 
 
+class FingerAccuracyRequest(BaseModel):
+    hand_type: str
+    finger_type: str
+    accuracy: float
+    rom: float
+
+
+class ExerciseSessionCreateRequest(BaseModel):
+    schedule_id: int
+    performed_reps: Optional[int] = None
+    performed_sets: Optional[int] = None
+    progress_rate: Optional[float] = None
+    end_type: str = "완료"
+    finger_accuracy: List[FingerAccuracyRequest] = []
+
+
 class PrescriptionExerciseItem(BaseModel):
     exercise_id: int
     target_reps: int
