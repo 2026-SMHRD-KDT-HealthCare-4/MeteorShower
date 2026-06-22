@@ -1,19 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
-import { patientApi } from '../../api';
-
-// 처방 대기 / 이번 주 처방 현황은 별도 API 미구현 — 임시 더미
-const waitingPatients = [
-  { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000', urgent: true },
-  { id: 'F310957194589', name: '정이상해씨', gender: '남', birth: '1992.08.15', phone: '010-5555-4444', urgent: false },
-  { id: 'F310957194590', name: '김이브', gender: '여', birth: '1997.12.24', phone: '010-7777-6666', urgent: false },
-];
-
-const prescribedPatients = [
-  { id: 'F310957194583', name: '김망나뇽', gender: '남', birth: '1999.01.21', phone: '010-0000-0000', exercises: 12, status: 'Completed' },
-  { id: 'F310957194595', name: '한라프라스', gender: '여', birth: '1985.04.10', phone: '010-8888-9999', exercises: 8, status: 'In Progress' },
-];
+import { doctorApi, patientApi } from '../../api';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -62,6 +50,8 @@ function PatientCard({ patient, selected, onSelect, accent = 'primary', showUrge
 
 export default function DoctorPatientList() {
   const [allPatients, setAllPatients] = useState([]);
+  const [waitingPatients, setWaitingPatients] = useState([]);
+  const [prescribedPatients, setPrescribedPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
@@ -79,6 +69,13 @@ export default function DoctorPatientList() {
         }));
         setAllPatients(mapped);
         if (mapped.length > 0) setSelectedPatient(mapped[0].id);
+      })
+      .catch(() => {});
+
+    doctorApi.getDashboard()
+      .then((data) => {
+        setWaitingPatients((data.waiting_patients ?? []).map((p) => ({ ...p, birth: formatDate(p.birth) })));
+        setPrescribedPatients((data.weekly_prescriptions ?? []).map((p) => ({ ...p, birth: formatDate(p.birth) })));
       })
       .catch(() => {});
   }, []);

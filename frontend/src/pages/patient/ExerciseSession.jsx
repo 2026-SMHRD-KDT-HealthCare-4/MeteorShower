@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { patientApi } from '../../api';
 import VoiceChatBot from '../../components/VoiceChatBot';
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
@@ -59,15 +60,40 @@ function LandmarkCanvas({ data }) {
 
 export default function ExerciseSession() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const exerciseInfo = location.state?.exercise;
   const [showModal, setShowModal] = useState(false);
   const [phase, setPhase]         = useState('idle'); // idle | connecting | running | ended
   const [frame, setFrame]         = useState(null);
   const [wsData, setWsData]       = useState(null);
+  const [saveMessage, setSaveMessage] = useState('');
 
   const wsRef    = useRef(null);
   const phaseRef = useRef('idle');
+  const savedRef = useRef(false);
+  const latestDataRef = useRef(null);
 
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
+
+  const saveExerciseResult = useCallback((endType = '완료') => {
+    if (savedRef.current || !exerciseInfo?.schedule_id) return Promise.resolve();
+    savedRef.current = true;
+    const latest = latestDataRef.current ?? {};
+    const progress = latest.similarity == null ? null : Number(latest.similarity.toFixed(2));
+
+    return patientApi.saveExerciseSession({
+      schedule_id: exerciseInfo.schedule_id,
+      performed_reps: latest.count ?? 0,
+      performed_sets: latest.set ?? exerciseInfo.sets ?? 1,
+      progress_rate: progress,
+      end_type: endType,
+    })
+      .then(() => setSaveMessage('운동 결과가 저장되었습니다.'))
+      .catch((err) => {
+        savedRef.current = false;
+        setSaveMessage(err.message);
+      });
+  }, [exerciseInfo]);
 
   const stopSession = useCallback(() => {
     if (wsRef.current) {
@@ -99,14 +125,17 @@ export default function ExerciseSession() {
       }
       if (msg.frame) setFrame(msg.frame);
       setWsData(msg);
-      if (msg.session_end) updatePhase('ended');
+      latestDataRef.current = msg;
+      if (msg.session_end) {
+        saveExerciseResult('완료').finally(() => updatePhase('ended'));
+      }
     };
 
     ws.onerror = () => updatePhase('idle');
     ws.onclose = () => {
       if (phaseRef.current !== 'ended') updatePhase('idle');
     };
-  }, []);
+  }, [saveExerciseResult]);
 
   useEffect(() => () => wsRef.current?.close(), []);
 
@@ -179,7 +208,8 @@ export default function ExerciseSession() {
           <div className="text-center">
             <span className="material-symbols-outlined text-teal-400 text-6xl mb-4 block">check_circle</span>
             <p className="text-white text-3xl font-bold mb-2">운동 완료!</p>
-            <p className="text-gray-300 text-sm mb-8">수고하셨습니다</p>
+            <p className="text-gray-300 text-sm mb-2">수고하셨습니다</p>
+            {saveMessage && <p className="text-teal-300 text-sm mb-6">{saveMessage}</p>}
             <button
               onClick={() => { stopSession(); navigate('/patient/exercise'); }}
               className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all"
@@ -309,7 +339,7 @@ export default function ExerciseSession() {
                 취소
               </button>
               <button
-                onClick={() => { stopSession(); navigate('/patient/exercise'); }}
+                onClick={() => { saveExerciseResult('안전종료').finally(() => { stopSession(); navigate('/patient/exercise'); }); }}
                 className="flex-1 h-12 bg-red-500 text-white rounded-xl font-semibold hover:brightness-110 transition-all"
               >
                 확인

@@ -154,7 +154,7 @@ function ExerciseCard({ ex, onStart }) {
 
   const handleStart = () => {
     onStart(ex.id);
-    navigate('/patient/exercise/session');
+    navigate('/patient/exercise/session', { state: { exercise: ex } });
   };
 
   return (
