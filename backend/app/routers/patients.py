@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from crud import doctor as doctor_crud
 from crud import patient as patient_crud
@@ -372,6 +372,48 @@ def get_my_today_exercises(
             })
 
     return exercises
+
+
+@router.get("/me/weekly-stats")
+def get_my_weekly_stats(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    today = date.today()
+
+    week_start = today - timedelta(days=today.weekday())  # 이번 주 월요일
+
+    day_labels = ["월", "화", "수", "목", "금", "토", "일"]
+    result = []
+
+    for i in range(7):
+        day_date = week_start + timedelta(days=i)
+        schedules = (
+            db.query(ExerciseSchedule)
+            .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+            .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+            .filter(
+                Prescription.patient_id == patient_id,
+                Prescription.status == "적용중",
+                ExerciseSchedule.exercise_date == day_date,
+            )
+            .all()
+        )
+        total = len(schedules)
+        done = sum(1 for s in schedules if s.sessions)
+        rate = round(done / total * 100) if total > 0 else 0
+        result.append({
+            "day": day_labels[i],
+            "date": day_date.isoformat(),
+            "total": total,
+            "done": done,
+            "rate": rate,
+            "is_today": day_date == today,
+        })
+
+    return result
 
 
 @router.post("/me/exercise-sessions", status_code=201)
