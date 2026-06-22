@@ -1,8 +1,16 @@
 from sqlalchemy import (
-    Column, Integer, String, Numeric, TIMESTAMP, ForeignKey,
-    CheckConstraint, UniqueConstraint, func
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    TIMESTAMP,
+    UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import relationship
+
 from database import Base
 
 
