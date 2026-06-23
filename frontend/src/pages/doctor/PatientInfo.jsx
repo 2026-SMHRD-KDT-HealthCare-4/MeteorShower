@@ -443,14 +443,14 @@ export default function PatientInfo() {
           </button>
           <div className="flex gap-2">
             <button
-              onClick={() => navigate('/doctor/report/daily')}
+              onClick={() => navigate('/doctor/report/daily', { state: { patientId } })}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
             >
               <span className="material-symbols-outlined text-sm">today</span>
               일일 리포트
             </button>
             <button
-              onClick={() => navigate('/doctor/report/progress')}
+              onClick={() => navigate('/doctor/report/progress', { state: { patientId } })}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-doctor-primary text-white font-semibold text-label-sm hover:opacity-90 transition-opacity shadow-sm"
             >
               <span className="material-symbols-outlined text-sm">bar_chart</span>

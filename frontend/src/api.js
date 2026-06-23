@@ -43,6 +43,8 @@ export const patientApi = {
   savePatientPrescription: (id, body) => api.post(`/patients/${id}/prescriptions`, body),
   updatePatientMedical:   (id, body) => api.patch(`/patients/${id}/medical`, body),
   getPatientRom:          (id, exerciseType = 'grip') => api.get(`/patients/${id}/rom?exercise_type=${exerciseType}`),
+  getPatientWeeklyProgress: (id) => api.get(`/patients/${id}/weekly-progress`),
+  getExercises: () => api.get('/patients/exercises'),
   updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
   getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),
   getWeeklyStats:         ()         => api.get('/patients/me/weekly-stats'),

@@ -195,6 +195,23 @@ def search_patients(
     return [_patient_to_dict(p) for p in patients]
 
 
+@router.get("/exercises")
+def list_all_exercises(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    exercises = db.query(Exercise).order_by(Exercise.exercise_name).all()
+    return [
+        {
+            "exercise_id": ex.exercise_id,
+            "name": ex.exercise_name,
+            "estimated_duration": ex.estimated_duration,
+        }
+        for ex in exercises
+    ]
+
+
 @router.patch("/{patient_id}/register")
 def assign_patient(
     patient_id: int,
@@ -679,6 +696,90 @@ def get_patient_prescriptions(
         "schedule": schedule,
         "rom": rom,
     }
+
+
+@router.get("/{patient_id}/weekly-progress")
+def get_patient_weekly_progress(
+    patient_id: int,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id is not None and patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+
+    today = date.today()
+    rehab_start = patient.rehab_start_date or today
+    days_since = (today - rehab_start).days
+    total_weeks = min(max(1, days_since // 7 + 1), 12)
+
+    result = []
+    for week_num in range(1, total_weeks + 1):
+        week_start = rehab_start + timedelta(weeks=week_num - 1)
+        week_end = week_start + timedelta(days=6)
+
+        schedules = (
+            db.query(ExerciseSchedule)
+            .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+            .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+            .filter(
+                Prescription.patient_id == patient_id,
+                ExerciseSchedule.exercise_date >= week_start,
+                ExerciseSchedule.exercise_date <= week_end,
+            )
+            .all()
+        )
+
+        total = len(schedules)
+        done_schedules = [s for s in schedules if s.sessions]
+        done = len(done_schedules)
+
+        all_progress = [
+            float(log.progress_rate)
+            for s in done_schedules
+            for session in s.sessions
+            for log in session.logs
+            if log.progress_rate is not None
+        ]
+
+        compliance = round(done / total * 100) if total > 0 else 0
+        accuracy_avg = round(sum(all_progress) / len(all_progress)) if all_progress else 0
+
+        exercise_map: dict = {}
+        for s in schedules:
+            name = s.prescription_exercise.exercise.exercise_name
+            if name not in exercise_map:
+                exercise_map[name] = {"total": 0, "done": 0, "progress": []}
+            exercise_map[name]["total"] += 1
+            if s.sessions:
+                exercise_map[name]["done"] += 1
+                for session in s.sessions:
+                    for log in session.logs:
+                        if log.progress_rate is not None:
+                            exercise_map[name]["progress"].append(float(log.progress_rate))
+
+        exercises = [
+            {
+                "name": name,
+                "compliance": round(v["done"] / v["total"] * 100) if v["total"] > 0 else 0,
+                "accuracy": round(sum(v["progress"]) / len(v["progress"])) if v["progress"] else 0,
+            }
+            for name, v in exercise_map.items()
+        ]
+
+        result.append({
+            "week": f"{week_num}주차",
+            "dates": f"{week_start.strftime('%Y.%m.%d')} ~ {week_end.strftime('%Y.%m.%d')}",
+            "sessionCount": done,
+            "overallCompliance": compliance,
+            "accuracyAvg": accuracy_avg,
+            "exercises": exercises,
+        })
+
+    return result
 
 
 @router.get("/{patient_id}")
