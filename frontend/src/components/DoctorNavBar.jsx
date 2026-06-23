@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import { useAuth } from '../context/AuthContext';
-import { doctorApi } from '../api';
+import { doctorApi, patientApi } from '../api';
 
 function timeAgo(isoString) {
   if (!isoString) return '';
@@ -54,6 +54,7 @@ export default function DoctorNavBar() {
   const [showProfile, setShowProfile]   = useState(false);
   const [showNotif, setShowNotif]       = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [profileStats, setProfileStats] = useState(null);
   const profileRef = useRef(null);
   const notifRef   = useRef(null);
 
@@ -77,6 +78,24 @@ export default function DoctorNavBar() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const openProfile = () => {
+    setShowProfile((v) => {
+      const next = !v;
+      if (next && !profileStats) {
+        Promise.all([patientApi.listPatients(), doctorApi.getDashboard()])
+          .then(([patients, dashboard]) => {
+            setProfileStats({
+              patientCount: patients.length,
+              waitingCount: (dashboard.waiting_patients ?? []).length,
+            });
+          })
+          .catch(() => {});
+      }
+      return next;
+    });
+    setShowNotif(false);
+  };
 
   const markAllRead = () => {
     doctorApi.markAllNotificationsRead()
@@ -197,7 +216,7 @@ export default function DoctorNavBar() {
           {/* Profile icon + popup */}
           <div className="relative" ref={profileRef}>
             <button
-              onClick={() => { setShowProfile((v) => !v); setShowNotif(false); }}
+              onClick={openProfile}
               className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-container transition-colors"
             >
               <span className="material-symbols-outlined text-doctor-primary text-3xl">account_circle</span>
@@ -223,11 +242,15 @@ export default function DoctorNavBar() {
                   {/* Stats row */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <div className="bg-[#f0f6ff] rounded-xl p-3 text-center">
-                      <p className="text-title-md font-bold text-doctor-primary">12명</p>
+                      <p className="text-title-md font-bold text-doctor-primary">
+                        {profileStats ? `${profileStats.patientCount}명` : '—'}
+                      </p>
                       <p className="text-label-sm text-on-surface-variant mt-0.5">담당 환자</p>
                     </div>
                     <div className="bg-[#f0f6ff] rounded-xl p-3 text-center">
-                      <p className="text-title-md font-bold text-doctor-primary">3건</p>
+                      <p className="text-title-md font-bold text-doctor-primary">
+                        {profileStats ? `${profileStats.waitingCount}건` : '—'}
+                      </p>
                       <p className="text-label-sm text-on-surface-variant mt-0.5">처방 대기</p>
                     </div>
                   </div>
