@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
+import { patientApi } from '../../api';
 
 const patientInfo = [
   { label: '성명 (Name)',        value: '김망나뇽' },
@@ -20,6 +21,17 @@ const EXERCISE_NAMES = [
   '왼손 그립 (Grip)',
 ];
 
+function buildRomByExercise(fingers) {
+  const sc = (jts, s) => jts.map(j => ({ name: j.name, ref: j.ref, max: +(j.max * s).toFixed(1), min: +(j.min * s).toFixed(1) }));
+  const sf = (s) => fingers.map(f => ({ ...f, joints: sc(f.joints, s) }));
+  return [
+    { key: 'right_tapping', label: '오른손 태핑', fingers: sf(1.03) },
+    { key: 'left_tapping',  label: '왼손 태핑',   fingers: sf(0.97) },
+    { key: 'right_grip',    label: '오른손 그립',  fingers: sf(1.00) },
+    { key: 'left_grip',     label: '왼손 그립',    fingers: sf(0.94) },
+  ];
+}
+
 const WEEKLY_DATA = [
   {
     week: '1주차', dates: '2026.01.25 ~ 2026.01.31', sessionCount: 4,
@@ -30,43 +42,18 @@ const WEEKLY_DATA = [
       { name: '오른손 그립 (Grip)',    compliance: 60, accuracy: 55 },
       { name: '왼손 그립 (Grip)',      compliance: 58, accuracy: 52 },
     ],
-    rom: [
+    rom: buildRomByExercise([
       { key: 'thumb',  label: '엄지 (Thumb)',
-        joints: [
-          { name: 'MCP', ref: 50.0,  max: 38.0, min: 22.0 },
-          { name: 'IP',  ref: 80.0,  max: 60.0, min: 42.0 },
-          { name: 'DIP', ref: 60.0,  max: 45.0, min: 30.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 50.0,  max: 38.0, min: 22.0 }, { name: 'PIP', ref: 80.0,  max: 60.0, min: 42.0 }, { name: 'DIP', ref: 60.0,  max: 45.0, min: 30.0 }] },
       { key: 'index',  label: '검지 (Index)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 70.0, min: 50.0 },
-          { name: 'PIP', ref: 100.0, max: 82.0, min: 58.0 },
-          { name: 'DIP', ref: 80.0,  max: 64.0, min: 44.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 70.0, min: 50.0 }, { name: 'PIP', ref: 100.0, max: 82.0, min: 58.0 }, { name: 'DIP', ref: 80.0,  max: 64.0, min: 44.0 }] },
       { key: 'middle', label: '중지 (Middle)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 72.0, min: 52.0 },
-          { name: 'PIP', ref: 100.0, max: 84.0, min: 62.0 },
-          { name: 'DIP', ref: 80.0,  max: 66.0, min: 48.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 72.0, min: 52.0 }, { name: 'PIP', ref: 100.0, max: 84.0, min: 62.0 }, { name: 'DIP', ref: 80.0,  max: 66.0, min: 48.0 }] },
       { key: 'ring',   label: '약지 (Ring)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 55.0, min: 32.0 },
-          { name: 'PIP', ref: 100.0, max: 65.0, min: 40.0 },
-          { name: 'DIP', ref: 80.0,  max: 50.0, min: 28.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 55.0, min: 32.0 }, { name: 'PIP', ref: 100.0, max: 65.0, min: 40.0 }, { name: 'DIP', ref: 80.0,  max: 50.0, min: 28.0 }] },
       { key: 'pinky',  label: '소지 (Pinky)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 68.0, min: 48.0 },
-          { name: 'PIP', ref: 100.0, max: 78.0, min: 55.0 },
-          { name: 'DIP', ref: 80.0,  max: 62.0, min: 42.0 },
-        ],
-      },
-    ],
+        joints: [{ name: 'MCP', ref: 90.0,  max: 68.0, min: 48.0 }, { name: 'PIP', ref: 100.0, max: 78.0, min: 55.0 }, { name: 'DIP', ref: 80.0,  max: 62.0, min: 42.0 }] },
+    ]),
   },
   {
     week: '2주차', dates: '2026.02.01 ~ 2026.02.07', sessionCount: 5,
@@ -77,43 +64,18 @@ const WEEKLY_DATA = [
       { name: '오른손 그립 (Grip)',    compliance: 65, accuracy: 62 },
       { name: '왼손 그립 (Grip)',      compliance: 64, accuracy: 60 },
     ],
-    rom: [
+    rom: buildRomByExercise([
       { key: 'thumb',  label: '엄지 (Thumb)',
-        joints: [
-          { name: 'MCP', ref: 50.0,  max: 42.0, min: 26.0 },
-          { name: 'IP',  ref: 80.0,  max: 66.0, min: 48.0 },
-          { name: 'DIP', ref: 60.0,  max: 50.0, min: 35.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 50.0,  max: 42.0, min: 26.0 }, { name: 'PIP', ref: 80.0,  max: 66.0, min: 48.0 }, { name: 'DIP', ref: 60.0,  max: 50.0, min: 35.0 }] },
       { key: 'index',  label: '검지 (Index)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 76.0, min: 55.0 },
-          { name: 'PIP', ref: 100.0, max: 88.0, min: 64.0 },
-          { name: 'DIP', ref: 80.0,  max: 70.0, min: 50.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 76.0, min: 55.0 }, { name: 'PIP', ref: 100.0, max: 88.0, min: 64.0 }, { name: 'DIP', ref: 80.0,  max: 70.0, min: 50.0 }] },
       { key: 'middle', label: '중지 (Middle)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 78.0, min: 58.0 },
-          { name: 'PIP', ref: 100.0, max: 90.0, min: 68.0 },
-          { name: 'DIP', ref: 80.0,  max: 72.0, min: 54.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 78.0, min: 58.0 }, { name: 'PIP', ref: 100.0, max: 90.0, min: 68.0 }, { name: 'DIP', ref: 80.0,  max: 72.0, min: 54.0 }] },
       { key: 'ring',   label: '약지 (Ring)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 60.0, min: 38.0 },
-          { name: 'PIP', ref: 100.0, max: 72.0, min: 46.0 },
-          { name: 'DIP', ref: 80.0,  max: 56.0, min: 34.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 60.0, min: 38.0 }, { name: 'PIP', ref: 100.0, max: 72.0, min: 46.0 }, { name: 'DIP', ref: 80.0,  max: 56.0, min: 34.0 }] },
       { key: 'pinky',  label: '소지 (Pinky)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 74.0, min: 54.0 },
-          { name: 'PIP', ref: 100.0, max: 84.0, min: 62.0 },
-          { name: 'DIP', ref: 80.0,  max: 68.0, min: 48.0 },
-        ],
-      },
-    ],
+        joints: [{ name: 'MCP', ref: 90.0,  max: 74.0, min: 54.0 }, { name: 'PIP', ref: 100.0, max: 84.0, min: 62.0 }, { name: 'DIP', ref: 80.0,  max: 68.0, min: 48.0 }] },
+    ]),
   },
   {
     week: '3주차', dates: '2026.02.08 ~ 2026.02.14', sessionCount: 5,
@@ -124,43 +86,18 @@ const WEEKLY_DATA = [
       { name: '오른손 그립 (Grip)',    compliance: 72, accuracy: 70 },
       { name: '왼손 그립 (Grip)',      compliance: 70, accuracy: 68 },
     ],
-    rom: [
+    rom: buildRomByExercise([
       { key: 'thumb',  label: '엄지 (Thumb)',
-        joints: [
-          { name: 'MCP', ref: 50.0,  max: 46.0, min: 32.0 },
-          { name: 'IP',  ref: 80.0,  max: 71.0, min: 52.0 },
-          { name: 'DIP', ref: 60.0,  max: 54.0, min: 38.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 50.0,  max: 46.0, min: 32.0 }, { name: 'PIP', ref: 80.0,  max: 71.0, min: 52.0 }, { name: 'DIP', ref: 60.0,  max: 54.0, min: 38.0 }] },
       { key: 'index',  label: '검지 (Index)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 83.0, min: 60.0 },
-          { name: 'PIP', ref: 100.0, max: 93.0, min: 68.0 },
-          { name: 'DIP', ref: 80.0,  max: 74.0, min: 54.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 83.0, min: 60.0 }, { name: 'PIP', ref: 100.0, max: 93.0, min: 68.0 }, { name: 'DIP', ref: 80.0,  max: 74.0, min: 54.0 }] },
       { key: 'middle', label: '중지 (Middle)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 85.0, min: 63.0 },
-          { name: 'PIP', ref: 100.0, max: 96.0, min: 72.0 },
-          { name: 'DIP', ref: 80.0,  max: 74.0, min: 56.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 85.0, min: 63.0 }, { name: 'PIP', ref: 100.0, max: 96.0, min: 72.0 }, { name: 'DIP', ref: 80.0,  max: 74.0, min: 56.0 }] },
       { key: 'ring',   label: '약지 (Ring)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 64.0, min: 42.0 },
-          { name: 'PIP', ref: 100.0, max: 75.0, min: 50.0 },
-          { name: 'DIP', ref: 80.0,  max: 60.0, min: 36.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 64.0, min: 42.0 }, { name: 'PIP', ref: 100.0, max: 75.0, min: 50.0 }, { name: 'DIP', ref: 80.0,  max: 60.0, min: 36.0 }] },
       { key: 'pinky',  label: '소지 (Pinky)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 78.0, min: 57.0 },
-          { name: 'PIP', ref: 100.0, max: 88.0, min: 65.0 },
-          { name: 'DIP', ref: 80.0,  max: 72.0, min: 52.0 },
-        ],
-      },
-    ],
+        joints: [{ name: 'MCP', ref: 90.0,  max: 78.0, min: 57.0 }, { name: 'PIP', ref: 100.0, max: 88.0, min: 65.0 }, { name: 'DIP', ref: 80.0,  max: 72.0, min: 52.0 }] },
+    ]),
   },
   {
     week: '4주차', dates: '2026.02.15 ~ 2026.02.21', sessionCount: 3,
@@ -171,43 +108,18 @@ const WEEKLY_DATA = [
       { name: '오른손 그립 (Grip)',    compliance: 79, accuracy: 78 },
       { name: '왼손 그립 (Grip)',      compliance: 77, accuracy: 75 },
     ],
-    rom: [
+    rom: buildRomByExercise([
       { key: 'thumb',  label: '엄지 (Thumb)',
-        joints: [
-          { name: 'MCP', ref: 50.0,  max: 45.2, min: 28.5 },
-          { name: 'IP',  ref: 80.0,  max: 73.0, min: 54.0 },
-          { name: 'DIP', ref: 60.0,  max: 55.5, min: 38.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 50.0,  max: 45.2, min: 28.5 }, { name: 'PIP', ref: 80.0,  max: 73.0, min: 54.0 }, { name: 'DIP', ref: 60.0,  max: 55.5, min: 38.0 }] },
       { key: 'index',  label: '검지 (Index)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 85.5, min: 62.0 },
-          { name: 'PIP', ref: 100.0, max: 95.0, min: 70.0 },
-          { name: 'DIP', ref: 80.0,  max: 72.5, min: 51.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 85.5, min: 62.0 }, { name: 'PIP', ref: 100.0, max: 95.0, min: 70.0 }, { name: 'DIP', ref: 80.0,  max: 72.5, min: 51.0 }] },
       { key: 'middle', label: '중지 (Middle)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 88.0, min: 65.0 },
-          { name: 'PIP', ref: 100.0, max: 98.5, min: 72.0 },
-          { name: 'DIP', ref: 80.0,  max: 76.0, min: 55.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 88.0, min: 65.0 }, { name: 'PIP', ref: 100.0, max: 98.5, min: 72.0 }, { name: 'DIP', ref: 80.0,  max: 76.0, min: 55.0 }] },
       { key: 'ring',   label: '약지 (Ring)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 65.0, min: 40.0 },
-          { name: 'PIP', ref: 100.0, max: 72.0, min: 45.0 },
-          { name: 'DIP', ref: 80.0,  max: 58.0, min: 35.0 },
-        ],
-      },
+        joints: [{ name: 'MCP', ref: 90.0,  max: 65.0, min: 40.0 }, { name: 'PIP', ref: 100.0, max: 72.0, min: 45.0 }, { name: 'DIP', ref: 80.0,  max: 58.0, min: 35.0 }] },
       { key: 'pinky',  label: '소지 (Pinky)',
-        joints: [
-          { name: 'MCP', ref: 90.0,  max: 80.0, min: 58.0 },
-          { name: 'PIP', ref: 100.0, max: 88.0, min: 65.0 },
-          { name: 'DIP', ref: 80.0,  max: 70.0, min: 50.0 },
-        ],
-      },
-    ],
+        joints: [{ name: 'MCP', ref: 90.0,  max: 80.0, min: 58.0 }, { name: 'PIP', ref: 100.0, max: 88.0, min: 65.0 }, { name: 'DIP', ref: 80.0,  max: 70.0, min: 50.0 }] },
+    ]),
   },
 ];
 
@@ -239,10 +151,41 @@ function MiniTrendBar({ data, color }) {
 
 export default function ProgressReport() {
   const navigate = useNavigate();
-  const [weekIdx, setWeekIdx]         = useState(3); // 기본: 4주차 (최신)
-  const [romFingerIdx, setRomFingerIdx] = useState(0);
+  const location = useLocation();
+  const patientId = location.state?.patientId ?? '';
 
-  const week = WEEKLY_DATA[weekIdx];
+  const [weekIdx, setWeekIdx]               = useState(0);
+  const [romExerciseIdx, setRomExerciseIdx] = useState(0);
+  const [romFingerIdx, setRomFingerIdx]     = useState(0);
+  const [patient, setPatient]               = useState(null);
+  const [weeklyData, setWeeklyData]         = useState(WEEKLY_DATA);
+  const [loading, setLoading]               = useState(!!patientId);
+
+  useEffect(() => {
+    if (!patientId) { setLoading(false); return; }
+    Promise.all([
+      patientApi.getPatient(patientId),
+      patientApi.getPatientWeeklyProgress(patientId),
+    ])
+      .then(([patientData, progressData]) => {
+        setPatient(patientData);
+        if (progressData.length > 0) {
+          const merged = progressData.map((w, i) => ({
+            ...w,
+            rom: WEEKLY_DATA[Math.min(i, WEEKLY_DATA.length - 1)].rom,
+          }));
+          setWeeklyData(merged);
+          setWeekIdx(merged.length - 1);
+        }
+      })
+      .catch(() => {
+        setWeeklyData(WEEKLY_DATA);
+        setWeekIdx(WEEKLY_DATA.length - 1);
+      })
+      .finally(() => setLoading(false));
+  }, [patientId]);
+
+  const week = weeklyData[weekIdx] ?? weeklyData[weeklyData.length - 1];
 
   return (
     <div className="min-h-screen bg-background">
@@ -261,14 +204,15 @@ export default function ProgressReport() {
           </button>
           <div className="flex gap-2">
             <button
-              onClick={() => navigate('/doctor/patient/info')}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
+              onClick={() => patientId && navigate(`/doctor/patient/info/${patientId}`)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={!patientId}
             >
               <span className="material-symbols-outlined text-sm">person</span>
               환자 정보
             </button>
             <button
-              onClick={() => navigate('/doctor/report/daily')}
+              onClick={() => navigate('/doctor/report/daily', { state: { patientId } })}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-doctor-primary text-white font-semibold text-label-sm hover:opacity-90 transition-opacity shadow-sm"
             >
               <span className="material-symbols-outlined text-sm">today</span>
@@ -283,34 +227,56 @@ export default function ProgressReport() {
             누적 재활 리포트
           </h1>
           <p className="text-body-md text-on-surface-variant mt-1">
-            김망나뇽 환자 · 재활 4주차 누적 결과 (2026.01.25 ~ 2026.02.21)
+            {loading
+              ? '불러오는 중...'
+              : patient
+                ? `${patient.name} 환자 · 재활 ${weeklyData.length}주차 누적 결과 (${weeklyData[0]?.dates?.split(' ~ ')[0] ?? ''} ~ ${weeklyData[weeklyData.length - 1]?.dates?.split(' ~ ')[1] ?? ''})`
+                : '누적 재활 결과'
+            }
           </p>
         </div>
 
         {/* 요약 통계 */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {summaryStats.map((s) => (
-            <div key={s.label} className="bg-white border border-outline-variant rounded-2xl p-4 shadow-card flex items-center gap-3">
-              <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center flex-shrink-0`}>
-                <span className="material-symbols-outlined" style={{ color: s.color }}>{s.icon}</span>
-              </div>
-              <div>
-                <p className="text-label-sm text-on-surface-variant">{s.label}</p>
-                <p className="text-title-md font-bold" style={{ color: s.color }}>{s.value}</p>
-              </div>
+        {(() => {
+          const avgCompliance = weeklyData.length
+            ? Math.round(weeklyData.reduce((s, w) => s + w.overallCompliance, 0) / weeklyData.length)
+            : 0;
+          const improvement = weeklyData.length >= 2
+            ? weeklyData[weeklyData.length - 1].overallCompliance - weeklyData[0].overallCompliance
+            : 0;
+          const exCount = week?.exercises?.length ?? 0;
+          const computed = [
+            { label: '평균 달성률', value: loading ? '—' : `${avgCompliance}%`,       icon: 'target',         color: '#1a73e8', bg: 'bg-[#e8f0fe]' },
+            { label: '전체 향상률', value: loading ? '—' : `${improvement >= 0 ? '+' : ''}${improvement}%`, icon: 'trending_up', color: '#1a73e8', bg: 'bg-[#e8f0fe]' },
+            { label: '재활 기간',   value: loading ? '—' : `${weeklyData.length}주`,  icon: 'calendar_month', color: '#006398', bg: 'bg-[#cce5ff]' },
+            { label: '처방 운동 수', value: loading ? '—' : `${exCount}종`,           icon: 'fitness_center', color: '#1a73e8', bg: 'bg-[#e8f0fe]' },
+          ];
+          return (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {computed.map((s) => (
+                <div key={s.label} className="bg-white border border-outline-variant rounded-2xl p-4 shadow-card flex items-center gap-3">
+                  <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center flex-shrink-0`}>
+                    <span className="material-symbols-outlined" style={{ color: s.color }}>{s.icon}</span>
+                  </div>
+                  <div>
+                    <p className="text-label-sm text-on-surface-variant">{s.label}</p>
+                    <p className="text-title-md font-bold" style={{ color: s.color }}>{s.value}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          );
+        })()}
 
         {/* ── 주차별 상세 보기 ── */}
         <section className="bg-white border border-outline-variant rounded-2xl shadow-card overflow-hidden">
 
           {/* 주차 탭 헤더 */}
           <div className="flex border-b border-outline-variant overflow-x-auto">
-            {WEEKLY_DATA.map((w, i) => (
+            {weeklyData.map((w, i) => (
               <button
                 key={w.week}
-                onClick={() => { setWeekIdx(i); setRomFingerIdx(0); }}
+                onClick={() => { setWeekIdx(i); setRomExerciseIdx(0); setRomFingerIdx(0); }}
                 className={`flex-shrink-0 px-6 py-4 text-label-md font-semibold transition-colors border-r border-outline-variant last:border-0
                   ${weekIdx === i
                     ? 'bg-doctor-primary text-white'
@@ -391,25 +357,42 @@ export default function ProgressReport() {
                 관절 가동 범위 (ROM) 상세 — {week.week}
               </h3>
 
-              {/* 손가락 탭 */}
-              <div className="flex overflow-x-auto border border-outline-variant rounded-t-xl overflow-hidden">
-                {week.rom.map((f, i) => (
-                  <button
-                    key={f.key}
-                    onClick={() => setRomFingerIdx(i)}
-                    className={`flex-shrink-0 flex-1 px-4 py-2.5 text-label-sm font-semibold transition-colors border-r border-outline-variant last:border-0
-                      ${romFingerIdx === i
-                        ? 'bg-doctor-primary text-white'
-                        : 'bg-surface-container-low text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
-                      }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
+              <div className="border border-outline-variant rounded-xl overflow-hidden">
+                {/* 운동 카테고리 탭 */}
+                <div className="flex overflow-x-auto border-b border-outline-variant">
+                  {week.rom.map((ex, i) => (
+                    <button
+                      key={ex.key}
+                      onClick={() => { setRomExerciseIdx(i); setRomFingerIdx(0); }}
+                      className={`flex-shrink-0 flex-1 px-3 py-2 text-label-sm font-semibold transition-colors border-r border-outline-variant last:border-0
+                        ${romExerciseIdx === i
+                          ? 'bg-doctor-primary text-white'
+                          : 'bg-[#f0f6ff] text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
+                        }`}
+                    >
+                      {ex.label}
+                    </button>
+                  ))}
+                </div>
 
-              {/* 관절 테이블 */}
-              <div className="border border-t-0 border-outline-variant rounded-b-xl overflow-hidden">
+                {/* 손가락 탭 */}
+                <div className="flex overflow-x-auto border-b border-outline-variant">
+                  {week.rom[romExerciseIdx].fingers.map((f, i) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setRomFingerIdx(i)}
+                      className={`flex-shrink-0 flex-1 px-4 py-2 text-label-sm font-semibold transition-colors border-r border-outline-variant last:border-0
+                        ${romFingerIdx === i
+                          ? 'bg-[#e8f0fe] text-doctor-primary font-bold'
+                          : 'bg-surface-container-low text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
+                        }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 관절 테이블 */}
                 <table className="w-full">
                   <thead>
                     <tr className="bg-[#f8fafe] border-b border-outline-variant">
@@ -422,7 +405,7 @@ export default function ProgressReport() {
                     </tr>
                   </thead>
                   <tbody>
-                    {week.rom[romFingerIdx].joints.map((j) => {
+                    {week.rom[romExerciseIdx].fingers[romFingerIdx].joints.map((j) => {
                       const ratio = Math.round((j.max / j.ref) * 100);
                       const warn = ratio < 85;
                       return (
@@ -524,13 +507,22 @@ export default function ProgressReport() {
                 <h2 className="text-label-md font-bold text-doctor-primary">환자 정보</h2>
               </div>
               <div className="divide-y divide-outline-variant">
-                {patientInfo.map((info, i) => (
+                {[
+                  { label: '성명 (Name)',        value: patient?.name },
+                  { label: '환자번호 (Code)',    value: patient?.patient_code },
+                  { label: '성별 (Gender)',      value: patient?.gender },
+                  { label: '생년월일 (Birth)',   value: patient?.birth_date },
+                  { label: '수술명 (Surgery)',   value: patient?.surgery_name },
+                  { label: '수술일 (Date)',      value: patient?.surgery_date },
+                  { label: '진행 단계 (Stage)', value: patient?.current_rehab_phase },
+                  { label: '재활 시작일',        value: patient?.rehab_start_date },
+                ].map((info, i) => (
                   <div key={i} className="flex">
                     <div className="w-28 flex-shrink-0 bg-surface-container-low px-3 py-2 text-label-sm font-semibold text-on-surface-variant border-r border-outline-variant">
                       {info.label}
                     </div>
                     <div className="flex-1 px-3 py-2 text-label-sm text-on-surface">
-                      {info.value}
+                      {loading ? '—' : (info.value ?? '—')}
                     </div>
                   </div>
                 ))}
