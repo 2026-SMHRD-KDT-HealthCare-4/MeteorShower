@@ -345,23 +345,31 @@ _options = vision.HandLandmarkerOptions(
 )
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False):
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None):
+    # exercise_name이 지정되면 해당 운동 하나만 실행 (다른 운동으로 자동 전환되지 않음).
+    # 지정이 없거나 매칭되는 운동이 없으면 기존처럼 EXERCISES 전체를 순서대로 실행.
+    if exercise_name is not None:
+        _matched = [ex for ex in EXERCISES if ex["name"] == exercise_name]
+        active_exercises = _matched if _matched else EXERCISES
+    else:
+        active_exercises = EXERCISES
+
     # 1. 외부 입력 데이터가 있으면 그것을 우선 사용
     if finger_rom_targets is not None:
         target_angles = finger_rom_targets
     else:
         # 2. 없으면 첫 번째 운동 타입을 확인해서 자동 설정
-        ex0 = EXERCISES[0]
+        ex0 = active_exercises[0]
         target_angles = TAP_FINGER_ROM_TARGETS if ex0["count_type"] == "tap" else DEFAULT_FINGER_ROM_TARGETS
 
     with vision.HandLandmarker.create_from_options(_options) as landmarker:
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         loop_start          = time.time()
-        guide_elapsed_start = loop_start  
+        guide_elapsed_start = loop_start
 
         current_exercise_idx = 0
         current_set          = 1
-        ex0                  = EXERCISES[current_exercise_idx]
+        ex0                  = active_exercises[current_exercise_idx]
         current_guide_raw    = _load_guide(ex0["guide_path"])          
         if hand == "right": current_guide_raw = mirror_guide_to_right_hand(current_guide_raw)
         current_guide_np     = (
@@ -407,7 +415,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             ret, frame = cap.read()
             if not ret: break
 
-            ex         = EXERCISES[current_exercise_idx]
+            ex         = active_exercises[current_exercise_idx]
             count_type = ex.get("count_type", "grip")
 
             guide_n          = len(current_guide_raw) if current_guide_raw is not None else 1
@@ -531,11 +539,11 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                 current_exercise_idx += 1
                                 current_set = 1
 
-                                if current_exercise_idx >= len(EXERCISES):
+                                if current_exercise_idx >= len(active_exercises):
                                     session_complete    = True
                                     session_complete_at = time.time()
                                 else:
-                                    ex_new              = EXERCISES[current_exercise_idx]
+                                    ex_new              = active_exercises[current_exercise_idx]
                                     # 운동이 전환될 때 타겟값도 운동 타입에 맞게 변경
                                     if ex_new["count_type"] == "tap":
                                         target_angles = TAP_FINGER_ROM_TARGETS
@@ -672,7 +680,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     break
 
             if q is not None:
-                ex_now     = EXERCISES[current_exercise_idx] if current_exercise_idx < len(EXERCISES) else ex
+                ex_now     = active_exercises[current_exercise_idx] if current_exercise_idx < len(active_exercises) else ex
                 state_lbl  = {"open": "OPEN", "grip": "GRIP", "tap": "TAP"}.get(confirmed_state, "")
                 signal     = (
                     "green"  if (display_similarity or 0) >= 80 else
@@ -689,6 +697,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "exercise":       ex_now["name"],
                     "set":            current_set,
                     "total_sets":     ex_now["target_set"],
+                    "target_count":   ex_now["target_count"],
                     "rom_score":      round(rom_score, 1) if rom_score is not None else None,
                     "joint_signals":  joint_signals,
                     "feedback_messages": feedback_messages if 'feedback_messages' in locals() else [],
@@ -700,7 +709,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 except queue.Full: pass
 
             state_lbl     = {"open": "OPEN", "grip": "GRIP", "tap": "TAP"}.get(confirmed_state, "---")
-            ex_now        = EXERCISES[current_exercise_idx] if current_exercise_idx < len(EXERCISES) else ex
+            ex_now        = active_exercises[current_exercise_idx] if current_exercise_idx < len(active_exercises) else ex
             progress_text = f"{ex_now['name']}  {current_set}set/{ex_now['target_set']}set  {count}rep/{ex_now['target_count']}rep"
 
             cv2.putText(frame, f"COUNT: {count}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 255), 3)

@@ -5,6 +5,19 @@ import VoiceChatBot from '../../components/VoiceChatBot';
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
 
+// 운동 카드 이름(예: "왼손 태핑 (Tapping)", "오른손 그립 (Grip)")에서
+// 손(hand)과 운동 종류(exercise_name)를 추출.
+// 좌/우는 손 방향(가이드 미러링)만 결정하고, 운동 종류는 태핑 여부로만 결정한다.
+function parseExerciseName(name = '') {
+  const hand = name.includes('왼손') ? 'left' : 'right';
+  const isTapping = ['태핑', 'tapping', '두드리기'].some((kw) => name.toLowerCase().includes(kw.toLowerCase()));
+  const exerciseName = isTapping ? 'tapping' : 'full_fist';
+  return { hand, exerciseName };
+}
+
+const HAND_LABEL = { left: '왼손', right: '오른손' };
+const TYPE_LABEL = { full_fist: '그립', tapping: '태핑' };
+
 export default function ExerciseSession() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -14,6 +27,7 @@ export default function ExerciseSession() {
   const [frame, setFrame]         = useState(null);
   const [wsData, setWsData]       = useState(null);
   const [saveMessage, setSaveMessage] = useState('');
+  const [selectedHand, setSelectedHand] = useState(null); // 세션 시작 시 보낸 hand('left'/'right')
 
   const wsRef    = useRef(null);
   const phaseRef = useRef('idle');
@@ -61,7 +75,9 @@ export default function ExerciseSession() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ action: 'start', hand: 'left' }));
+      const { hand, exerciseName } = parseExerciseName(exerciseInfo?.name);
+      setSelectedHand(hand);
+      ws.send(JSON.stringify({ action: 'start', hand, exercise_name: exerciseName }));
     };
 
     ws.onmessage = (e) => {
@@ -82,17 +98,23 @@ export default function ExerciseSession() {
     ws.onclose = () => {
       if (phaseRef.current !== 'ended') updatePhase('idle');
     };
-  }, [saveExerciseResult]);
+  }, [saveExerciseResult, exerciseInfo]);
 
   useEffect(() => () => wsRef.current?.close(), []);
 
   const similarity    = wsData?.similarity ?? null;
   const count         = wsData?.count ?? 0;
+  const targetCount   = wsData?.target_count ?? exerciseInfo?.reps ?? 10;
   const set           = wsData?.set ?? 1;
   const totalSets     = wsData?.total_sets ?? 2;
   const exercise      = wsData?.exercise ?? '—';
   const signal        = wsData?.signal ?? 'gray';
-  const exerciseLabel = exercise === 'full_fist' ? '주먹 쥐기' : exercise === 'tapping' ? '두드리기' : exercise;
+  // 실제로 추적 중인 hand(시작 시 보낸 값) + exercise(서버가 확인해준 값)를 조합 —
+  // 화면 표시가 항상 실제 추적 상태와 일치하도록 함. 서버 응답 전(연결 중)에는
+  // 선택했던 카드 이름으로 대체 표시.
+  const exerciseLabel = (selectedHand && TYPE_LABEL[exercise])
+    ? `${HAND_LABEL[selectedHand]} ${TYPE_LABEL[exercise]}`
+    : (exerciseInfo?.name ?? '—');
   const accuracyLabel = similarity == null ? '—' : similarity >= 80 ? 'Excellent' : similarity >= 50 ? 'Good' : 'Keep Going';
   const signalClass   = signal === 'green' ? 'text-teal-300' : signal === 'yellow' ? 'text-yellow-300' : 'text-red-400';
   const barClass      = signal === 'green' ? 'bg-teal-400'   : signal === 'yellow' ? 'bg-yellow-400'   : 'bg-red-400';
@@ -213,7 +235,7 @@ export default function ExerciseSession() {
                 </div>
                 <div className="flex justify-between gap-6">
                   <span className="text-gray-400 text-xs">현재 횟수</span>
-                  <span className="text-white text-xs font-bold">{count}</span>
+                  <span className="text-white text-xs font-bold">{count}/{targetCount}</span>
                 </div>
               </div>
             </div>
@@ -247,7 +269,7 @@ export default function ExerciseSession() {
             <div className="w-px h-10 bg-white/20 shrink-0" />
             <div className="text-center shrink-0">
               <p className="text-[10px] text-gray-400">세트 / 횟수</p>
-              <p className="text-white font-bold text-sm">{set}/{totalSets} · {count}</p>
+              <p className="text-white font-bold text-sm">{set}/{totalSets} · {count}/{targetCount}</p>
             </div>
             <div className="w-px h-10 bg-white/20 shrink-0" />
             <button
