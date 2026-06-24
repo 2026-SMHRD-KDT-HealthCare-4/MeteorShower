@@ -80,6 +80,25 @@ DTW_WEIGHT    = 0.5
 ROM_WEIGHT    = 0.5
 ROM_SMOOTHING = 12
 
+# Adaptive baseline design rationale:
+# - Bradykinesia = slowness AND decrement in amplitude/speed as movements
+#   continue (MDS diagnostic criteria; Interrater Reliability study,
+#   PMC10357208). 그래서 시간(속도)과 ROM(진폭) 두 축을 함께 추적한다.
+# - Amplitude/velocity decrement(sequence effect)는 보통 초반 구간의
+#   최대·최상값 대비 후반 하락으로 측정됨 (MDS Abstracts 2016,
+#   "Evaluating bradykinesia: How many finger taps are needed?";
+#   iRBD finger tapping study, ScienceDirect 2020, 처음 10탭의 MaxOpV·AmpDec).
+# - Decrement는 운동 초반부터 나타날 수 있어 평균이 아닌 best를 baseline으로
+#   사용 (ReTap, Sensors 2023, MDPI 23(11):5238 — 블록 시작 부근의 진폭
+#   감소도 점수 3에 해당).
+# 주의: 이 로직은 재활 피드백용 heuristic이며 UPDRS 점수를 재현하는
+# 검증된 알고리즘이 아니다.
+ADAPT_BASELINE_REPS   = 4      # 초반 몇 rep을 baseline 수집 구간으로 쓸지
+SLOWDOWN_RATIO        = 1.3    # baseline 시간 × 이 값 초과 시 "느려짐"
+ROM_DROP_RATIO        = 0.7    # baseline ROM × 이 값 미만 시 "얕아짐"
+DTW_RELAX_STEP        = 0.05   # 트리거 시 max_dtw_dist 증가폭
+DTW_RELAX_MAX_MULT    = 1.5    # max_dtw_dist 완화 상한 = 원래값 × 이 값
+
 SIGNAL_BGR = {
     "green":  (0,   220, 0),
     "yellow": (0,   200, 255),
@@ -438,6 +457,23 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         })
         angle_sample_frames = defaultdict(int)
 
+        # 운동별 적응형 난이도 상태 — best(rep_time 최소, rom 최대)를 baseline으로 잡고,
+        # 확정 후 하락이 감지되면 해당 운동의 DTW 판정(current_max_dtw)을 실시간으로 완화한다.
+        # baseline은 운동(이름) 단위로 한 번만 확정되며, 같은 운동의 다음 set에서도 유지된다.
+        adapt_states = {
+            ex_def["name"]: {
+                "rep_count": 0,
+                "last_rep_time": None,
+                "pair_start_time": None,
+                "baseline_rep_time": None,
+                "baseline_rom": None,
+                "baseline_locked": False,
+                "current_max_dtw": ex_def["max_dtw_dist"],
+                "orig_max_dtw": ex_def["max_dtw_dist"],
+            }
+            for ex_def in EXERCISES
+        }
+
         while cap.isOpened():
             if stop_event is not None and stop_event.is_set():
                 break
@@ -498,8 +534,10 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             if dtw_counter >= DTW_INTERVAL:
                 dtw_counter = 0
                 if len(patient_buf) >= 10:
+                    # ★ 적응형 난이도: 고정 상수(ex["max_dtw_dist"]) 대신
+                    # 실시간으로 완화될 수 있는 adapt_states[...]["current_max_dtw"] 사용
                     raw_similarity = compute_dtw_similarity(
-                        patient_buf, current_guide_np, ex["max_dtw_dist"]
+                        patient_buf, current_guide_np, adapt_states[ex["name"]]["current_max_dtw"]
                     )
                     if raw_similarity is not None:
                         similarity_buf.append(raw_similarity)
@@ -541,6 +579,73 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
                     if should_count:
                         count += 1
+
+                        # ── 적응형 난이도: 2-rep 묶음 평균 시간/ROM baseline 추적 + DTW 완화 ──
+                        _now = time.time()
+                        _adapt = adapt_states[ex["name"]]
+                        _adapt["rep_count"] += 1
+
+                        if _adapt["pair_start_time"] is None:
+                            # 새 2-rep 묶음 시작 (홀수 rep) — 측정 보류
+                            _adapt["pair_start_time"] = _now
+                        elif _adapt["rep_count"] % 2 == 0:
+                            # 묶음 완성 (짝수 rep) — 묶음 평균 시간 산출
+                            _pair_avg = (_now - _adapt["pair_start_time"]) / 2
+                            _adapt["pair_start_time"] = None
+
+                            if not _adapt["baseline_locked"]:
+                                # baseline 수집 구간: best(최소 시간 / 최대 ROM)로 갱신
+                                if (_adapt["baseline_rep_time"] is None
+                                        or _pair_avg < _adapt["baseline_rep_time"]):
+                                    _adapt["baseline_rep_time"] = _pair_avg
+                                if rom_score is not None and (
+                                        _adapt["baseline_rom"] is None
+                                        or rom_score > _adapt["baseline_rom"]):
+                                    _adapt["baseline_rom"] = rom_score
+
+                                if _adapt["rep_count"] >= ADAPT_BASELINE_REPS:
+                                    _adapt["baseline_locked"] = True
+                                    print(
+                                        f"[Adapt][{ex['name']}] baseline 확정 — "
+                                        f"rep_time={_adapt['baseline_rep_time']:.2f}s, "
+                                        f"rom={(_adapt['baseline_rom'] or 0):.1f}"
+                                    )
+                            else:
+                                # baseline 확정 후: 하락 감지 → 트리거되면 묶음당 최대 1 step DTW 완화
+                                _triggered = False
+                                _base_time = _adapt["baseline_rep_time"]
+                                _base_rom  = _adapt["baseline_rom"]
+
+                                if _base_time and _pair_avg > _base_time * SLOWDOWN_RATIO:
+                                    print(
+                                        f"[Adapt][{ex['name']}] 너무 느려졌어요 "
+                                        f"(현재 {_pair_avg:.2f}s vs 기준 {_base_time:.2f}s)"
+                                    )
+                                    _triggered = True
+
+                                if (_base_rom and rom_score is not None
+                                        and rom_score < _base_rom * ROM_DROP_RATIO):
+                                    print(
+                                        f"[Adapt][{ex['name']}] 동작이 얕아졌어요 "
+                                        f"(현재 {rom_score:.1f} vs 기준 {_base_rom:.1f})"
+                                    )
+                                    _triggered = True
+
+                                if _triggered:
+                                    _orig    = _adapt["orig_max_dtw"]
+                                    _new_max = min(
+                                        _adapt["current_max_dtw"] + DTW_RELAX_STEP,
+                                        _orig * DTW_RELAX_MAX_MULT
+                                    )
+                                    if _new_max > _adapt["current_max_dtw"]:
+                                        _adapt["current_max_dtw"] = _new_max
+                                        print(
+                                            f"[Adapt][{ex['name']}] DTW 허용치 완화 → "
+                                            f"{_adapt['current_max_dtw']:.3f} (원래 {_orig:.3f})"
+                                        )
+
+                        _adapt["last_rep_time"] = _now
+
                         if overload_stage == 0 and count > ex["target_count"]:
                             save_capture(frame)
                             overload_stage        = 1
