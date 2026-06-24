@@ -27,7 +27,7 @@ class FingerAccuracy(Base):
             name="ck_finger_accuracy_finger",
         ),
         CheckConstraint(
-            "joint_type IN ('MCP', 'PIP', 'DIP')",
+            "joint_type IN ('MCP', 'PIP', 'DIP', 'IP')",
             name="ck_finger_accuracy_joint",
         ),
         UniqueConstraint("rehab_exercise_log_id", "finger_type", "joint_type"),
