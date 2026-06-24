@@ -137,6 +137,7 @@ export default function ExerciseSession() {
       performed_sets: latest.set   ?? exerciseInfo.sets ?? 1,
       progress_rate:  progress,
       end_type:       endType,
+      finger_accuracy: latest.finger_accuracy ?? [],
     })
       .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
       .catch((err) => { savedRef.current = false; setSaveMessage(err.message); });

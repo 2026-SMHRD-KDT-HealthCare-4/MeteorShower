@@ -144,3 +144,51 @@ def mirror_guide_to_right_hand(guide_np):
     mirrored = guide_np.copy()
     mirrored[..., 0] *= -1
     return mirrored
+
+
+def compute_palm_normal(coords):
+    """(21,3) wrist-relative coords → 손바닥 평면의 단위 법선 벡터 (3,).
+
+    손목(0), 검지MCP(5), 새끼MCP(17) 세 점으로 평면을 정의하고
+    두 모서리 벡터(0→5, 0→17)의 외적(cross product)으로 법선을 구한다.
+    외적 크기가 0에 가까우면(세 점이 거의 일직선 — 측면에서 봐서 손이
+    찌그러져 보이는 경우 등) None을 반환해 호출부에서 판정을 건너뛰게 한다.
+
+    좌표계 주의: 가이드(hand="right"일 때 미러된 current_guide_raw)와
+    환자(원본 wrist-relative 좌표, 미러하지 않음)를 "같은 손 기준"으로
+    동일하게 처리해야 사이각이 의미를 가진다 — 호출부(hand_tracking.py)에서
+    환자는 항상 원본 좌표, 가이드는 이미 hand에 맞게 처리된 좌표를 쓴다.
+    """
+    coords = np.asarray(coords, dtype=np.float32)
+    v1 = coords[5] - coords[0]
+    v2 = coords[17] - coords[0]
+    n = np.cross(v1, v2)
+    norm = float(np.linalg.norm(n))
+    if norm < 1e-6:
+        return None
+    return n / norm
+
+
+def angle_between_vectors(a, b):
+    """두 단위 벡터 사이각(0~180도). a 또는 b가 None이면 None."""
+    if a is None or b is None:
+        return None
+    a = np.asarray(a, dtype=np.float32)
+    b = np.asarray(b, dtype=np.float32)
+    cos_theta = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    return float(np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0))))
+
+
+def palm_normal_delta(patient_normal, guide_normal):
+    """두 단위 법선의 차이를 환자-가이드 로 분해해 (dx, dy, dz) 반환.
+
+    둘 중 하나가 None이면 None. 추가 변환/정규화 없이 patient_normal -
+    guide_normal의 각 성분을 그대로 돌려준다 — 축-방향 매핑을 실측으로
+    확정하기 전의 검증용 raw 값이다.
+    """
+    if patient_normal is None or guide_normal is None:
+        return None
+    patient_normal = np.asarray(patient_normal, dtype=np.float32)
+    guide_normal = np.asarray(guide_normal, dtype=np.float32)
+    dx, dy, dz = patient_normal - guide_normal
+    return (float(dx), float(dy), float(dz))

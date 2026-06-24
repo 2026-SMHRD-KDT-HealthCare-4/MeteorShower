@@ -1,7 +1,8 @@
 import os
+from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timedelta
 
@@ -15,6 +16,7 @@ from models.patient_notification import PatientNotification
 from models.prescription import Prescription
 from models.prescription_exercise import PrescriptionExercise
 from models.exercise_schedule import ExerciseSchedule
+from models.llm_report import LlmReport
 from models.patient_rom_setting import PatientRomSetting
 from models.prescription_finger_setting import PrescriptionFingerSetting
 from models.rehab_exercise_session import RehabExerciseSession
@@ -64,7 +66,7 @@ def _parse_rom_key(key: str):
         return None
     finger_key, joint_type, hand_type = parts
     finger_type = FINGER_LABELS.get(finger_key)
-    if not finger_type or joint_type not in {"MCP", "PIP", "DIP"} or hand_type not in {"왼손", "오른손"}:
+    if not finger_type or joint_type not in {"MCP", "PIP", "DIP", "IP"} or hand_type not in {"왼손", "오른손"}:
         return None
     return finger_type, joint_type, hand_type
 
@@ -146,6 +148,90 @@ def _require_role(payload: dict, role: str):
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"{role} role required",
         )
+
+
+def _make_auto_report_content(patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None) -> str:
+    exercise_name = schedule.prescription_exercise.exercise.exercise_name
+    exercise_date = schedule.exercise_date
+    performed = ""
+    if log:
+        performed = f"수행 결과: {log.performed_sets or 0}세트, {log.performed_reps or 0}회, 진행률 {float(log.progress_rate) if log.progress_rate is not None else 0}%"
+    else:
+        performed = "수행 결과: 저장된 운동 로그를 확인해 주세요."
+
+    return "\n".join(
+        [
+            f"{exercise_date.isoformat()} 재활 리포트 초안입니다.",
+            f"환자명: {patient.name}",
+            f"운동명: {exercise_name}",
+            performed,
+            "AI 상세 평가 결과는 저장된 관절 각도와 평균 일치율을 기준으로 확인해 주세요.",
+            "담당 의사는 상세평가 결과를 검토한 뒤 필요한 문장을 수정하고 승인해 주세요.",
+        ]
+    )
+
+
+def _ensure_pending_report_for_exercise(db: Session, patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None):
+    if not patient.doctor_id:
+        return None
+
+    report = (
+        db.query(LlmReport)
+        .filter(
+            LlmReport.patient_id == patient.patient_id,
+            LlmReport.report_date == schedule.exercise_date,
+        )
+        .first()
+    )
+    if report:
+        if report.approval_status != "승인":
+            report.doctor_id = patient.doctor_id
+            report.draft_content = _make_auto_report_content(patient, schedule, log)
+            report.approval_status = "대기"
+        return report
+
+    report = LlmReport(
+        patient_id=patient.patient_id,
+        doctor_id=patient.doctor_id,
+        report_date=schedule.exercise_date,
+        draft_content=_make_auto_report_content(patient, schedule, log),
+        approval_status="대기",
+        guardian_sent_status="대기",
+        exercise_blocked=False,
+    )
+    db.add(report)
+    return report
+
+
+def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items):
+    for item in items:
+        joint_type = item.joint_type
+        existing = (
+            db.query(FingerAccuracy)
+            .filter(
+                FingerAccuracy.rehab_exercise_log_id == log.rehab_exercise_log_id,
+                FingerAccuracy.finger_type == item.finger_type,
+                FingerAccuracy.joint_type == joint_type,
+            )
+            .first()
+        )
+        values = {
+            "max_angle": item.max_angle,
+            "min_angle": item.min_angle,
+            "avg_match_rate": item.avg_match_rate,
+        }
+        if existing:
+            for key, value in values.items():
+                setattr(existing, key, value)
+        else:
+            db.add(
+                FingerAccuracy(
+                    rehab_exercise_log_id=log.rehab_exercise_log_id,
+                    finger_type=item.finger_type,
+                    joint_type=joint_type,
+                    **values,
+                )
+            )
 
 
 @router.get("/me")
@@ -502,6 +588,7 @@ def create_my_exercise_session(
     prescription = schedule.prescription_exercise.prescription
     if prescription.patient_id != patient_id:
         raise HTTPException(status_code=403, detail="Cannot access this schedule")
+    patient = prescription.patient
 
     existing = (
         db.query(RehabExerciseSession)
@@ -510,6 +597,10 @@ def create_my_exercise_session(
     )
     if existing:
         log = existing.logs[0] if existing.logs else None
+        if log:
+            _save_finger_accuracy_items(db, log, body.finger_accuracy)
+        _ensure_pending_report_for_exercise(db, patient, schedule, log)
+        db.commit()
         return {
             "rehab_session_id": existing.rehab_session_id,
             "rehab_exercise_log_id": log.rehab_exercise_log_id if log else None,
@@ -532,18 +623,9 @@ def create_my_exercise_session(
     db.add(log)
     db.flush()
 
-    for item in body.finger_accuracy:
-        db.add(
-            FingerAccuracy(
-                rehab_exercise_log_id=log.rehab_exercise_log_id,
-                finger_type=item.finger_type,
-                joint_type=item.joint_type,
-                max_angle=item.max_angle,
-                min_angle=item.min_angle,
-                avg_match_rate=item.avg_match_rate,
-            )
-        )
+    _save_finger_accuracy_items(db, log, body.finger_accuracy)
 
+    _ensure_pending_report_for_exercise(db, patient, schedule, log)
     db.commit()
     db.refresh(session)
     return {
@@ -703,6 +785,109 @@ def get_patient_prescriptions(
         "exercises": exercises,
         "schedule": schedule,
         "rom": rom,
+    }
+
+
+@router.get("/{patient_id}/daily-exercise-result")
+def get_patient_daily_exercise_result(
+    patient_id: int,
+    target_date: Optional[date] = Query(None, alias="date"),
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+
+    result_date = target_date or date.today()
+    schedules = (
+        db.query(ExerciseSchedule)
+        .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(
+            Prescription.patient_id == patient_id,
+            ExerciseSchedule.exercise_date == result_date,
+        )
+        .order_by(ExerciseSchedule.schedule_id)
+        .all()
+    )
+
+    exercise_results = []
+    total_logs = 0
+    done_count = 0
+    progress_values = []
+    match_values = []
+
+    for schedule in schedules:
+        pe = schedule.prescription_exercise
+        exercise_name = pe.exercise.exercise_name
+        hand_type = _hand_type_from_exercise_name(exercise_name)
+        exercise_type = "tapping" if any(word in exercise_name for word in ["태핑", "Tapping", "두드리기"]) else "grip"
+
+        patient_rom_map = {
+            (s.hand_type, s.finger_type, s.joint_type): float(s.target_rom)
+            for s in _get_patient_rom(db, patient_id, exercise_type)
+        }
+        prescription_rom_map = {
+            (s.hand_type, s.finger_type, s.joint_type): float(s.target_rom)
+            for s in pe.finger_settings
+        }
+
+        session = schedule.sessions[0] if schedule.sessions else None
+        log = session.logs[0] if session and session.logs else None
+        total_logs += 1
+        if log:
+            done_count += 1
+            if log.progress_rate is not None:
+                progress_values.append(float(log.progress_rate))
+
+        finger_accuracy = []
+        if log:
+            for item in log.finger_accuracies:
+                target_rom = (
+                    prescription_rom_map.get((hand_type, item.finger_type, item.joint_type))
+                    or patient_rom_map.get((hand_type, item.finger_type, item.joint_type))
+                )
+                avg_match_rate = float(item.avg_match_rate) if item.avg_match_rate is not None else None
+                if avg_match_rate is not None:
+                    match_values.append(avg_match_rate)
+                finger_accuracy.append({
+                    "finger_type": item.finger_type,
+                    "joint_type": item.joint_type,
+                    "target_rom": target_rom,
+                    "min_angle": float(item.min_angle) if item.min_angle is not None else None,
+                    "max_angle": float(item.max_angle) if item.max_angle is not None else None,
+                    "avg_match_rate": avg_match_rate,
+                })
+
+        exercise_results.append({
+            "schedule_id": schedule.schedule_id,
+            "exercise_name": exercise_name,
+            "exercise_date": schedule.exercise_date.isoformat(),
+            "target_sets": pe.target_sets,
+            "target_reps": pe.target_reps,
+            "performed_sets": log.performed_sets if log else None,
+            "performed_reps": log.performed_reps if log else None,
+            "progress_rate": float(log.progress_rate) if log and log.progress_rate is not None else None,
+            "end_type": log.end_type if log else None,
+            "is_done": log is not None,
+            "finger_accuracy": finger_accuracy,
+        })
+
+    overall_compliance = round(done_count / total_logs * 100) if total_logs else 0
+    accuracy_average = round(sum(match_values) / len(match_values), 1) if match_values else (
+        round(sum(progress_values) / len(progress_values), 1) if progress_values else 0
+    )
+
+    return {
+        "patient_id": patient.patient_id,
+        "date": result_date.isoformat(),
+        "overall_compliance": overall_compliance,
+        "accuracy_average": accuracy_average,
+        "exercises": exercise_results,
     }
 
 
