@@ -176,6 +176,7 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python
 
 # custom ignore rules
+backend/chroma_db/
 guide_videos
 test_ws.py
 ai/captures/*
