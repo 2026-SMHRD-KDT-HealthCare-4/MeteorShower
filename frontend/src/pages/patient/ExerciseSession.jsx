@@ -19,17 +19,6 @@ function parseExerciseName(name = '') {
 const HAND_LABEL = { left: '왼손', right: '오른손' };
 const TYPE_LABEL = { full_fist: '그립', tapping: '태핑' };
 
-export default function ExerciseSession() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const exerciseInfo = location.state?.exercise;
-  const [showModal, setShowModal] = useState(false);
-  const [phase, setPhase]         = useState('idle'); // idle | connecting | running | ended
-  const [frame, setFrame]         = useState(null);
-  const [wsData, setWsData]       = useState(null);
-  const [saveMessage, setSaveMessage] = useState('');
-  const [selectedHand, setSelectedHand] = useState(null); // 세션 시작 시 보낸 hand('left'/'right')
-
 /* ── 피드백 팝업 ─────────────────────────────────────────────────── */
 const LEVEL_STYLE = {
   yellow: {
@@ -86,6 +75,7 @@ export default function ExerciseSession() {
   const [wsData,       setWsData]       = useState(null);
   const [saveMessage,  setSaveMessage]  = useState('');
   const [feedbackQueue, setFeedbackQueue] = useState([]);
+  const [selectedHand, setSelectedHand] = useState(null); // 세션 시작 시 보낸 hand('left'/'right')
 
   const wsRef         = useRef(null);
   const phaseRef      = useRef('idle');
@@ -190,7 +180,7 @@ export default function ExerciseSession() {
 
     ws.onerror  = () => updatePhase('idle');
     ws.onclose  = () => { if (phaseRef.current !== 'ended') updatePhase('idle'); };
-  }, [saveExerciseResult, handleFeedbackMessages]);
+  }, [saveExerciseResult, handleFeedbackMessages, exerciseInfo]);
 
   useEffect(() => () => wsRef.current?.close(), []);
 

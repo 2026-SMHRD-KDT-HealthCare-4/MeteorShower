@@ -365,17 +365,6 @@ _options = vision.HandLandmarkerOptions(
 )
 
 
-<<<<<<< HEAD
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None):
-    # exercise_name이 지정되면 해당 운동 하나만 실행 (다른 운동으로 자동 전환되지 않음).
-    # 지정이 없거나 매칭되는 운동이 없으면 기존처럼 EXERCISES 전체를 순서대로 실행.
-    if exercise_name is not None:
-        _matched = [ex for ex in EXERCISES if ex["name"] == exercise_name]
-        active_exercises = _matched if _matched else EXERCISES
-    else:
-        active_exercises = EXERCISES
-
-=======
 def print_angle_summary(angle_stats, total_frames):
     """운동별로 누적된 관절 각도 통계(min/max/avg)를 콘솔에 정렬해서 출력.
 
@@ -403,8 +392,15 @@ def print_angle_summary(angle_stats, total_frames):
         print("============================================")
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = True):
->>>>>>> a639b72c5b39b847507ba4b018db001c9c9ce6b4
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None):
+    # exercise_name이 지정되면 해당 운동 하나만 실행 (다른 운동으로 자동 전환되지 않음).
+    # 지정이 없거나 매칭되는 운동이 없으면 기존처럼 EXERCISES 전체를 순서대로 실행.
+    if exercise_name is not None:
+        _matched = [ex for ex in EXERCISES if ex["name"] == exercise_name]
+        active_exercises = _matched if _matched else EXERCISES
+    else:
+        active_exercises = EXERCISES
+
     # 1. 외부 입력 데이터가 있으면 그것을 우선 사용
     if finger_rom_targets is not None:
         target_angles = finger_rom_targets
@@ -492,11 +488,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             ret, frame = cap.read()
             if not ret: break
 
-<<<<<<< HEAD
-            ex         = active_exercises[current_exercise_idx]
-=======
-            ex         = EXERCISES[current_exercise_idx] if current_exercise_idx < len(EXERCISES) else EXERCISES[-1]
->>>>>>> a639b72c5b39b847507ba4b018db001c9c9ce6b4
+            ex         = active_exercises[current_exercise_idx] if current_exercise_idx < len(active_exercises) else active_exercises[-1]
             count_type = ex.get("count_type", "grip")
 
             guide_n          = len(current_guide_raw) if current_guide_raw is not None else 1
@@ -720,8 +712,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
                 # 관절 각도 누적 — 운동별로 분리, 손이 감지된 프레임에서만 (stale angles는 절대 누적하지 않음)
                 # 어느 운동에도 속하지 않는 프레임(세션 완료/범위 초과)은 누적하지 않음.
-                if not session_complete and current_exercise_idx < len(EXERCISES):
-                    cur_ex_name = EXERCISES[current_exercise_idx]["name"]
+                if not session_complete and current_exercise_idx < len(active_exercises):
+                    cur_ex_name = active_exercises[current_exercise_idx]["name"]
                     angle_sample_frames[cur_ex_name] += 1
                     cur_ex_stats = angle_stats[cur_ex_name]
                     for _finger, _joints in angles.items():
