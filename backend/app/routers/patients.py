@@ -50,6 +50,13 @@ def _hand_type_from_exercise_name(name: str):
     return "오른손"
 
 
+# 가이드 영상 실제 길이(ai/guide_videos/*.mp4) 기준. 운동 종류별로 다름.
+def _video_time_for_exercise(name: str) -> str:
+    if "태핑" in name or "Tapping" in name or "두드리기" in name:
+        return "00:24"
+    return "00:14"
+
+
 def _parse_rom_key(key: str):
     # format: {finger_key}_{joint_type}_{hand_type}  e.g. thumb_MCP_왼손
     parts = key.split("_", 2)
@@ -431,7 +438,7 @@ def get_my_today_exercises(
                 "reps": pe.target_reps,
                 "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
                 "status": "done" if today_schedule and today_schedule.sessions else "waiting",
-                "videoTime": "01:20",
+                "videoTime": _video_time_for_exercise(pe.exercise.exercise_name),
             })
 
     return exercises

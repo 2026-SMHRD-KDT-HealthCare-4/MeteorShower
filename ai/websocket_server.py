@@ -51,7 +51,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None):
+def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None):
     global _tracking_thread, _stop_event
     with _tracking_lock:
         if _tracking_thread is not None and _tracking_thread.is_alive():
@@ -67,6 +67,7 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
                 "hand": hand,
                 "stop_event": _stop_event,
                 "show_window": False,
+                "exercise_name": exercise_name,
             },
             daemon=True,
             name="hand_tracking",
@@ -130,6 +131,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     doctor_id=msg.get("doctor_id"),
                     hand=msg.get("hand", "left"),
                     finger_rom_targets=msg.get("finger_rom_targets"),
+                    exercise_name=msg.get("exercise_name"),
                 )
                 await websocket.send_json({"status": "tracking_started"})
             elif action == "stop":
