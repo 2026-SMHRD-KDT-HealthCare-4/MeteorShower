@@ -34,10 +34,11 @@ class PatientRomUpdateRequest(BaseModel):
 
 
 class FingerAccuracyRequest(BaseModel):
-    hand_type: str
     finger_type: str
-    accuracy: float
-    rom: float
+    joint_type: str
+    max_angle: Optional[float] = None
+    min_angle: Optional[float] = None
+    avg_match_rate: Optional[float] = None
 
 
 class ExerciseSessionCreateRequest(BaseModel):
