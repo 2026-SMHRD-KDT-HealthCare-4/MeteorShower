@@ -19,6 +19,54 @@ const QUESTIONS = [
   '손가락을 구부릴 때 걸리는 느낌이 있나요?',
 ];
 
+function TrendChart({ fromVal, toVal, delta, isUp }) {
+  return (
+    <div className="flex items-center gap-2 md:gap-5 flex-1 min-w-0">
+      {/* 바 그래프 영역 */}
+      <div className="flex items-end gap-1.5 md:gap-3 h-20 md:h-28 shrink-0">
+        {/* 이전 바 */}
+        <div className="flex flex-col items-center gap-0.5 h-full w-8 md:w-12">
+          <span className="text-[10px] md:text-xs font-bold opacity-75">{fromVal}%</span>
+          <div className="w-full flex-1 rounded-t-md bg-white/20 relative overflow-hidden">
+            <div
+              className="absolute bottom-0 w-full rounded-t-md bg-white/50 transition-all duration-700"
+              style={{ height: `${fromVal}%` }}
+            />
+          </div>
+          <span className="text-[9px] md:text-[10px] opacity-55 tracking-wide">이전</span>
+        </div>
+
+        {/* 화살표 */}
+        <div className="pb-5 shrink-0">
+          <span className="material-symbols-outlined text-base md:text-2xl opacity-80">arrow_forward</span>
+        </div>
+
+        {/* 현재 바 */}
+        <div className="flex flex-col items-center gap-0.5 h-full w-8 md:w-12">
+          <span className="text-[10px] md:text-xs font-bold">{toVal}%</span>
+          <div className="w-full flex-1 rounded-t-md bg-white/20 relative overflow-hidden">
+            <div
+              className={`absolute bottom-0 w-full rounded-t-md transition-all duration-700 ${isUp ? 'bg-white' : 'bg-white/55'}`}
+              style={{ height: `${toVal}%` }}
+            />
+          </div>
+          <span className="text-[9px] md:text-[10px] opacity-55 tracking-wide">현재</span>
+        </div>
+      </div>
+
+      {/* 우측 텍스트 */}
+      <div className="flex flex-col gap-0.5 min-w-0 pl-3 md:pl-5">
+        <p className="text-lg md:text-2xl font-display font-bold leading-none">
+          {isUp ? `+${delta}%` : `${delta}%`}
+        </p>
+        <p className="text-[11px] md:text-label-lg font-bold leading-tight">
+          {isUp ? '상승했어요! 🎉' : '감소했어요 😓'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function BlockedBanner() {
   const [geoState, setGeoState] = useState('idle'); // idle | locating | loading | done | error
   const [hospitals, setHospitals] = useState([]);
@@ -369,15 +417,12 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
   );
 }
 
-const DEFAULT_WEEKLY = ['월', '화', '수', '목', '금', '토', '일'].map((day) => ({
-  day, rate: 0, total: 0, done: 0, is_today: false,
-}));
 
 export default function TodayExercise() {
   const { user, token } = useAuth();
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [weeklyStats, setWeeklyStats] = useState(DEFAULT_WEEKLY);
+  const [weeklyStats, setWeeklyStats] = useState([]);
   const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
@@ -401,8 +446,23 @@ export default function TodayExercise() {
 
   const completedCount = exercises.filter((e) => e.status === 'done').length;
   const totalCount = exercises.length;
-  const achievementRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
   const completionRatio = totalCount > 0 ? completedCount / totalCount : 0;
+
+  // 운동 변화 추세 계산
+  const daysWithData = weeklyStats.filter((d) => d.total > 0);
+  const fromRate = daysWithData.length >= 2
+    ? Math.round(daysWithData.slice(0, -1).reduce((s, d) => s + d.rate, 0) / (daysWithData.length - 1))
+    : null;
+  const toRate   = daysWithData.length >= 1 ? daysWithData[daysWithData.length - 1].rate : null;
+  const delta    = fromRate !== null && toRate !== null ? toRate - fromRate : null;
+  const hasTrend = delta !== null;
+  const isUp     = hasTrend && delta >= 0;
+
+  // 정확도 더미 데이터 (추후 누적 리포트 API 연동 예정)
+  const accFrom  = 68;
+  const accTo    = 83;
+  const accDelta = accTo - accFrom;
+  const isAccUp  = accDelta >= 0;
 
   const handleStart = (id) => {
     setExercises((prev) =>
@@ -417,68 +477,20 @@ export default function TodayExercise() {
       <main className="max-w-[1280px] mx-auto px-container-padding-mobile md:px-container-padding-desktop py-stack-lg">
 
         {/* 헤더 */}
-        <header className="mb-stack-lg">
-          <h1 className="text-headline-lg font-display font-bold text-primary mb-1">
+        <header className="mb-stack-lg flex items-center justify-between gap-4">
+          <h1 className="text-headline-lg font-display font-bold text-primary">
             {user?.name}님 안녕하세요!
           </h1>
-        </header>
 
-        {/* 달성률 벤토 */}
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-gutter mb-stack-lg">
-          {/* 오늘 / 주간 달성률 */}
-          <div className="md:col-span-2 bg-primary-container text-on-primary-container p-4 md:p-stack-lg rounded-xl flex flex-col gap-3 md:gap-6 relative overflow-hidden shadow-sm">
-            <div className="relative z-10">
-              <h2 className="text-label-lg md:text-title-md font-display font-bold mb-2">오늘 운동 달성률</h2>
-              <div className="flex items-center gap-3">
-                <span className="text-headline-lg md:text-display-lg font-display font-bold shrink-0">{achievementRate}%</span>
-                <div className="flex-1 bg-white/20 h-2 md:h-3 rounded-full overflow-hidden">
-                  <div
-                    className="bg-primary-fixed-dim h-full transition-all duration-1000 ease-out"
-                    style={{ width: `${achievementRate}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="relative z-10">
-              <h3 className="text-label-lg md:text-title-md font-display font-bold mb-2 md:mb-3">주간 운동 달성률</h3>
-              <div className="flex gap-2 items-end h-16 md:h-24">
-                {weeklyStats.map(({ day, rate, is_today }) => (
-                  <div key={day} className="flex-1 flex flex-col items-center gap-1 h-full">
-                    <span className="text-xs opacity-70 shrink-0">{rate > 0 ? `${rate}%` : ''}</span>
-                    <div className="flex-1 w-full flex items-end">
-                      <div
-                        className="w-full rounded-t-md transition-all duration-700"
-                        style={{
-                          height: rate > 0 ? `${rate}%` : '4px',
-                          background: is_today
-                            ? 'rgba(255,255,255,0.9)'
-                            : rate > 0
-                            ? 'rgba(255,255,255,0.5)'
-                            : 'rgba(255,255,255,0.15)',
-                        }}
-                      />
-                    </div>
-                    <span className={`text-label-sm font-semibold shrink-0 ${is_today ? 'underline underline-offset-2' : ''}`}>{day}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="absolute -right-4 -bottom-4 opacity-10">
-              <span className="material-symbols-outlined text-[160px]" style={{ fontVariationSettings: "'FILL' 1" }}>rebase_edit</span>
-            </div>
-          </div>
-
-          {/* 완료 항목 원형 차트 */}
-          <div className="hidden md:flex bg-surface-container-lowest border border-outline-variant p-stack-lg rounded-xl flex-col items-center justify-center text-center shadow-sm">
-            <div className="relative w-32 h-32 mb-4">
+          {/* 모바일 전용 오늘 완료 원형 차트 */}
+          <div className="md:hidden flex flex-col items-center shrink-0">
+            <div className="relative w-16 h-16">
               <svg className="w-full h-full" viewBox="0 0 128 128">
-                <circle className="text-surface-container-highest stroke-current" cx="64" cy="64" fill="transparent" r="56" strokeWidth="8" />
+                <circle className="text-surface-container-highest stroke-current" cx="64" cy="64" fill="transparent" r="56" strokeWidth="10" />
                 <circle
                   className="text-primary stroke-current"
                   cx="64" cy="64" fill="transparent" r="56"
-                  strokeLinecap="round" strokeWidth="8"
+                  strokeLinecap="round" strokeWidth="10"
                   style={{
                     strokeDasharray: '351.85',
                     strokeDashoffset: `${351.85 * (1 - completionRatio)}`,
@@ -489,27 +501,90 @@ export default function TodayExercise() {
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-title-md font-bold text-primary">{completedCount}/{totalCount}</span>
-                <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">완료 항목</span>
+                <span className="text-xs font-bold text-primary leading-none">{completedCount}/{totalCount}</span>
               </div>
             </div>
-            <p className="text-label-md text-on-surface-variant">
+            <span className="text-[10px] text-on-surface-variant mt-0.5">오늘 완료</span>
+          </div>
+        </header>
+
+        {/* 운동 변화 벤토 */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-gutter mb-stack-lg">
+
+          {/* 운동 변화 + 정확도 변화 카드 */}
+          <div className="md:col-span-2 bg-primary-container text-on-primary-container px-4 py-3 md:px-6 md:py-4 rounded-xl relative overflow-hidden shadow-sm">
+
+            {/* 좌/우 2분할 — 항상 가로 배치 */}
+            <div className="flex gap-0 min-w-0">
+
+              {/* ── 왼쪽: 운동 변화 ── */}
+              <div className="flex-1 flex flex-col gap-2 pr-3 md:pr-6 min-w-0">
+                <h2 className="text-label-md md:text-title-sm font-display font-bold truncate">운동 변화</h2>
+                {hasTrend ? (
+                  <TrendChart fromVal={fromRate} toVal={toRate} delta={delta} isUp={isUp} />
+                ) : (
+                  <div className="flex flex-col justify-center flex-1 gap-1 opacity-75">
+                    <span className="material-symbols-outlined text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>directions_run</span>
+                    <p className="text-label-sm font-bold">기록을 쌓는 중</p>
+                    <p className="text-[10px] opacity-70">2회 이상 운동하면 볼 수 있어요</p>
+                  </div>
+                )}
+              </div>
+
+              {/* 구분선 */}
+              <div className="w-px self-stretch bg-white/20 mx-1 md:mx-2 shrink-0" />
+
+              {/* ── 오른쪽: 정확도 변화 ── */}
+              <div className="flex-1 flex flex-col gap-2 pl-3 md:pl-6 min-w-0">
+                <h2 className="text-label-md md:text-title-sm font-display font-bold truncate">동작 정확도</h2>
+                <TrendChart fromVal={accFrom} toVal={accTo} delta={accDelta} isUp={isAccUp} />
+              </div>
+
+            </div>
+
+            <div className="absolute -right-4 -bottom-4 opacity-10 pointer-events-none">
+              <span className="material-symbols-outlined text-[140px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                {isUp ? 'trending_up' : 'fitness_center'}
+              </span>
+            </div>
+          </div>
+
+          {/* 오늘 완료 현황 원형 차트 */}
+          <div className="hidden md:flex bg-surface-container-lowest border border-outline-variant px-4 py-3 rounded-xl flex-col items-center justify-center text-center shadow-sm gap-2">
+            <div className="relative w-20 h-20">
+              <svg className="w-full h-full" viewBox="0 0 128 128">
+                <circle className="text-surface-container-highest stroke-current" cx="64" cy="64" fill="transparent" r="56" strokeWidth="10" />
+                <circle
+                  className="text-primary stroke-current"
+                  cx="64" cy="64" fill="transparent" r="56"
+                  strokeLinecap="round" strokeWidth="10"
+                  style={{
+                    strokeDasharray: '351.85',
+                    strokeDashoffset: `${351.85 * (1 - completionRatio)}`,
+                    transform: 'rotate(-90deg)',
+                    transformOrigin: '50% 50%',
+                    transition: 'stroke-dashoffset 0.6s ease',
+                  }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-label-lg font-bold text-primary leading-none">{completedCount}/{totalCount}</span>
+                <span className="text-[10px] text-on-surface-variant tracking-wider mt-0.5">완료</span>
+              </div>
+            </div>
+            <p className="text-label-sm text-on-surface-variant">
               총 <b className="text-on-surface">{totalCount}개</b> 중{' '}
-              <b className="text-primary">{completedCount}개</b> 완료
+              <b className="text-primary">{completedCount}개</b>
             </p>
           </div>
         </section>
 
         {/* 운동 목록 */}
-        <div className="flex items-center justify-between mb-stack-md">
+        <div className="flex items-center mb-stack-md">
           <h3 className="text-title-md font-display font-bold text-on-surface flex items-center gap-2">
             <span className="material-symbols-outlined text-primary">format_list_bulleted</span>
             오늘의 운동 루틴
           </h3>
-          {/* 모바일 완료 현황 */}
-          <span className="flex md:hidden text-label-sm text-on-surface-variant">
-            {completedCount}/{totalCount} 완료
-          </span>
         </div>
 
         {/* 차단 배너 + 주변 병원 추천 */}
