@@ -18,10 +18,12 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 # ★ 수정됨: _FINGER_JOINT_INDICES를 가져와서 랜드마크 번호 매핑에 사용합니다.
+# ★ 손 방향(orientation) 감지용 translate_to_wrist, compute_palm_normal, angle_between_vectors 추가.
 from landmark_utils import (
-    compute_guide_scale, normalize_to_guide_scale,
+    compute_guide_scale, normalize_to_guide_scale, translate_to_wrist,
     extract_features_full_fist, extract_features_tapping,
     compute_finger_angles, mirror_guide_to_right_hand,
+    compute_palm_normal, angle_between_vectors, palm_normal_delta,
     _FINGER_JOINT_INDICES
 )
 from notification_trigger import build_blocking_event, send_notification_to_backend
@@ -99,6 +101,13 @@ ROM_DROP_RATIO        = 0.7    # baseline ROM × 이 값 미만 시 "얕아짐"
 DTW_RELAX_STEP        = 0.05   # 트리거 시 max_dtw_dist 증가폭
 DTW_RELAX_MAX_MULT    = 1.5    # max_dtw_dist 완화 상한 = 원래값 × 이 값
 
+# 손 방향(orientation) 틀어짐 감지 — 손가락 굽힘(ROM)/거리(DTW)는 회전에
+# 거의 불변이라 손 전체가 돌아간 것은 못 잡으므로 손바닥 법선 사이각으로 별도 감지.
+ORIENT_TOLERANCE_DEG  = 30.0   # 이 각도 이내 틀어짐은 무시(여유 마진)
+ORIENT_MAX_DEG        = 90.0   # 이 각도 이상이면 페널티 최대
+ORIENT_MAX_PENALTY    = 0.30   # 일치율 최대 감점 비율(30%). 1.0이면 전부 깎임
+ORIENT_WARN_COOLDOWN  = 2.0    # 콘솔 경고 중복 출력 방지 간격(초)
+
 SIGNAL_BGR = {
     "green":  (0,   220, 0),
     "yellow": (0,   200, 255),
@@ -114,7 +123,7 @@ FINGER_LANDMARK_GROUPS = {
 }
 
 DEFAULT_FINGER_ROM_TARGETS = {
-"thumb": {"IP": 110},
+"thumb": {"MCP": 175, "IP": 110},  # TODO: 엄지 MCP 목표각도 임상 확정 필요(임시 50)
     "index": {"MCP": 95, "PIP": 120, "DIP": 120},
     "middle": {"MCP": 60, "PIP": 140, "DIP": 60},
     "ring": {"MCP": 55, "PIP": 140, "DIP": 75},
@@ -124,7 +133,7 @@ FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
 
 # 새로 추가: 탭핑 전용 타겟 (각도가 그립보다 더 완만해야 함)
 TAP_FINGER_ROM_TARGETS = {
-    "thumb":  {"IP": 80},
+    "thumb":  {"MCP": 110, "IP": 80},  # TODO: 엄지 MCP 목표각도 임상 확정 필요(임시 60)
     "index":  {"MCP": 150, "PIP": 100, "DIP": 140},
     "middle": {"MCP": 150, "PIP": 105, "DIP": 140},
     "ring":   {"MCP": 150, "PIP": 110, "DIP": 145},
@@ -439,6 +448,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         rom_score           = None
         rom_score_buf       = []
         display_similarity  = None
+        last_orient_warn_at = 0.0  # 방향 경고 콘솔 출력 쿨다운용 마지막 출력 시각
         no_hand_counter = 0
 
         overload_stage            = 0
@@ -507,9 +517,10 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
             raw_state             = None
             first_landmarks       = None
-            patient_active_finger = None 
+            patient_active_finger = None
             valid_hands           = []
-            
+            orient_angle          = None  # 손 방향(orientation) 사이각. 매 프레임 초기화.
+
             if result.hand_landmarks and result.handedness:
                 for landmarks, handedness_list in zip(result.hand_landmarks, result.handedness):
                     handedness = handedness_list[0]
@@ -523,11 +534,39 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         first_landmarks = landmarks
 
             if first_landmarks is not None:
-                no_hand_counter = 0  
+                no_hand_counter = 0
                 coords = normalize_to_guide_scale(first_landmarks, current_guide_scale)
                 patient_buf.append(current_feature_fn(coords))
                 if len(patient_buf) > PATIENT_BUF_MAX:
                     patient_buf.pop(0)
+
+                # ── 손 방향(orientation) 틀어짐 감지 ──
+                # 환자 법선: 원본(스케일 정규화 전) wrist-relative 좌표 기준으로 계산.
+                # 가이드 법선: current_guide_raw는 hand="right"일 때 이미 미러 처리된
+                # 상태이므로 그대로 사용 — 환자(원본, 미러 안 함)와 가이드(필요시 미러됨)가
+                # 항상 "같은 손 기준" 좌표계가 되어, 둘 중 한쪽만 미러됐다가 다른 쪽은
+                # 안 된 상태로 비교되는 불일치가 발생하지 않는다.
+                patient_normal = compute_palm_normal(translate_to_wrist(first_landmarks))
+                guide_normal = (
+                    compute_palm_normal(current_guide_raw[guide_frame_idx])
+                    if current_guide_raw is not None else None
+                )
+                orient_angle = angle_between_vectors(patient_normal, guide_normal)
+                # [검증용] 축-방향 매핑 실측 전이라 한국어 교정 지시는 아직 만들지 않고,
+                # patient_normal - guide_normal 의 raw 축 성분만 콘솔에 노출한다.
+                orient_delta = palm_normal_delta(patient_normal, guide_normal)
+
+                if orient_angle is not None and orient_angle > ORIENT_TOLERANCE_DEG:
+                    _now_orient = time.time()
+                    if _now_orient - last_orient_warn_at >= ORIENT_WARN_COOLDOWN:
+                        if orient_delta is not None:
+                            print(
+                                f"[Orient] 틀어짐 {orient_angle:.0f}도 | "
+                                f"dx={orient_delta[0]:+.2f} dy={orient_delta[1]:+.2f} dz={orient_delta[2]:+.2f}"
+                            )
+                        else:
+                            print(f"[Orient] 손 방향이 틀어졌어요 (가이드 대비 {orient_angle:.0f}도)")
+                        last_orient_warn_at = _now_orient
             else:
                 no_hand_counter += 1  
                 if no_hand_counter >= PATIENT_BUF_MAX:
@@ -794,6 +833,23 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     else:
                         joint_signals = {i: "green" for i in range(21)}
 
+            # ── 방향(orientation) 경고는 손목(0)에만 반영 — 손가락 신호(MCP/PIP/DIP)는
+            # 어떤 손가락이 문제인지 그대로 보존하고, 절대 건드리지 않는다.
+            # open 상태(joint_signals가 아직 None)에서도 손목 신호등은 보이게,
+            # 그 경우 손목 키 하나만 가진 최소 dict를 만든다. 다른 인덱스는 draw_hand/HUD가
+            # joint_signals.get(i, "green")으로 접근하므로 누락돼도 green으로 안전하게 처리됨.
+            # first_landmarks가 None인 프레임은 orient_angle도 None이라 자연히 건너뛴다.
+            if orient_angle is not None:
+                if orient_angle > ORIENT_TOLERANCE_DEG:
+                    if joint_signals is None:
+                        joint_signals = {0: "green"}
+                    joint_signals[0] = "red" if orient_angle >= ORIENT_MAX_DEG else "yellow"
+                else:
+                    # 방향 정상 복귀 — 이미 dict가 있을 때만 손목을 green으로 되돌림.
+                    # dict가 없으면(표시할 경고 자체가 없음) 굳이 새로 만들지 않는다.
+                    if joint_signals is not None:
+                        joint_signals[0] = "green"
+
             if joint_signals is not None:
                 feedback_messages = feedback_tracker.update(joint_signals)
                 for msg in feedback_messages:
@@ -808,6 +864,18 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     display_similarity = round(similarity * DTW_WEIGHT + rom_score * ROM_WEIGHT, 1)
                 else:
                     display_similarity = round(similarity, 1)
+
+                # ── 방향(orientation) 페널티: 완만하게 일치율에 반영 (최대 ORIENT_MAX_PENALTY) ──
+                if orient_angle is not None:
+                    tol, mx = ORIENT_TOLERANCE_DEG, ORIENT_MAX_DEG
+                    if orient_angle <= tol:
+                        penalty = 0.0
+                    elif orient_angle >= mx:
+                        penalty = ORIENT_MAX_PENALTY
+                    else:
+                        penalty = ORIENT_MAX_PENALTY * (orient_angle - tol) / (mx - tol)
+                    orient_factor = 1.0 - penalty
+                    display_similarity = round(display_similarity * orient_factor, 1)
             else:
                 display_similarity = None
 
@@ -858,6 +926,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "joint_signals":  joint_signals,
                     "feedback_messages": feedback_messages if 'feedback_messages' in locals() else [],
                     "finger_angles":  angles if first_landmarks is not None else None,
+                    "orient_angle":   round(orient_angle, 1) if orient_angle is not None else None,
+                    "orient_warning": (orient_angle is not None and orient_angle > ORIENT_TOLERANCE_DEG),
                     }
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                 payload["frame"] = base64.b64encode(buf).decode('utf-8')
