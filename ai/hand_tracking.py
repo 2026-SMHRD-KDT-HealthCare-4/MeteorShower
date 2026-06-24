@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from collections import defaultdict
 from datetime import datetime
 
 import cv2
@@ -345,7 +346,34 @@ _options = vision.HandLandmarkerOptions(
 )
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False):
+def print_angle_summary(angle_stats, total_frames):
+    """운동별로 누적된 관절 각도 통계(min/max/avg)를 콘솔에 정렬해서 출력.
+
+    angle_stats: { 운동명: { "finger_joint": {min,max,sum,count}, ... }, ... }
+    total_frames: { 운동명: 프레임 수, ... }
+    finger는 thumb→index→middle→ring→pinky, joint는 MCP→PIP→DIP(엄지는 MCP→IP)
+    순서로 _FINGER_JOINT_INDICES의 정의 순서를 그대로 따른다.
+    데이터가 있는 운동만 블록으로 출력한다.
+    """
+    for ex_name, ex_stats in angle_stats.items():
+        frames = total_frames.get(ex_name, 0)
+        print(f"====== [{ex_name}] 관절 각도 통계 (총 {frames} 프레임) ======")
+        for finger, joints in _FINGER_JOINT_INDICES.items():
+            for joint in joints:
+                stat = ex_stats.get(f"{finger}_{joint}")
+                label = f"{finger:6s} {joint:3s}"
+                if not stat or stat["count"] == 0:
+                    print(f"{label}: no data")
+                    continue
+                avg = stat["sum"] / stat["count"]
+                print(
+                    f"{label}: min {stat['min']:5.1f} / max {stat['max']:5.1f} "
+                    f"/ avg {avg:5.1f}  (samples: {stat['count']})"
+                )
+        print("============================================")
+
+
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = True):
     # 1. 외부 입력 데이터가 있으면 그것을 우선 사용
     if finger_rom_targets is not None:
         target_angles = finger_rom_targets
@@ -401,13 +429,22 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         session_complete    = False
         session_complete_at = None
 
+        # 운동별 관절 각도 누적 통계 (min/max/sum/count). 손이 감지된 프레임에서만 갱신.
+        # { "full_fist": {"index_PIP": {...}, ...}, "tapping": {...} } 형태로 운동마다 분리.
+        angle_stats = defaultdict(lambda: {
+            f"{finger}_{joint}": {"min": None, "max": None, "sum": 0.0, "count": 0}
+            for finger, joints in _FINGER_JOINT_INDICES.items()
+            for joint in joints
+        })
+        angle_sample_frames = defaultdict(int)
+
         while cap.isOpened():
             if stop_event is not None and stop_event.is_set():
                 break
             ret, frame = cap.read()
             if not ret: break
 
-            ex         = EXERCISES[current_exercise_idx]
+            ex         = EXERCISES[current_exercise_idx] if current_exercise_idx < len(EXERCISES) else EXERCISES[-1]
             count_type = ex.get("count_type", "grip")
 
             guide_n          = len(current_guide_raw) if current_guide_raw is not None else 1
@@ -559,6 +596,20 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             if first_landmarks is not None:
                 coords_raw = np.array([[lm.x, lm.y, lm.z] for lm in first_landmarks], dtype=np.float32)
                 angles = compute_finger_angles(coords_raw)
+
+                # 관절 각도 누적 — 운동별로 분리, 손이 감지된 프레임에서만 (stale angles는 절대 누적하지 않음)
+                # 어느 운동에도 속하지 않는 프레임(세션 완료/범위 초과)은 누적하지 않음.
+                if not session_complete and current_exercise_idx < len(EXERCISES):
+                    cur_ex_name = EXERCISES[current_exercise_idx]["name"]
+                    angle_sample_frames[cur_ex_name] += 1
+                    cur_ex_stats = angle_stats[cur_ex_name]
+                    for _finger, _joints in angles.items():
+                        for _joint, _angle in _joints.items():
+                            _stat = cur_ex_stats[f"{_finger}_{_joint}"]
+                            _stat["sum"] += _angle
+                            _stat["count"] += 1
+                            _stat["min"] = _angle if _stat["min"] is None else min(_stat["min"], _angle)
+                            _stat["max"] = _angle if _stat["max"] is None else max(_stat["max"], _angle)
 
                 if confirmed_state == "grip" and count_type == "grip":
                     raw_rom = _compute_rom_score(angles, target_angles)
@@ -760,6 +811,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
         cap.release()
         cv2.destroyAllWindows()
+
+        print_angle_summary(angle_stats, angle_sample_frames)
 
         if overload_stage == 2:
             if patient_id is None:
