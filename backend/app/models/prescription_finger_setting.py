@@ -35,7 +35,7 @@ class PrescriptionFingerSetting(Base):
             name="ck_finger_setting_finger",
         ),
         CheckConstraint(
-            "joint_type IN ('MCP', 'PIP', 'DIP')",
+            "joint_type IN ('MCP', 'PIP', 'DIP', 'IP')",
             name="ck_finger_setting_joint",
         ),
         UniqueConstraint("prescription_exercise_id", "hand_type", "finger_type", "joint_type"),

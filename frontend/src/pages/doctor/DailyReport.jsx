@@ -277,6 +277,46 @@ const defaultOpinion =
   `• 세션 전환: 운동 후 이번 주 이내에 다음 운동으로 전환하는 것이 좋습니다. 만약 15분간 날카로운 통증이 지속될 경우 다음을 수료하시오.\n\n` +
   `• 향상 권고: 본격 치료 관련으로 손가락 관절에 대한 가벼운 스트레칭을 병행하며 유연성을 확보하시오.`;
 
+const FINGER_LABELS = ['엄지', '검지', '중지', '약지', '소지'];
+const FINGER_LABEL_WITH_EN = {
+  엄지: '엄지 (Thumb)',
+  검지: '검지 (Index)',
+  중지: '중지 (Middle)',
+  약지: '약지 (Ring)',
+  소지: '소지 (Pinky)',
+};
+
+function buildRomExercises(exercises = []) {
+  return exercises
+    .filter((exercise) => (exercise.finger_accuracy ?? []).length > 0)
+    .map((exercise, idx) => {
+      const byFinger = new Map();
+      (exercise.finger_accuracy ?? []).forEach((item) => {
+        if (!byFinger.has(item.finger_type)) byFinger.set(item.finger_type, []);
+        byFinger.get(item.finger_type).push({
+          name: item.joint_type,
+          ref: item.target_rom,
+          max: item.max_angle,
+          min: item.min_angle,
+          avg: item.avg_match_rate,
+        });
+      });
+
+      return {
+        key: `${exercise.schedule_id ?? idx}`,
+        label: exercise.exercise_name,
+        fingers: FINGER_LABELS
+          .filter((finger) => byFinger.has(finger))
+          .map((finger) => ({
+            key: finger,
+            label: FINGER_LABEL_WITH_EN[finger] ?? finger,
+            joints: byFinger.get(finger),
+          })),
+      };
+    })
+    .filter((exercise) => exercise.fingers.length > 0);
+}
+
 /* ── 컴포넌트 ── */
 export default function DailyReport() {
   const navigate = useNavigate();
@@ -300,13 +340,28 @@ export default function DailyReport() {
   const [selectedReport, setSelectedReport] = useState(null);
   const [reportMessage, setReportMessage]   = useState('');
   const [reportBusy, setReportBusy]         = useState(false);
+  const [dailyResult, setDailyResult]       = useState(null);
 
   const selectedPatient = patients.find((p) => String(p.patient_id) === String(selectedPatientId));
+  const romByExercise = buildRomExercises(dailyResult?.exercises ?? []);
+  const detailExerciseResults = (dailyResult?.exercises ?? [])
+    .filter((exercise) => exercise.is_done)
+    .map((exercise) => {
+      const values = (exercise.finger_accuracy ?? [])
+        .map((item) => item.avg_match_rate)
+        .filter((value) => value !== null && value !== undefined);
+      const value = values.length
+        ? Math.round(values.reduce((sum, current) => sum + Number(current), 0) / values.length)
+        : Math.round(exercise.progress_rate ?? 0);
+      return {
+        name: exercise.exercise_name,
+        value,
+        warn: value < 70,
+      };
+    });
 
-  const overallCompliance = Math.round(
-    exerciseResults.reduce((s, e) => s + e.value, 0) / exerciseResults.length
-  );
-  const accuracyAvg = 77.0;
+  const overallCompliance = dailyResult?.overall_compliance ?? 0;
+  const accuracyAvg = dailyResult?.accuracy_average ?? 0;
 
   const loadReports = () =>
     reportApi.getDoctorReports()
@@ -364,6 +419,20 @@ export default function DailyReport() {
         setSchedule(data.schedule ?? {});
       })
       .catch(() => {});
+  }, [selectedPatientId]);
+
+  useEffect(() => {
+    if (!selectedPatientId) {
+      setDailyResult(null);
+      return;
+    }
+    patientApi.getPatientDailyExerciseResult(selectedPatientId, toKey(new Date()))
+      .then((data) => {
+        setDailyResult(data);
+        setRomExerciseIdx(0);
+        setRomFingerIdx(0);
+      })
+      .catch(() => setDailyResult(null));
   }, [selectedPatientId]);
 
   useEffect(() => {
@@ -678,7 +747,7 @@ export default function DailyReport() {
 
             {/* Exercise breakdown */}
             <div className="space-y-3">
-              {exerciseResults.map((ex) => (
+              {detailExerciseResults.length > 0 ? detailExerciseResults.map((ex) => (
                 <div key={ex.name} className="flex items-center gap-2 sm:gap-3">
                   <span className="w-24 sm:w-28 text-label-md text-on-surface-variant flex-shrink-0">{ex.name}</span>
                   <div className="flex-1 bg-surface-container h-3 rounded-full overflow-hidden">
@@ -695,15 +764,19 @@ export default function DailyReport() {
                     : <span className="w-4 flex-shrink-0" />
                   }
                 </div>
-              ))}
+              )) : (
+                <div className="text-label-md text-on-surface-variant bg-surface-container-low rounded-xl p-4 text-center">
+                  오늘 저장된 운동 평가 결과가 없습니다.
+                </div>
+              )}
             </div>
 
             {/* ROM 상세 패널 */}
-            {showRomDetail && (
+            {showRomDetail && romByExercise.length > 0 && (
               <div className="border border-outline-variant rounded-xl overflow-hidden">
                 {/* 운동 카테고리 탭 */}
                 <div className="flex overflow-x-auto border-b border-outline-variant">
-                  {ROM_BY_EXERCISE.map((ex, i) => (
+                  {romByExercise.map((ex, i) => (
                     <button
                       key={ex.key}
                       onClick={() => { setRomExerciseIdx(i); setRomFingerIdx(0); }}
@@ -719,7 +792,7 @@ export default function DailyReport() {
                 </div>
                 {/* 손가락 탭 */}
                 <div className="flex overflow-x-auto border-b border-outline-variant">
-                  {ROM_BY_EXERCISE[romExerciseIdx].fingers.map((f, i) => (
+                  {romByExercise[romExerciseIdx].fingers.map((f, i) => (
                     <button
                       key={f.key}
                       onClick={() => setRomFingerIdx(i)}
@@ -741,18 +814,20 @@ export default function DailyReport() {
                       <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">기준값 (ROM)</th>
                       <th className="px-4 py-2.5 text-label-sm font-bold text-[#1a73e8] text-center">최댓값</th>
                       <th className="px-4 py-2.5 text-label-sm font-bold text-[#005bbf] text-center">최솟값</th>
+                      <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">평균 일치율</th>
                       <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">상태</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {ROM_BY_EXERCISE[romExerciseIdx].fingers[romFingerIdx].joints.map((j) => {
-                      const warn = j.max < j.ref * 0.85;
+                    {romByExercise[romExerciseIdx].fingers[romFingerIdx].joints.map((j) => {
+                      const warn = j.avg !== null && j.avg !== undefined ? j.avg < 70 : (j.ref && j.max ? j.max < j.ref * 0.85 : false);
                       return (
                         <tr key={j.name} className="border-b border-outline-variant last:border-0 hover:bg-surface-container-lowest transition-colors">
                           <td className="px-4 py-3 text-label-md font-bold text-on-surface">{j.name}</td>
-                          <td className="px-4 py-3 text-center text-label-md text-on-surface-variant">{j.ref}°</td>
-                          <td className="px-4 py-3 text-center text-label-md font-bold" style={{ color: warn ? '#ba1a1a' : '#1a73e8' }}>{j.max}°</td>
-                          <td className="px-4 py-3 text-center text-label-md font-semibold text-[#005bbf]">{j.min}°</td>
+                          <td className="px-4 py-3 text-center text-label-md text-on-surface-variant">{j.ref ?? '—'}{j.ref ? '°' : ''}</td>
+                          <td className="px-4 py-3 text-center text-label-md font-bold" style={{ color: warn ? '#ba1a1a' : '#1a73e8' }}>{j.max ?? '—'}{j.max !== null && j.max !== undefined ? '°' : ''}</td>
+                          <td className="px-4 py-3 text-center text-label-md font-semibold text-[#005bbf]">{j.min ?? '—'}{j.min !== null && j.min !== undefined ? '°' : ''}</td>
+                          <td className="px-4 py-3 text-center text-label-md font-bold" style={{ color: warn ? '#ba1a1a' : '#1a73e8' }}>{j.avg ?? '—'}{j.avg !== null && j.avg !== undefined ? '%' : ''}</td>
                           <td className="px-4 py-3 text-center">
                             {warn ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-error bg-error-container px-2 py-0.5 rounded-full">
@@ -770,7 +845,7 @@ export default function DailyReport() {
                   </tbody>
                 </table>
                 <div className="px-4 py-2 bg-surface-container-low border-t border-outline-variant">
-                  <p className="text-[11px] text-on-surface-variant">기준값: 의사가 입력한 목표 ROM · 최댓값/최솟값: 금일 세션 측정 결과</p>
+                  <p className="text-[11px] text-on-surface-variant">기준값: 의사가 입력한 목표 ROM · 최댓값/최솟값/평균 일치율: 금일 세션 측정 결과</p>
                 </div>
               </div>
             )}

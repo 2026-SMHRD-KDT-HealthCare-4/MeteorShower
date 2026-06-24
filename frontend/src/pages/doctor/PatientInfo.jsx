@@ -201,11 +201,13 @@ const ROM_FINGERS = [
 const ROM_ROWS = [
   { label: 'MCP (왼손)',   joint: 'MCP', hand: '왼손'  },
   { label: 'MCP (오른손)', joint: 'MCP', hand: '오른손' },
-  { label: 'PIP (왼손)',   joint: 'PIP', hand: '왼손'  },
-  { label: 'PIP (오른손)', joint: 'PIP', hand: '오른손' },
-  { label: 'DIP (왼손)',   joint: 'DIP', hand: '왼손'  },
-  { label: 'DIP (오른손)', joint: 'DIP', hand: '오른손' },
+  { label: 'PIP / IP (왼손)',   joint: 'PIP', hand: '왼손'  },
+  { label: 'PIP / IP (오른손)', joint: 'PIP', hand: '오른손' },
+  { label: 'DIP (왼손, 엄지 제외)',   joint: 'DIP', hand: '왼손'  },
+  { label: 'DIP (오른손, 엄지 제외)', joint: 'DIP', hand: '오른손' },
 ];
+const romJointForFinger = (fingerKey, joint) => (fingerKey === 'thumb' && joint === 'PIP' ? 'IP' : joint);
+const romLabelForFinger = (fingerKey, joint, hand) => `${fingerKey === 'thumb' && joint === 'PIP' ? 'IP' : joint} (${hand})`;
 const ROM_EXERCISE_TABS = [
   { key: 'basic',   label: 'Grip'    },
   { key: 'tapping', label: 'Tapping' },
@@ -691,8 +693,16 @@ export default function PatientInfo() {
                         {label}
                       </td>
                       {ROM_FINGERS.map((f) => {
-                        const stateKey = `${f.key}_${joint}_${hand}`;
+                        const actualJoint = romJointForFinger(f.key, joint);
+                        const stateKey = `${f.key}_${actualJoint}_${hand}`;
                         const val = currentRom[stateKey];
+                        if (f.key === 'thumb' && joint === 'DIP') {
+                          return (
+                            <td key={f.key} className="px-1 py-2.5 border border-outline-variant text-center text-outline">
+                              —
+                            </td>
+                          );
+                        }
                         return (
                           <td key={f.key} className="px-1 py-2.5 border border-outline-variant text-center text-label-md font-semibold text-on-surface">
                             {val !== undefined
@@ -734,7 +744,16 @@ export default function PatientInfo() {
                           {label}
                         </td>
                         {ROM_FINGERS.map((f) => {
-                          const stateKey = `${f.key}_${joint}_${hand}`;
+                          const displayLabel = romLabelForFinger(f.key, joint, hand);
+                          const actualJoint = romJointForFinger(f.key, joint);
+                          const stateKey = `${f.key}_${actualJoint}_${hand}`;
+                          if (f.key === 'thumb' && joint === 'DIP') {
+                            return (
+                              <td key={f.key} className="px-1 py-2 border border-outline-variant text-center text-outline">
+                                —
+                              </td>
+                            );
+                          }
                           return (
                             <td key={f.key} className="px-1 py-2 border border-outline-variant text-center">
                               <div className="flex items-center justify-center gap-1">
@@ -747,6 +766,7 @@ export default function PatientInfo() {
                                   onChange={(e) => setCurrentRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
                                   placeholder="—"
                                   className="w-14 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
+                                  aria-label={`${f.label} ${displayLabel}`}
                                 />
                                 <span className="text-label-sm text-on-surface-variant">°</span>
                               </div>

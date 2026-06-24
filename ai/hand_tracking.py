@@ -121,6 +121,14 @@ DEFAULT_FINGER_ROM_TARGETS = {
     "pinky": {"MCP": 45, "PIP": 150, "DIP": 80}
 }
 FINGER_NAMES = ["thumb", "index", "middle", "ring", "pinky"]
+FINGER_LABELS = {
+    "thumb": "엄지",
+    "index": "검지",
+    "middle": "중지",
+    "ring": "약지",
+    "pinky": "소지",
+}
+SUPPORTED_DB_JOINTS = {"MCP", "PIP", "DIP", "IP"}
 
 # 새로 추가: 탭핑 전용 타겟 (각도가 그립보다 더 완만해야 함)
 TAP_FINGER_ROM_TARGETS = {
@@ -151,6 +159,23 @@ def _finger_angle_signals(angles_dict, target_angles_dict):
             else:
                 signals[pivot_idx] = "red"
     return signals
+
+
+def build_finger_accuracy_summary(exercise_name, angle_stats):
+    summary = []
+    for key, stat in angle_stats.get(exercise_name, {}).items():
+        finger_name, joint_type = key.split("_", 1)
+        if joint_type not in SUPPORTED_DB_JOINTS or stat["count"] == 0:
+            continue
+        avg_match_rate = stat["match_sum"] / stat["match_count"] if stat["match_count"] else None
+        summary.append({
+            "finger_type": FINGER_LABELS.get(finger_name, finger_name),
+            "joint_type": joint_type,
+            "min_angle": round(stat["min"], 2) if stat["min"] is not None else None,
+            "max_angle": round(stat["max"], 2) if stat["max"] is not None else None,
+            "avg_match_rate": round(avg_match_rate, 2) if avg_match_rate is not None else None,
+        })
+    return summary
 
 
 def _compute_rom_score(angles_dict, targets):
@@ -459,7 +484,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         # 운동별 관절 각도 누적 통계 (min/max/sum/count). 손이 감지된 프레임에서만 갱신.
         # { "full_fist": {"index_PIP": {...}, ...}, "tapping": {...} } 형태로 운동마다 분리.
         angle_stats = defaultdict(lambda: {
-            f"{finger}_{joint}": {"min": None, "max": None, "sum": 0.0, "count": 0}
+            f"{finger}_{joint}": {"min": None, "max": None, "sum": 0.0, "count": 0, "match_sum": 0.0, "match_count": 0}
             for finger, joints in _FINGER_JOINT_INDICES.items()
             for joint in joints
         })
@@ -723,6 +748,11 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                             _stat["count"] += 1
                             _stat["min"] = _angle if _stat["min"] is None else min(_stat["min"], _angle)
                             _stat["max"] = _angle if _stat["max"] is None else max(_stat["max"], _angle)
+                            _target = target_angles.get(_finger, {}).get(_joint)
+                            if _target:
+                                _match = max(0.0, 100.0 - (abs(_angle - _target) / _target * 100.0))
+                                _stat["match_sum"] += _match
+                                _stat["match_count"] += 1
 
                 if confirmed_state == "grip" and count_type == "grip":
                     raw_rom = _compute_rom_score(angles, target_angles)
@@ -859,6 +889,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "feedback_messages": feedback_messages if 'feedback_messages' in locals() else [],
                     "finger_angles":  angles if first_landmarks is not None else None,
                     }
+                if payload["session_end"]:
+                    payload["finger_accuracy"] = build_finger_accuracy_summary(ex_now["name"], angle_stats)
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                 payload["frame"] = base64.b64encode(buf).decode('utf-8')
                 try: q.put_nowait(payload)
