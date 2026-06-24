@@ -3,6 +3,7 @@ import json
 import os
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 from openai import AsyncOpenAI
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -62,3 +63,19 @@ async def voice_chat(
         "bot_text": bot_text,
         "audio_base64": audio_base64,
     }
+
+
+class TtsRequest(BaseModel):
+    text: str
+
+
+@router.post("/tts")
+async def text_to_speech(body: TtsRequest):
+    if not body.text.strip():
+        raise HTTPException(status_code=422, detail="text is empty")
+    speech = await client.audio.speech.create(
+        model="tts-1",
+        voice="nova",
+        input=body.text,
+    )
+    return {"audio_base64": base64.b64encode(speech.content).decode()}

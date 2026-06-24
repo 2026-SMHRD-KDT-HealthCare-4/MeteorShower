@@ -66,6 +66,10 @@ export const doctorApi = {
   getDashboard:             ()   => api.get('/doctor/me/dashboard'),
 };
 
+export const chatApi = {
+  tts: (text) => api.post('/chat/tts', { text }),
+};
+
 export const reportApi = {
   createMockReport:    (body)     => api.post('/reports/mock', body),
   getDoctorReports:    ()         => api.get('/doctor/me/reports'),

@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from collections import defaultdict
 from datetime import datetime
 
 import cv2
@@ -78,6 +79,25 @@ PENALTY_POWER        = 0.8
 DTW_WEIGHT    = 0.5
 ROM_WEIGHT    = 0.5
 ROM_SMOOTHING = 12
+
+# Adaptive baseline design rationale:
+# - Bradykinesia = slowness AND decrement in amplitude/speed as movements
+#   continue (MDS diagnostic criteria; Interrater Reliability study,
+#   PMC10357208). 그래서 시간(속도)과 ROM(진폭) 두 축을 함께 추적한다.
+# - Amplitude/velocity decrement(sequence effect)는 보통 초반 구간의
+#   최대·최상값 대비 후반 하락으로 측정됨 (MDS Abstracts 2016,
+#   "Evaluating bradykinesia: How many finger taps are needed?";
+#   iRBD finger tapping study, ScienceDirect 2020, 처음 10탭의 MaxOpV·AmpDec).
+# - Decrement는 운동 초반부터 나타날 수 있어 평균이 아닌 best를 baseline으로
+#   사용 (ReTap, Sensors 2023, MDPI 23(11):5238 — 블록 시작 부근의 진폭
+#   감소도 점수 3에 해당).
+# 주의: 이 로직은 재활 피드백용 heuristic이며 UPDRS 점수를 재현하는
+# 검증된 알고리즘이 아니다.
+ADAPT_BASELINE_REPS   = 4      # 초반 몇 rep을 baseline 수집 구간으로 쓸지
+SLOWDOWN_RATIO        = 1.3    # baseline 시간 × 이 값 초과 시 "느려짐"
+ROM_DROP_RATIO        = 0.7    # baseline ROM × 이 값 미만 시 "얕아짐"
+DTW_RELAX_STEP        = 0.05   # 트리거 시 max_dtw_dist 증가폭
+DTW_RELAX_MAX_MULT    = 1.5    # max_dtw_dist 완화 상한 = 원래값 × 이 값
 
 SIGNAL_BGR = {
     "green":  (0,   220, 0),
@@ -345,6 +365,7 @@ _options = vision.HandLandmarkerOptions(
 )
 
 
+<<<<<<< HEAD
 def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None):
     # exercise_name이 지정되면 해당 운동 하나만 실행 (다른 운동으로 자동 전환되지 않음).
     # 지정이 없거나 매칭되는 운동이 없으면 기존처럼 EXERCISES 전체를 순서대로 실행.
@@ -354,6 +375,36 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
     else:
         active_exercises = EXERCISES
 
+=======
+def print_angle_summary(angle_stats, total_frames):
+    """운동별로 누적된 관절 각도 통계(min/max/avg)를 콘솔에 정렬해서 출력.
+
+    angle_stats: { 운동명: { "finger_joint": {min,max,sum,count}, ... }, ... }
+    total_frames: { 운동명: 프레임 수, ... }
+    finger는 thumb→index→middle→ring→pinky, joint는 MCP→PIP→DIP(엄지는 MCP→IP)
+    순서로 _FINGER_JOINT_INDICES의 정의 순서를 그대로 따른다.
+    데이터가 있는 운동만 블록으로 출력한다.
+    """
+    for ex_name, ex_stats in angle_stats.items():
+        frames = total_frames.get(ex_name, 0)
+        print(f"====== [{ex_name}] 관절 각도 통계 (총 {frames} 프레임) ======")
+        for finger, joints in _FINGER_JOINT_INDICES.items():
+            for joint in joints:
+                stat = ex_stats.get(f"{finger}_{joint}")
+                label = f"{finger:6s} {joint:3s}"
+                if not stat or stat["count"] == 0:
+                    print(f"{label}: no data")
+                    continue
+                avg = stat["sum"] / stat["count"]
+                print(
+                    f"{label}: min {stat['min']:5.1f} / max {stat['max']:5.1f} "
+                    f"/ avg {avg:5.1f}  (samples: {stat['count']})"
+                )
+        print("============================================")
+
+
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = True):
+>>>>>>> a639b72c5b39b847507ba4b018db001c9c9ce6b4
     # 1. 외부 입력 데이터가 있으면 그것을 우선 사용
     if finger_rom_targets is not None:
         target_angles = finger_rom_targets
@@ -409,13 +460,43 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         session_complete    = False
         session_complete_at = None
 
+        # 운동별 관절 각도 누적 통계 (min/max/sum/count). 손이 감지된 프레임에서만 갱신.
+        # { "full_fist": {"index_PIP": {...}, ...}, "tapping": {...} } 형태로 운동마다 분리.
+        angle_stats = defaultdict(lambda: {
+            f"{finger}_{joint}": {"min": None, "max": None, "sum": 0.0, "count": 0}
+            for finger, joints in _FINGER_JOINT_INDICES.items()
+            for joint in joints
+        })
+        angle_sample_frames = defaultdict(int)
+
+        # 운동별 적응형 난이도 상태 — best(rep_time 최소, rom 최대)를 baseline으로 잡고,
+        # 확정 후 하락이 감지되면 해당 운동의 DTW 판정(current_max_dtw)을 실시간으로 완화한다.
+        # baseline은 운동(이름) 단위로 한 번만 확정되며, 같은 운동의 다음 set에서도 유지된다.
+        adapt_states = {
+            ex_def["name"]: {
+                "rep_count": 0,
+                "last_rep_time": None,
+                "pair_start_time": None,
+                "baseline_rep_time": None,
+                "baseline_rom": None,
+                "baseline_locked": False,
+                "current_max_dtw": ex_def["max_dtw_dist"],
+                "orig_max_dtw": ex_def["max_dtw_dist"],
+            }
+            for ex_def in EXERCISES
+        }
+
         while cap.isOpened():
             if stop_event is not None and stop_event.is_set():
                 break
             ret, frame = cap.read()
             if not ret: break
 
+<<<<<<< HEAD
             ex         = active_exercises[current_exercise_idx]
+=======
+            ex         = EXERCISES[current_exercise_idx] if current_exercise_idx < len(EXERCISES) else EXERCISES[-1]
+>>>>>>> a639b72c5b39b847507ba4b018db001c9c9ce6b4
             count_type = ex.get("count_type", "grip")
 
             guide_n          = len(current_guide_raw) if current_guide_raw is not None else 1
@@ -469,8 +550,10 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             if dtw_counter >= DTW_INTERVAL:
                 dtw_counter = 0
                 if len(patient_buf) >= 10:
+                    # ★ 적응형 난이도: 고정 상수(ex["max_dtw_dist"]) 대신
+                    # 실시간으로 완화될 수 있는 adapt_states[...]["current_max_dtw"] 사용
                     raw_similarity = compute_dtw_similarity(
-                        patient_buf, current_guide_np, ex["max_dtw_dist"]
+                        patient_buf, current_guide_np, adapt_states[ex["name"]]["current_max_dtw"]
                     )
                     if raw_similarity is not None:
                         similarity_buf.append(raw_similarity)
@@ -512,6 +595,73 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
                     if should_count:
                         count += 1
+
+                        # ── 적응형 난이도: 2-rep 묶음 평균 시간/ROM baseline 추적 + DTW 완화 ──
+                        _now = time.time()
+                        _adapt = adapt_states[ex["name"]]
+                        _adapt["rep_count"] += 1
+
+                        if _adapt["pair_start_time"] is None:
+                            # 새 2-rep 묶음 시작 (홀수 rep) — 측정 보류
+                            _adapt["pair_start_time"] = _now
+                        elif _adapt["rep_count"] % 2 == 0:
+                            # 묶음 완성 (짝수 rep) — 묶음 평균 시간 산출
+                            _pair_avg = (_now - _adapt["pair_start_time"]) / 2
+                            _adapt["pair_start_time"] = None
+
+                            if not _adapt["baseline_locked"]:
+                                # baseline 수집 구간: best(최소 시간 / 최대 ROM)로 갱신
+                                if (_adapt["baseline_rep_time"] is None
+                                        or _pair_avg < _adapt["baseline_rep_time"]):
+                                    _adapt["baseline_rep_time"] = _pair_avg
+                                if rom_score is not None and (
+                                        _adapt["baseline_rom"] is None
+                                        or rom_score > _adapt["baseline_rom"]):
+                                    _adapt["baseline_rom"] = rom_score
+
+                                if _adapt["rep_count"] >= ADAPT_BASELINE_REPS:
+                                    _adapt["baseline_locked"] = True
+                                    print(
+                                        f"[Adapt][{ex['name']}] baseline 확정 — "
+                                        f"rep_time={_adapt['baseline_rep_time']:.2f}s, "
+                                        f"rom={(_adapt['baseline_rom'] or 0):.1f}"
+                                    )
+                            else:
+                                # baseline 확정 후: 하락 감지 → 트리거되면 묶음당 최대 1 step DTW 완화
+                                _triggered = False
+                                _base_time = _adapt["baseline_rep_time"]
+                                _base_rom  = _adapt["baseline_rom"]
+
+                                if _base_time and _pair_avg > _base_time * SLOWDOWN_RATIO:
+                                    print(
+                                        f"[Adapt][{ex['name']}] 너무 느려졌어요 "
+                                        f"(현재 {_pair_avg:.2f}s vs 기준 {_base_time:.2f}s)"
+                                    )
+                                    _triggered = True
+
+                                if (_base_rom and rom_score is not None
+                                        and rom_score < _base_rom * ROM_DROP_RATIO):
+                                    print(
+                                        f"[Adapt][{ex['name']}] 동작이 얕아졌어요 "
+                                        f"(현재 {rom_score:.1f} vs 기준 {_base_rom:.1f})"
+                                    )
+                                    _triggered = True
+
+                                if _triggered:
+                                    _orig    = _adapt["orig_max_dtw"]
+                                    _new_max = min(
+                                        _adapt["current_max_dtw"] + DTW_RELAX_STEP,
+                                        _orig * DTW_RELAX_MAX_MULT
+                                    )
+                                    if _new_max > _adapt["current_max_dtw"]:
+                                        _adapt["current_max_dtw"] = _new_max
+                                        print(
+                                            f"[Adapt][{ex['name']}] DTW 허용치 완화 → "
+                                            f"{_adapt['current_max_dtw']:.3f} (원래 {_orig:.3f})"
+                                        )
+
+                        _adapt["last_rep_time"] = _now
+
                         if overload_stage == 0 and count > ex["target_count"]:
                             save_capture(frame)
                             overload_stage        = 1
@@ -567,6 +717,20 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             if first_landmarks is not None:
                 coords_raw = np.array([[lm.x, lm.y, lm.z] for lm in first_landmarks], dtype=np.float32)
                 angles = compute_finger_angles(coords_raw)
+
+                # 관절 각도 누적 — 운동별로 분리, 손이 감지된 프레임에서만 (stale angles는 절대 누적하지 않음)
+                # 어느 운동에도 속하지 않는 프레임(세션 완료/범위 초과)은 누적하지 않음.
+                if not session_complete and current_exercise_idx < len(EXERCISES):
+                    cur_ex_name = EXERCISES[current_exercise_idx]["name"]
+                    angle_sample_frames[cur_ex_name] += 1
+                    cur_ex_stats = angle_stats[cur_ex_name]
+                    for _finger, _joints in angles.items():
+                        for _joint, _angle in _joints.items():
+                            _stat = cur_ex_stats[f"{_finger}_{_joint}"]
+                            _stat["sum"] += _angle
+                            _stat["count"] += 1
+                            _stat["min"] = _angle if _stat["min"] is None else min(_stat["min"], _angle)
+                            _stat["max"] = _angle if _stat["max"] is None else max(_stat["max"], _angle)
 
                 if confirmed_state == "grip" and count_type == "grip":
                     raw_rom = _compute_rom_score(angles, target_angles)
@@ -769,6 +933,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
         cap.release()
         cv2.destroyAllWindows()
+
+        print_angle_summary(angle_stats, angle_sample_frames)
 
         if overload_stage == 2:
             if patient_id is None:
