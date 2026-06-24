@@ -529,10 +529,11 @@ def create_my_exercise_session(
         db.add(
             FingerAccuracy(
                 rehab_exercise_log_id=log.rehab_exercise_log_id,
-                hand_type=item.hand_type,
                 finger_type=item.finger_type,
-                accuracy=item.accuracy,
-                rom=item.rom,
+                joint_type=item.joint_type,
+                max_angle=item.max_angle,
+                min_angle=item.min_angle,
+                avg_match_rate=item.avg_match_rate,
             )
         )
 

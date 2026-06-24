@@ -13,20 +13,24 @@ class FingerAccuracy(Base):
     rehab_exercise_log_id = Column(
         Integer, ForeignKey("rehab_exercise_log.rehab_exercise_log_id"), nullable=False
     )
-    hand_type = Column(String(10), nullable=False)
     finger_type = Column(String(10), nullable=False)
-    accuracy = Column(Numeric(5, 2), nullable=False)
-    rom = Column(Numeric(6, 2), nullable=False)
+    joint_type = Column(String(10), nullable=False)
+    max_angle = Column(Numeric(6, 2))
+    min_angle = Column(Numeric(6, 2))
+    avg_match_rate = Column(Numeric(5, 2))
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
     __table_args__ = (
-        CheckConstraint("hand_type IN ('왼손', '오른손')", name="ck_finger_accuracy_hand"),
         CheckConstraint(
             "finger_type IN ('엄지', '검지', '중지', '약지', '소지')",
             name="ck_finger_accuracy_finger",
         ),
-        UniqueConstraint("rehab_exercise_log_id", "hand_type", "finger_type"),
+        CheckConstraint(
+            "joint_type IN ('MCP', 'PIP', 'DIP')",
+            name="ck_finger_accuracy_joint",
+        ),
+        UniqueConstraint("rehab_exercise_log_id", "finger_type", "joint_type"),
     )
 
     log = relationship("RehabExerciseLog", back_populates="finger_accuracies")
