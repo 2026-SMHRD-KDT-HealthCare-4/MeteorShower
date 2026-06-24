@@ -2,11 +2,33 @@ from dotenv import load_dotenv
 from pathlib import Path
 load_dotenv(Path(__file__).parent.parent / '.env')
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import auth, chat, doctor_dashboard, doctor_notifications, health, notifications, patients, reports, ws
+from database import SessionLocal
+from models.exercise import Exercise
+import rag
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 서버 시작 시 운동 데이터를 RAG 벡터 DB에 색인
+    try:
+        db = SessionLocal()
+        exercises = db.query(Exercise).all()
+        db.close()
+        rag.index_exercises([
+            {"id": ex.exercise_id, "name": ex.exercise_name, "duration": ex.estimated_duration}
+            for ex in exercises
+        ])
+        print(f"[RAG] {len(exercises)}개 운동 색인 완료")
+    except Exception as e:
+        print(f"[RAG] 색인 실패 (서버는 정상 동작): {e}")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
