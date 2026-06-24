@@ -1,47 +1,133 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { patientApi } from '../../api';
+import { patientApi, chatApi } from '../../api';
 import VoiceChatBot from '../../components/VoiceChatBot';
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
 
-export default function ExerciseSession() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const exerciseInfo = location.state?.exercise;
-  const [showModal, setShowModal] = useState(false);
-  const [phase, setPhase]         = useState('idle'); // idle | connecting | running | ended
-  const [frame, setFrame]         = useState(null);
-  const [wsData, setWsData]       = useState(null);
-  const [saveMessage, setSaveMessage] = useState('');
+/* ── 피드백 팝업 ─────────────────────────────────────────────────── */
+const LEVEL_STYLE = {
+  yellow: {
+    bg:   'bg-yellow-400/90',
+    icon: 'warning',
+    text: 'text-gray-900',
+  },
+  red: {
+    bg:   'bg-red-500/90',
+    icon: 'emergency',
+    text: 'text-white',
+  },
+};
 
-  const wsRef    = useRef(null);
-  const phaseRef = useRef('idle');
-  const savedRef = useRef(false);
+function FeedbackPopup({ item, onDone }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const hide  = setTimeout(() => setVisible(false), 3200);
+    const clean = setTimeout(onDone,                  3700);
+    return () => { clearTimeout(hide); clearTimeout(clean); };
+  }, [onDone]);
+
+  const style = LEVEL_STYLE[item.level] ?? LEVEL_STYLE.yellow;
+
+  return (
+    <div
+      className={`flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-sm
+        ${style.bg} ${style.text}
+        transition-all duration-500
+        ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'}`}
+      style={{ minWidth: 260, maxWidth: 360 }}
+    >
+      <span
+        className="material-symbols-outlined text-2xl shrink-0"
+        style={{ fontVariationSettings: "'FILL' 1" }}
+      >
+        {style.icon}
+      </span>
+      <p className="text-sm font-semibold leading-snug">{item.message}</p>
+    </div>
+  );
+}
+
+/* ── 메인 컴포넌트 ───────────────────────────────────────────────── */
+export default function ExerciseSession() {
+  const navigate    = useNavigate();
+  const location    = useLocation();
+  const exerciseInfo = location.state?.exercise;
+
+  const [showModal,    setShowModal]    = useState(false);
+  const [phase,        setPhase]        = useState('idle');
+  const [frame,        setFrame]        = useState(null);
+  const [wsData,       setWsData]       = useState(null);
+  const [saveMessage,  setSaveMessage]  = useState('');
+  const [feedbackQueue, setFeedbackQueue] = useState([]);
+
+  const wsRef         = useRef(null);
+  const phaseRef      = useRef('idle');
+  const savedRef      = useRef(false);
   const latestDataRef = useRef(null);
+  const audioRef      = useRef(null);
+  const ttsQueueRef   = useRef([]);   // [{text, id}] — 직렬 재생용
+  const ttsPlayingRef = useRef(false);
 
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
 
+  /* ── TTS 직렬 재생 ──────────────────────────────────────────────── */
+  const playNextTts = useCallback(() => {
+    if (ttsPlayingRef.current || ttsQueueRef.current.length === 0) return;
+    const { text } = ttsQueueRef.current.shift();
+    ttsPlayingRef.current = true;
+
+    chatApi.tts(text)
+      .then(({ audio_base64 }) => {
+        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
+        audioRef.current = audio;
+        audio.onended = () => {
+          ttsPlayingRef.current = false;
+          playNextTts();
+        };
+        audio.onerror = () => {
+          ttsPlayingRef.current = false;
+          playNextTts();
+        };
+        audio.play();
+      })
+      .catch(() => {
+        ttsPlayingRef.current = false;
+        playNextTts();
+      });
+  }, []);
+
+  /* ── 피드백 메시지 처리 ─────────────────────────────────────────── */
+  const handleFeedbackMessages = useCallback((messages) => {
+    if (!messages || messages.length === 0) return;
+    messages.forEach((msg) => {
+      const id = `${Date.now()}-${Math.random()}`;
+      setFeedbackQueue((prev) => [...prev, { ...msg, id }]);
+      ttsQueueRef.current.push({ text: msg.message, id });
+      playNextTts();
+    });
+  }, [playNextTts]);
+
+  /* ── 운동 결과 저장 ─────────────────────────────────────────────── */
   const saveExerciseResult = useCallback((endType = '완료') => {
     if (savedRef.current || !exerciseInfo?.schedule_id) return Promise.resolve();
     savedRef.current = true;
-    const latest = latestDataRef.current ?? {};
+    const latest   = latestDataRef.current ?? {};
     const progress = latest.similarity == null ? null : Number(latest.similarity.toFixed(2));
 
     return patientApi.saveExerciseSession({
-      schedule_id: exerciseInfo.schedule_id,
+      schedule_id:    exerciseInfo.schedule_id,
       performed_reps: latest.count ?? 0,
-      performed_sets: latest.set ?? exerciseInfo.sets ?? 1,
-      progress_rate: progress,
-      end_type: endType,
+      performed_sets: latest.set   ?? exerciseInfo.sets ?? 1,
+      progress_rate:  progress,
+      end_type:       endType,
     })
-      .then(() => setSaveMessage('운동 결과가 저장되었습니다.'))
-      .catch((err) => {
-        savedRef.current = false;
-        setSaveMessage(err.message);
-      });
+      .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
+      .catch((err) => { savedRef.current = false; setSaveMessage(err.message); });
   }, [exerciseInfo]);
 
+  /* ── WebSocket 연결 ─────────────────────────────────────────────── */
   const stopSession = useCallback(() => {
     if (wsRef.current) {
       try { wsRef.current.send(JSON.stringify({ action: 'stop' })); } catch {}
@@ -66,32 +152,27 @@ export default function ExerciseSession() {
 
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
-      if (msg.status === 'tracking_started') {
-        updatePhase('running');
-        return;
-      }
-      if (msg.frame) setFrame(msg.frame);
+      if (msg.status === 'tracking_started') { updatePhase('running'); return; }
+      if (msg.frame)   setFrame(msg.frame);
       setWsData(msg);
       latestDataRef.current = msg;
-      if (msg.session_end) {
-        saveExerciseResult('완료').finally(() => updatePhase('ended'));
-      }
+      if (msg.feedback_messages?.length) handleFeedbackMessages(msg.feedback_messages);
+      if (msg.session_end) saveExerciseResult('완료').finally(() => updatePhase('ended'));
     };
 
-    ws.onerror = () => updatePhase('idle');
-    ws.onclose = () => {
-      if (phaseRef.current !== 'ended') updatePhase('idle');
-    };
-  }, [saveExerciseResult]);
+    ws.onerror  = () => updatePhase('idle');
+    ws.onclose  = () => { if (phaseRef.current !== 'ended') updatePhase('idle'); };
+  }, [saveExerciseResult, handleFeedbackMessages]);
 
   useEffect(() => () => wsRef.current?.close(), []);
 
+  /* ── 파생 표시 값 ───────────────────────────────────────────────── */
   const similarity    = wsData?.similarity ?? null;
-  const count         = wsData?.count ?? 0;
-  const set           = wsData?.set ?? 1;
+  const count         = wsData?.count      ?? 0;
+  const set           = wsData?.set        ?? 1;
   const totalSets     = wsData?.total_sets ?? 2;
-  const exercise      = wsData?.exercise ?? '—';
-  const signal        = wsData?.signal ?? 'gray';
+  const exercise      = wsData?.exercise   ?? '—';
+  const signal        = wsData?.signal     ?? 'gray';
   const exerciseLabel = exercise === 'full_fist' ? '주먹 쥐기' : exercise === 'tapping' ? '두드리기' : exercise;
   const accuracyLabel = similarity == null ? '—' : similarity >= 80 ? 'Excellent' : similarity >= 50 ? 'Good' : 'Keep Going';
   const signalClass   = signal === 'green' ? 'text-teal-300' : signal === 'yellow' ? 'text-yellow-300' : 'text-red-400';
@@ -102,11 +183,7 @@ export default function ExerciseSession() {
 
       {/* 카메라 프레임 */}
       {frame ? (
-        <img
-          src={`data:image/jpeg;base64,${frame}`}
-          alt=""
-          className="absolute inset-0 w-full h-full object-contain"
-        />
+        <img src={`data:image/jpeg;base64,${frame}`} alt="" className="absolute inset-0 w-full h-full object-contain" />
       ) : (
         <div className="absolute inset-0 bg-[#0c1a1a]" />
       )}
@@ -261,8 +338,20 @@ export default function ExerciseSession() {
         </div>
       )}
 
+      {/* ── 피드백 팝업 (한 번에 1개만) ── */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+        {feedbackQueue.slice(0, 1).map((item) => (
+          <FeedbackPopup
+            key={item.id}
+            item={item}
+            onDone={() => setFeedbackQueue((prev) => prev.filter((f) => f.id !== item.id))}
+          />
+        ))}
+      </div>
+
       <VoiceChatBot />
 
+      {/* 종료 확인 모달 */}
       {showModal && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-8 w-80 shadow-2xl">
