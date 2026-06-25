@@ -422,22 +422,27 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
 
 export default function TodayExercise() {
   const { user, token } = useAuth();
-  const { key: locationKey } = useLocation();
+  const { key: locationKey, state: navState } = useLocation();
+  const doneId = navState?.doneId ?? null;
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weeklyStats, setWeeklyStats] = useState([]);
   const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
-    console.log('[TodayExercise] useEffect 실행, locationKey:', locationKey);
     setLoading(true);
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     setIsBlocked(localStorage.getItem(getBlockedKey(token)) === today);
 
     patientApi.getTodayExercises()
-      .then((data) => { console.log('[TodayExercise] 데이터 수신:', data); setExercises(data); })
-      .catch((err) => { console.error('[TodayExercise] API 실패:', err); setExercises(INITIAL_EXERCISES); })
+      .then((data) => {
+        const updated = doneId
+          ? data.map((ex) => ex.id === doneId ? { ...ex, status: 'done' } : ex)
+          : data;
+        setExercises(updated);
+      })
+      .catch(() => setExercises(INITIAL_EXERCISES))
       .finally(() => setLoading(false));
 
     patientApi.getWeeklyStats()

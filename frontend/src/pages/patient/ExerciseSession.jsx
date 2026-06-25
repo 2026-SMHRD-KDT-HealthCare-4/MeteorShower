@@ -289,7 +289,7 @@ export default function ExerciseSession() {
             <p className="text-gray-300 text-sm mb-2">수고하셨습니다</p>
             {saveMessage && <p className="text-teal-300 text-sm mb-6">{saveMessage}</p>}
             <button
-              onClick={() => { stopSession(); navigate('/patient/exercise'); }}
+              onClick={() => { stopSession(); navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } }); }}
               className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all"
             >
               돌아가기
@@ -447,7 +447,7 @@ export default function ExerciseSession() {
                 onClick={() => {
                   setModalError('');
                   saveExerciseResult('안전종료')
-                    .then(() => { stopSession(); navigate('/patient/exercise'); })
+                    .then(() => { stopSession(); navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } }); })
                     .catch((err) => setModalError(err.message ?? '알 수 없는 오류'));
                 }}
                 className="flex-1 h-12 bg-red-500 text-white rounded-xl font-semibold hover:brightness-110 transition-all"
