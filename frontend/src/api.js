@@ -72,7 +72,8 @@ export const chatApi = {
 };
 
 export const reportApi = {
-  createMockReport:    (body)     => api.post('/reports/mock', body),
+  createLlmReport:     (body)     => api.post('/reports/llm', body),
+  createMockReport:    (body)     => api.post('/reports/llm', body),
   getDoctorReports:    ()         => api.get('/doctor/me/reports'),
   getDoctorReport:     (id)       => api.get(`/doctor/me/reports/${id}`),
   updateDoctorReport:  (id, body) => api.patch(`/doctor/me/reports/${id}`, body),

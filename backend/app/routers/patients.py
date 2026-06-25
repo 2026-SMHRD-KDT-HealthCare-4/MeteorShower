@@ -30,6 +30,7 @@ from schemas.patient import (
     PatientUpdateRequest,
 )
 from schemas.prescription import PrescriptionSaveRequest
+from services.llm_report_generator import generate_daily_report_content
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -150,30 +151,16 @@ def _require_role(payload: dict, role: str):
         )
 
 
-def _make_auto_report_content(patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None) -> str:
-    exercise_name = schedule.prescription_exercise.exercise.exercise_name
-    exercise_date = schedule.exercise_date
-    performed = ""
-    if log:
-        performed = f"수행 결과: {log.performed_sets or 0}세트, {log.performed_reps or 0}회, 진행률 {float(log.progress_rate) if log.progress_rate is not None else 0}%"
-    else:
-        performed = "수행 결과: 저장된 운동 로그를 확인해 주세요."
-
-    return "\n".join(
-        [
-            f"{exercise_date.isoformat()} 재활 리포트 초안입니다.",
-            f"환자명: {patient.name}",
-            f"운동명: {exercise_name}",
-            performed,
-            "AI 상세 평가 결과는 저장된 관절 각도와 평균 일치율을 기준으로 확인해 주세요.",
-            "담당 의사는 상세평가 결과를 검토한 뒤 필요한 문장을 수정하고 승인해 주세요.",
-        ]
-    )
-
-
 def _ensure_pending_report_for_exercise(db: Session, patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None):
     if not patient.doctor_id:
         return None
+
+    draft_content = generate_daily_report_content(
+        db,
+        patient,
+        schedule.exercise_date,
+        exercise_blocked=False,
+    )
 
     report = (
         db.query(LlmReport)
@@ -186,7 +173,7 @@ def _ensure_pending_report_for_exercise(db: Session, patient, schedule: Exercise
     if report:
         if report.approval_status != "승인":
             report.doctor_id = patient.doctor_id
-            report.draft_content = _make_auto_report_content(patient, schedule, log)
+            report.draft_content = draft_content
             report.approval_status = "대기"
         return report
 
@@ -194,7 +181,7 @@ def _ensure_pending_report_for_exercise(db: Session, patient, schedule: Exercise
         patient_id=patient.patient_id,
         doctor_id=patient.doctor_id,
         report_date=schedule.exercise_date,
-        draft_content=_make_auto_report_content(patient, schedule, log),
+        draft_content=draft_content,
         approval_status="대기",
         guardian_sent_status="대기",
         exercise_blocked=False,
@@ -599,6 +586,7 @@ def create_my_exercise_session(
         log = existing.logs[0] if existing.logs else None
         if log:
             _save_finger_accuracy_items(db, log, body.finger_accuracy)
+            db.flush()
         _ensure_pending_report_for_exercise(db, patient, schedule, log)
         db.commit()
         return {
@@ -624,6 +612,7 @@ def create_my_exercise_session(
     db.flush()
 
     _save_finger_accuracy_items(db, log, body.finger_accuracy)
+    db.flush()
 
     _ensure_pending_report_for_exercise(db, patient, schedule, log)
     db.commit()
