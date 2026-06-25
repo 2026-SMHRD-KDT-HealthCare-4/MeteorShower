@@ -32,7 +32,7 @@ export default function SocialCallback() {
           sessionStorage.setItem('socialSignup', JSON.stringify(data));
           navigate('/patient/auth/social-signup', { replace: true });
         } else {
-          login({ name: data.name, role: 'patient' }, data.token, false);
+          login({ name: data.name, role: 'patient' }, data.token, true);
           navigate('/patient/exercise', { replace: true });
         }
       })

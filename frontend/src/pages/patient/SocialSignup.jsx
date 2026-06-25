@@ -67,7 +67,7 @@ export default function SocialSignup() {
     })
       .then(({ token, name: resName }) => {
         sessionStorage.removeItem('socialSignup');
-        login({ name: resName, role: 'patient' }, token, false);
+        login({ name: resName, role: 'patient' }, token, true);
         navigate('/patient/exercise', { replace: true });
       })
       .catch((err) => setError(err.message))
