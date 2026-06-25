@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
 import { patientApi, reportApi } from '../../api';
@@ -341,6 +341,7 @@ export default function DailyReport() {
   const [reportMessage, setReportMessage]   = useState('');
   const [reportBusy, setReportBusy]         = useState(false);
   const [dailyResult, setDailyResult]       = useState(null);
+  const autoCreatingReportKey = useRef(null);
 
   const selectedPatient = patients.find((p) => String(p.patient_id) === String(selectedPatientId));
   const romByExercise = buildRomExercises(dailyResult?.exercises ?? []);
@@ -396,11 +397,37 @@ export default function DailyReport() {
   useEffect(() => {
     if (!selectedPatientId) return;
     const report = reports.find((r) => String(r.patient_id) === String(selectedPatientId));
-    if (report) openReport(report.report_id);
-    else {
-      setSelectedReport(null);
-      setOpinion(defaultOpinion);
+    if (report) {
+      autoCreatingReportKey.current = null;
+      openReport(report.report_id);
+      return;
     }
+
+    const today = toKey(new Date());
+    const autoKey = `${selectedPatientId}|${today}`;
+    if (autoCreatingReportKey.current === autoKey) return;
+
+    autoCreatingReportKey.current = autoKey;
+    setReportBusy(true);
+    reportApi.createLlmReport({
+      patient_id: Number(selectedPatientId),
+      report_date: today,
+      exercise_blocked: false,
+    })
+      .then((data) => {
+        setSelectedReport(data);
+        setOpinion(data.draft_content || data.content || '');
+        setEditingOpinion(false);
+        setReportMessage('');
+        return loadReports();
+      })
+      .catch((err) => {
+        setSelectedReport(null);
+        setOpinion(defaultOpinion);
+        setReportMessage(err.message);
+        autoCreatingReportKey.current = null;
+      })
+      .finally(() => setReportBusy(false));
   }, [selectedPatientId, reports]);
 
   useEffect(() => {
@@ -457,31 +484,9 @@ export default function DailyReport() {
 
   const handleOpinionChange = (val) => setOpinion(val);
 
-  const handleCreateMockReport = () => {
-    if (!selectedPatientId) {
-      setReportMessage('환자를 먼저 선택해 주세요.');
-      return;
-    }
-    setReportBusy(true);
-    setReportMessage('');
-    reportApi.createMockReport({
-      patient_id: Number(selectedPatientId),
-      report_date: new Date().toISOString().slice(0, 10),
-      exercise_blocked: false,
-    })
-      .then((data) => {
-        setSelectedReport(data);
-        setOpinion(data.draft_content || data.content || '');
-        setReportMessage('mock 리포트가 생성되었습니다.');
-        return loadReports();
-      })
-      .catch((err) => setReportMessage(err.message))
-      .finally(() => setReportBusy(false));
-  };
-
   const ensureReport = async () => {
     if (selectedReport) return selectedReport;
-    const created = await reportApi.createMockReport({
+    const created = await reportApi.createLlmReport({
       patient_id: Number(selectedPatientId),
       report_date: new Date().toISOString().slice(0, 10),
       exercise_blocked: false,
@@ -636,62 +641,9 @@ export default function DailyReport() {
             일일 운동 리포트
           </h1>
           <p className="text-body-md text-on-surface-variant mt-1">
-            {selectedPatient ? `${selectedPatient.name} 환자` : '환자를 선택해 주세요'} · LLM mock 리포트
+            {selectedPatient ? `${selectedPatient.name} 환자` : '환자를 선택해 주세요'} · LLM 리포트
           </p>
         </div>
-
-        <section className="bg-white border border-outline-variant rounded-2xl p-5 shadow-card space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="space-y-1">
-              <span className="text-label-sm font-semibold text-on-surface-variant">환자 선택</span>
-              <select
-                value={selectedPatientId}
-                onChange={(e) => setSelectedPatientId(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-outline-variant bg-white text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary"
-              >
-                <option value="">환자 선택</option>
-                {patients.map((patient) => (
-                  <option key={patient.patient_id} value={patient.patient_id}>
-                    {patient.name} ({patient.patient_code})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1">
-              <span className="text-label-sm font-semibold text-on-surface-variant">저장된 리포트</span>
-              <select
-                value={selectedReport?.report_id ?? ''}
-                onChange={(e) => openReport(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-outline-variant bg-white text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary"
-              >
-                <option value="">리포트 선택</option>
-                {reports.map((report) => (
-                  <option key={report.report_id} value={report.report_id}>
-                    {report.report_date} · {report.patient_name} · {report.approval_status}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleCreateMockReport}
-              disabled={reportBusy || !selectedPatientId}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-doctor-primary text-white font-semibold text-label-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="material-symbols-outlined text-base">auto_awesome</span>
-              mock 리포트 생성
-            </button>
-            {selectedReport && (
-              <span className="px-3 py-1.5 rounded-lg bg-surface-container text-label-sm font-semibold text-on-surface-variant">
-                상태: {selectedReport.approval_status}
-              </span>
-            )}
-            {reportMessage && (
-              <span className="text-label-sm font-semibold text-doctor-primary">{reportMessage}</span>
-            )}
-          </div>
-        </section>
 
         {/* ── 환자 정보 ── */}
         <section className="bg-white border border-outline-variant rounded-2xl overflow-hidden shadow-card">

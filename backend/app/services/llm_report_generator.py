@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+import sys
+from datetime import date
+from pathlib import Path
+from statistics import mean
+from typing import Any
+
+from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+AI_DIR = PROJECT_ROOT / "ai"
+
+load_dotenv(PROJECT_ROOT / "backend" / ".env")
+load_dotenv(AI_DIR / ".env")
+
+if AI_DIR.exists() and str(AI_DIR) not in sys.path:
+    sys.path.insert(0, str(AI_DIR))
+
+from models.exercise_schedule import ExerciseSchedule
+from models.patient import Patient
+from models.prescription import Prescription
+from models.prescription_exercise import PrescriptionExercise
+
+
+FINGER_KEY_BY_LABEL = {
+    "엄지": "thumb",
+    "검지": "index",
+    "중지": "middle",
+    "약지": "ring",
+    "소지": "pinky",
+}
+
+FINGER_LABEL_BY_KEY = {value: key for key, value in FINGER_KEY_BY_LABEL.items()}
+
+
+def _date_text(value: Any) -> str:
+    if not value:
+        return "미입력"
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _average(values: list[float]) -> float:
+    return round(mean(values), 1) if values else 0
+
+
+def _fallback_report_text(data: dict, error: str | None = None) -> str:
+    blocked_text = (
+        f"운동 차단 사유: {data.get('block_reason') or '사전 문진에서 운동 차단으로 기록되었습니다.'}"
+        if data.get("is_blocked")
+        else "운동 차단 여부: 없음"
+    )
+    error_text = f"LLM 리포트 생성 실패: {error}" if error else "LLM 리포트 생성 실패"
+    return "\n".join(
+        [
+            f"{data['session_date']} 재활 리포트 초안입니다.",
+            f"환자명: {data['patient_name']}",
+            f"재활 단계: {data['rehab_stage']}",
+            f"수행 운동: {data['exercise_list']}",
+            f"전체 수행률: {data['overall_compliance']}%",
+            f"평균 일치율: {data['accuracy_average']}%",
+            blocked_text,
+            error_text,
+            "담당 의사는 저장된 운동 결과와 상세 평가를 확인한 뒤 내용을 수정하고 승인해 주세요.",
+        ]
+    )
+
+
+def build_daily_report_data(
+    db: Session,
+    patient: Patient,
+    report_date: date,
+    exercise_blocked: bool = False,
+) -> dict:
+    schedules = (
+        db.query(ExerciseSchedule)
+        .join(
+            PrescriptionExercise,
+            PrescriptionExercise.prescription_exercise_id
+            == ExerciseSchedule.prescription_exercise_id,
+        )
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(
+            Prescription.patient_id == patient.patient_id,
+            ExerciseSchedule.exercise_date == report_date,
+        )
+        .order_by(ExerciseSchedule.schedule_id)
+        .all()
+    )
+
+    exercise_names: list[str] = []
+    progress_values: list[float] = []
+    match_values: list[float] = []
+    finger_scores: dict[str, list[float]] = {key: [] for key in FINGER_LABEL_BY_KEY}
+    rom_values: dict[str, list[float]] = {
+        "thumb_mcp": [],
+        "thumb_ip": [],
+        "index_mcp": [],
+        "index_pip": [],
+        "index_dip": [],
+        "middle_mcp": [],
+        "middle_pip": [],
+        "middle_dip": [],
+        "ring_mcp": [],
+        "ring_pip": [],
+        "ring_dip": [],
+        "pinky_mcp": [],
+        "pinky_pip": [],
+        "pinky_dip": [],
+    }
+    done_count = 0
+    duration_minutes = 0
+    overload_notes: list[str] = []
+
+    for schedule in schedules:
+        pe = schedule.prescription_exercise
+        exercise_name = pe.exercise.exercise_name if pe and pe.exercise else "운동명 미입력"
+        exercise_names.append(exercise_name)
+
+        session = schedule.sessions[0] if schedule.sessions else None
+        log = session.logs[0] if session and session.logs else None
+        if not log:
+            continue
+
+        done_count += 1
+        if log.progress_rate is not None:
+            progress_values.append(float(log.progress_rate))
+        if session.start_time and log.end_time:
+            duration_minutes += max(0, round((log.end_time - session.start_time).total_seconds() / 60))
+        if log.end_type and log.end_type != "완료":
+            overload_notes.append(f"{exercise_name}: {log.end_type}")
+
+        for accuracy in log.finger_accuracies:
+            finger_key = FINGER_KEY_BY_LABEL.get(accuracy.finger_type)
+            joint_key = accuracy.joint_type.lower() if accuracy.joint_type else ""
+            if not finger_key:
+                continue
+            if accuracy.avg_match_rate is not None:
+                value = float(accuracy.avg_match_rate)
+                match_values.append(value)
+                finger_scores[finger_key].append(value)
+            if accuracy.max_angle is not None:
+                if finger_key == "thumb" and joint_key == "ip":
+                    rom_values["thumb_ip"].append(float(accuracy.max_angle))
+                else:
+                    key = f"{finger_key}_{joint_key}"
+                    if key in rom_values:
+                        rom_values[key].append(float(accuracy.max_angle))
+
+    total_count = len(schedules)
+    overall_compliance = round(done_count / total_count * 100) if total_count else 0
+    accuracy_average = _average(match_values) or _average(progress_values)
+    exercise_list = ", ".join(dict.fromkeys(exercise_names)) if exercise_names else "저장된 운동 없음"
+
+    data = {
+        "patient_name": patient.name,
+        "gender": patient.gender or "미입력",
+        "birth_date": _date_text(patient.birth_date),
+        "surgery_name": patient.surgery_name or "미입력",
+        "surgery_date": _date_text(patient.surgery_date),
+        "rehab_start_date": _date_text(patient.rehab_start_date),
+        "rehab_stage": patient.current_rehab_phase or "미지정",
+        "session_date": report_date.isoformat(),
+        "session_status": "운동차단" if exercise_blocked else ("정상종료" if done_count else "운동기록 없음"),
+        "is_blocked": exercise_blocked,
+        "block_reason": "사전 문진에서 운동 차단으로 기록되었습니다." if exercise_blocked else "",
+        "exercise_duration": duration_minutes,
+        "exercise_list": exercise_list,
+        "overall_compliance": overall_compliance,
+        "accuracy_average": accuracy_average,
+        "questionnaire_result": "사전 문진 특이사항 없음",
+        "overload_occurred": ", ".join(overload_notes) if overload_notes else "없음",
+    }
+
+    for finger_key in FINGER_LABEL_BY_KEY:
+        data[f"{finger_key}_score"] = _average(finger_scores[finger_key])
+
+    for key, values in rom_values.items():
+        data[key] = round(max(values), 1) if values else 0
+
+    return data
+
+
+def generate_daily_report_content(
+    db: Session,
+    patient: Patient,
+    report_date: date,
+    exercise_blocked: bool = False,
+) -> str:
+    data = build_daily_report_data(db, patient, report_date, exercise_blocked)
+
+    try:
+        from llm_client import generate_daily_report
+    except Exception as exc:
+        return _fallback_report_text(data, f"LLM 모듈 로드 실패: {exc}")
+
+    result = generate_daily_report(data)
+    if result.get("success") and result.get("report_text"):
+        return result["report_text"]
+
+    return _fallback_report_text(data, result.get("error"))

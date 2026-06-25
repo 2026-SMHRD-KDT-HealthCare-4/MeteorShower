@@ -23,7 +23,7 @@ from landmark_utils import (
     compute_guide_scale, normalize_to_guide_scale, translate_to_wrist,
     extract_features_full_fist, extract_features_tapping,
     compute_finger_angles, mirror_guide_to_right_hand,
-    compute_palm_normal, angle_between_vectors, palm_normal_delta,
+    compute_palm_normal, compute_guide_palm_normal, angle_between_vectors, palm_normal_delta,
     _FINGER_JOINT_INDICES
 )
 from notification_trigger import build_blocking_event, send_notification_to_backend
@@ -151,7 +151,7 @@ TAP_FINGER_ROM_TARGETS = {
 
 # ★ 수정됨: 새 데이터 구조에 맞춰 각 관절의 '랜드마크 번호'를 키로 하는 딕셔너리 반환
 def _finger_angle_signals(angles_dict, target_angles_dict):
-    signals = {i: "green" for i in range(21)} 
+    signals = {i: "green" for i in range(1, 21)}  # 손목(0)은 방향 신호등 전용이라 제외
     for finger_name, joints in angles_dict.items():
         if finger_name not in target_angles_dict: continue
         
@@ -373,13 +373,19 @@ def draw_hand(frame, landmarks, handedness, joint_signals=None):
         s, e = landmarks[s_idx], landmarks[e_idx]
         seg_color = DEFAULT_SEG_COLOR
         if joint_signals:
-            ss = joint_signals.get(s_idx, "green")
-            es = joint_signals.get(e_idx, "green")
             priority = {"red": 0, "yellow": 1, "green": 2}
-            worse_state = ss if priority.get(ss, 2) < priority.get(es, 2) else es
-            seg_color = SIGNAL_BGR.get(worse_state, DEFAULT_SEG_COLOR)
-            
-        cv2.line(frame, (int(s.x * w), int(s.y * h)), 
+            if s_idx == 0 or e_idx == 0:
+                # 손목 연결선은 손목(0번) 색을 그대로 따름
+                seg_color = SIGNAL_BGR.get(
+                    joint_signals.get(0, "green"), DEFAULT_SEG_COLOR
+                )
+            else:
+                ss = joint_signals.get(s_idx, "green")
+                es = joint_signals.get(e_idx, "green")
+                worse = ss if priority.get(ss, 2) < priority.get(es, 2) else es
+                seg_color = SIGNAL_BGR.get(worse, DEFAULT_SEG_COLOR)
+
+        cv2.line(frame, (int(s.x * w), int(s.y * h)),
                         (int(e.x * w), int(e.y * h)), seg_color, 2)
     
     wrist = landmarks[0]
@@ -459,6 +465,9 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         )
         current_guide_scale  = compute_guide_scale(current_guide_raw)
         current_feature_fn   = ex0["feature_fn"]
+        # 방향(orientation) 감지용 가이드 법선 — 매 프레임 다시 계산하지 않고
+        # 가이드 로드 시점에 전체 프레임 평균으로 한 번만 고정해둔다.
+        current_guide_palm_normal = compute_guide_palm_normal(current_guide_raw)
         joint_signals = None
         feedback_tracker = FeedbackTracker()
 
@@ -566,16 +575,17 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     patient_buf.pop(0)
 
                 # ── 손 방향(orientation) 틀어짐 감지 ──
-                # 환자 법선: 원본(스케일 정규화 전) wrist-relative 좌표 기준으로 계산.
+                # 환자 법선: 원본(스케일 정규화 전) wrist-relative 좌표 기준으로 매 프레임 계산.
                 # 가이드 법선: current_guide_raw는 hand="right"일 때 이미 미러 처리된
                 # 상태이므로 그대로 사용 — 환자(원본, 미러 안 함)와 가이드(필요시 미러됨)가
                 # 항상 "같은 손 기준" 좌표계가 되어, 둘 중 한쪽만 미러됐다가 다른 쪽은
                 # 안 된 상태로 비교되는 불일치가 발생하지 않는다.
+                # 단, 가이드 법선은 매 프레임 새로 계산하지 않고 가이드 로드 시점에
+                # 전체 프레임 평균으로 고정해둔 current_guide_palm_normal을 그대로 쓴다 —
+                # 가이드가 주먹을 쥐는 등 특정 구간의 법선만 보면 환자가 정상 동작을 해도
+                # "틀어짐"으로 오판하기 때문.
                 patient_normal = compute_palm_normal(translate_to_wrist(first_landmarks))
-                guide_normal = (
-                    compute_palm_normal(current_guide_raw[guide_frame_idx])
-                    if current_guide_raw is not None else None
-                )
+                guide_normal = current_guide_palm_normal
                 orient_angle = angle_between_vectors(patient_normal, guide_normal)
                 # [검증용] 축-방향 매핑 실측 전이라 한국어 교정 지시는 아직 만들지 않고,
                 # patient_normal - guide_normal 의 raw 축 성분만 콘솔에 노출한다.
@@ -764,6 +774,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                     ) if current_guide_raw is not None else None
                                     current_guide_scale = compute_guide_scale(current_guide_raw)
                                     current_feature_fn  = ex_new["feature_fn"]
+                                    # 운동 전환 시 방향 감지용 고정 법선도 새 가이드 기준으로 갱신
+                                    current_guide_palm_normal = compute_guide_palm_normal(current_guide_raw)
                                     guide_elapsed_start = time.time()
                                     rom_score     = None
                                     rom_score_buf.clear()
@@ -814,7 +826,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     joint_signals = _finger_angle_signals(angles, target_angles)
                 elif count_type == "tap":
                     if raw_state == "wrong_motion":
-                        joint_signals = {i: "red" for i in range(21)}
+                        joint_signals = {i: "red" for i in range(1, 21)}  # 손목(0)은 방향 신호등 전용이라 제외
                     elif patient_active_finger is not None:
                         # 1. 거리 기반: 끝점(Tip) 판별 (닿았는가?)
                         thumb = first_landmarks[4]
@@ -829,8 +841,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         touch_thresholds = {8: 0.20, 12: 0.22, 16: 0.24, 20: 0.26}
                         touch_th = touch_thresholds.get(patient_active_finger, 0.20)
                         
-                        # 일단 모두 초록색으로 초기화
-                        signals = {i: "green" for i in range(21)}
+                        # 일단 모두 초록색으로 초기화 (손목(0)은 방향 신호등 전용이라 제외)
+                        signals = {i: "green" for i in range(1, 21)}
                         
                         # 거리 비율에 따라 끝점(Tip) 색상 결정
                         if ratio <= touch_th:           tip_state = "green"

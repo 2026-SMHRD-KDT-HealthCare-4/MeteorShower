@@ -16,7 +16,8 @@ from models.prescription import Prescription
 from models.prescription_exercise import PrescriptionExercise
 from models.rehab_exercise_log import RehabExerciseLog
 from models.rehab_exercise_session import RehabExerciseSession
-from schemas.report import MockReportCreateRequest, ReportApproveRequest, ReportUpdateRequest
+from schemas.report import LlmReportCreateRequest, ReportApproveRequest, ReportUpdateRequest
+from services.llm_report_generator import generate_daily_report_content
 
 router = APIRouter(tags=["reports"])
 
@@ -32,28 +33,6 @@ def _require_role(payload: dict, role: str):
 def _require_doctor_report_access(report: LlmReport, doctor_id: int):
     if report.doctor_id != doctor_id:
         raise HTTPException(status_code=403, detail="Cannot access this report")
-
-
-def _make_mock_report_content(patient, report_date: date, exercise_blocked: bool) -> str:
-    phase = patient.current_rehab_phase or "미지정"
-    surgery = patient.surgery_name or "수술 정보 미입력"
-    blocked_text = (
-        "사전 문진에서 증상 호소가 있어 운동이 차단되었습니다."
-        if exercise_blocked
-        else "사전 문진에서 특이 증상 호소는 없었습니다."
-    )
-    return "\n".join(
-        [
-            f"{report_date.isoformat()} 재활 리포트 초안입니다.",
-            f"환자명: {patient.name}",
-            f"재활 단계: {phase}",
-            f"수술 정보: {surgery}",
-            blocked_text,
-            "운동 수행 데이터는 아직 실제 운동 기능과 연결되지 않아 mock data 기준으로 작성되었습니다.",
-            "손가락 관절 가동 범위와 통증 변화는 다음 진료 시 추가 확인이 필요합니다.",
-            "담당 의사는 내용을 검토한 뒤 필요한 문장을 수정하고 승인해 주세요.",
-        ]
-    )
 
 
 def _latest_active_prescription(db: Session, patient_id: int) -> Optional[Prescription]:
@@ -222,8 +201,9 @@ def _report_detail(report: LlmReport, db: Session, include_draft: bool = True) -
 
 
 @router.post("/reports/mock", status_code=201)
-def create_mock_report(
-    body: MockReportCreateRequest,
+@router.post("/reports/llm", status_code=201)
+def create_llm_report(
+    body: LlmReportCreateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ):
@@ -236,7 +216,7 @@ def create_mock_report(
         raise HTTPException(status_code=403, detail="Cannot access this patient")
 
     report_date = body.report_date or date.today()
-    draft_content = _make_mock_report_content(patient, report_date, body.exercise_blocked)
+    draft_content = generate_daily_report_content(db, patient, report_date, body.exercise_blocked)
     report = report_crud.create_or_update_mock_report(
         db,
         patient_id=patient.patient_id,
