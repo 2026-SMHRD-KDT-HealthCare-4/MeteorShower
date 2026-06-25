@@ -202,3 +202,89 @@ def generate_daily_report_content(
         return result["report_text"]
 
     return _fallback_report_text(data, result.get("error"))
+
+
+def generate_monthly_report_summary(patient: Patient, weeks: list[dict]) -> dict:
+    weekly_data = [
+        {
+            "week": index + 1,
+            "achievement": week.get("overallCompliance") or 0,
+            "compliance": week.get("accuracyAvg") or 0,
+            "block_count": 0,
+            "overload_count": sum(
+                1
+                for exercise in week.get("exercises", [])
+                if exercise.get("accuracy") is not None and exercise.get("accuracy") < 70
+            ),
+        }
+        for index, week in enumerate(weeks)
+    ]
+    exercise_data = []
+    exercise_names = sorted(
+        {
+            exercise.get("name")
+            for week in weeks
+            for exercise in week.get("exercises", [])
+            if exercise.get("name")
+        }
+    )
+    for name in exercise_names:
+        compliances = [
+            exercise.get("compliance")
+            for week in weeks
+            for exercise in week.get("exercises", [])
+            if exercise.get("name") == name and exercise.get("compliance") is not None
+        ]
+        accuracies = [
+            exercise.get("accuracy")
+            for week in weeks
+            for exercise in week.get("exercises", [])
+            if exercise.get("name") == name and exercise.get("accuracy") is not None
+        ]
+        exercise_data.append(
+            {
+                "name": name,
+                "achievement": _average([float(value) for value in compliances]),
+                "compliance": _average([float(value) for value in accuracies]),
+            }
+        )
+
+    rom_data = []
+    for week in weeks:
+        for exercise in week.get("rom", []):
+            for finger in exercise.get("fingers", []):
+                for joint in finger.get("joints", []):
+                    rom_data.append(
+                        {
+                            "finger": finger.get("label") or finger.get("key") or "",
+                            "joint": joint.get("name") or "",
+                            "target": joint.get("ref") or 0,
+                            "min": joint.get("min") or 0,
+                            "max": joint.get("max") or 0,
+                            "achievement": joint.get("achievement") or 0,
+                        }
+                    )
+
+    data = {
+        "patient_name": patient.name,
+        "surgery_name": patient.surgery_name or "미입력",
+        "rehab_duration": len(weeks),
+        "exercise_count": len(exercise_names),
+        "weekly_data": weekly_data,
+        "exercise_data": exercise_data,
+        "rom_data": rom_data,
+    }
+
+    try:
+        from llm_client import generate_monthly_report
+    except Exception:
+        return {"summary": None, "keywords": []}
+
+    result = generate_monthly_report(data)
+    if result.get("success"):
+        return {
+            "summary": result.get("summary"),
+            "keywords": result.get("keywords") or [],
+        }
+
+    return {"summary": None, "keywords": []}
