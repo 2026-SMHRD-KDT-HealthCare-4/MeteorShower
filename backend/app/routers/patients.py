@@ -653,6 +653,20 @@ def save_patient_prescription(
     if not enabled_exercises:
         raise HTTPException(status_code=422, detail="At least one exercise is required")
 
+    # 기존 완료 세션 보존: (운동이름, 날짜) → 세션 목록
+    old_sessions_map: dict = {}
+    old_prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .all()
+    )
+    for old_p in old_prescriptions:
+        for pe in old_p.prescription_exercises:
+            ex_name = pe.exercise.exercise_name
+            for sched in pe.schedules:
+                if sched.sessions:
+                    old_sessions_map[(ex_name, sched.exercise_date)] = sched.sessions
+
     (
         db.query(Prescription)
         .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
@@ -696,12 +710,18 @@ def save_patient_prescription(
             name, _, date_text = key.partition("|")
             if name != ex.name or not date_text:
                 continue
-            db.add(
-                ExerciseSchedule(
-                    prescription_exercise_id=prescription_exercise.prescription_exercise_id,
-                    exercise_date=date.fromisoformat(date_text),
-                )
+            sched_date = date.fromisoformat(date_text)
+            new_schedule = ExerciseSchedule(
+                prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                exercise_date=sched_date,
             )
+            db.add(new_schedule)
+            db.flush()
+            # 기존 완료 세션을 새 스케줄로 이전
+            old_sessions = old_sessions_map.get((ex.name, sched_date))
+            if old_sessions:
+                for session in old_sessions:
+                    session.schedule_id = new_schedule.schedule_id
 
         for key, target_rom in body.rom.items():
             parsed = _parse_rom_key(key)
