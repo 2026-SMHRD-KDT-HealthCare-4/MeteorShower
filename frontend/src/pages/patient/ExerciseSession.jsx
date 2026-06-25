@@ -72,7 +72,9 @@ export default function ExerciseSession() {
   const exerciseInfo = location.state?.exercise;
 
   const [showModal,    setShowModal]    = useState(false);
+  const [modalError,   setModalError]   = useState('');
   const [phase,        setPhase]        = useState('idle');
+  const [connectError, setConnectError] = useState('');
   const [frame,        setFrame]        = useState(null);
   const [wsData,       setWsData]       = useState(null);
   const [saveMessage,  setSaveMessage]  = useState('');
@@ -133,16 +135,24 @@ export default function ExerciseSession() {
     const latest   = latestDataRef.current ?? {};
     const progress = latest.similarity == null ? null : Number(latest.similarity.toFixed(2));
 
-    return patientApi.saveExerciseSession({
+    const payload = {
       schedule_id:    exerciseInfo.schedule_id,
       performed_reps: latest.count ?? 0,
       performed_sets: latest.set   ?? exerciseInfo.sets ?? 1,
       progress_rate:  progress,
       end_type:       endType,
       finger_accuracy: latest.finger_accuracy ?? [],
-    })
+    };
+    console.log('[saveExerciseResult] payload:', payload);
+
+    return patientApi.saveExerciseSession(payload)
       .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
-      .catch((err) => { savedRef.current = false; setSaveMessage(err.message); });
+      .catch((err) => {
+        console.error('[saveExerciseResult] error:', err);
+        savedRef.current = false;
+        setSaveMessage(err.message);
+        throw err;
+      });
   }, [exerciseInfo]);
 
   /* ── WebSocket 연결 ─────────────────────────────────────────────── */
@@ -181,8 +191,20 @@ export default function ExerciseSession() {
     };
 
 
-    ws.onerror  = () => updatePhase('idle');
-    ws.onclose  = () => { if (phaseRef.current !== 'ended') updatePhase('idle'); };
+    ws.onerror  = (e) => {
+      console.error('[WS] connection error', e);
+      setConnectError('AI 서버(포트 8000)에 연결할 수 없습니다. AI 서버가 실행 중인지 확인하세요.');
+      updatePhase('idle');
+    };
+    ws.onclose  = (e) => {
+      if (phaseRef.current === 'ended') return;
+      if (e.code === 4001) {
+        setConnectError('인증 오류: 로그인 상태를 확인하고 다시 시도하세요.');
+      } else if (e.code !== 1000 && phaseRef.current === 'connecting') {
+        setConnectError(`AI 서버 연결 실패 (code: ${e.code}). AI 서버가 실행 중인지 확인하세요.`);
+      }
+      updatePhase('idle');
+    };
   }, [saveExerciseResult, handleFeedbackMessages, exerciseInfo]);
 
   useEffect(() => () => wsRef.current?.close(), []);
@@ -233,8 +255,14 @@ export default function ExerciseSession() {
             <p className="text-white text-2xl font-bold mb-2">운동을 시작할 준비가 됐나요?</p>
             <p className="text-gray-400 text-sm">AI 서버(포트 8000)에 연결 후 카메라가 켜집니다</p>
           </div>
+          {connectError && (
+            <div className="flex items-center gap-2 bg-red-500/80 text-white text-sm px-5 py-3 rounded-xl max-w-sm text-center">
+              <span className="material-symbols-outlined text-base shrink-0">error</span>
+              {connectError}
+            </div>
+          )}
           <button
-            onClick={connect}
+            onClick={() => { setConnectError(''); connect(); }}
             className="px-10 py-4 bg-teal-500 hover:bg-teal-400 text-white font-bold text-lg rounded-2xl shadow-xl shadow-teal-500/30 active:scale-95 transition-all"
           >
             운동 시작하기
@@ -400,18 +428,28 @@ export default function ExerciseSession() {
               </div>
             </div>
             <h3 className="text-lg font-bold text-center text-on-surface mb-2">운동을 종료하시겠습니까?</h3>
-            <p className="text-sm text-on-surface-variant text-center mb-6 leading-relaxed">
+            <p className="text-sm text-on-surface-variant text-center mb-4 leading-relaxed">
               현재까지의 운동 기록이 저장됩니다.
             </p>
+            {modalError && (
+              <p className="text-xs text-red-500 text-center mb-3 bg-red-50 rounded-lg px-3 py-2">
+                저장 오류: {modalError}
+              </p>
+            )}
             <div className="flex gap-3">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => { setShowModal(false); setModalError(''); }}
                 className="flex-1 h-12 border border-outline-variant rounded-xl text-on-surface font-medium hover:bg-surface-container-low transition-colors"
               >
                 취소
               </button>
               <button
-                onClick={() => { saveExerciseResult('안전종료').finally(() => { stopSession(); navigate('/patient/exercise'); }); }}
+                onClick={() => {
+                  setModalError('');
+                  saveExerciseResult('안전종료')
+                    .then(() => { stopSession(); navigate('/patient/exercise'); })
+                    .catch((err) => setModalError(err.message ?? '알 수 없는 오류'));
+                }}
                 className="flex-1 h-12 bg-red-500 text-white rounded-xl font-semibold hover:brightness-110 transition-all"
               >
                 확인
