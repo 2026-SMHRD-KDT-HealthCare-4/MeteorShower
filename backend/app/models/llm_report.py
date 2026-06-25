@@ -18,6 +18,7 @@ class LlmReport(Base):
     approval_status = Column(String(20), nullable=False, default="대기")
     approved_at = Column(TIMESTAMP)
     guardian_sent_status = Column(String(20), nullable=False, default="대기")
+    patient_sent_status = Column(String(20), nullable=False, default="대기")
     exercise_blocked = Column(Boolean, nullable=False, default=False)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
@@ -28,6 +29,9 @@ class LlmReport(Base):
         ),
         CheckConstraint(
             "guardian_sent_status IN ('대기', '완료')", name="ck_llm_report_guardian"
+        ),
+        CheckConstraint(
+            "patient_sent_status IN ('대기', '완료')", name="ck_llm_report_patient"
         ),
         UniqueConstraint("patient_id", "report_date"),
     )
