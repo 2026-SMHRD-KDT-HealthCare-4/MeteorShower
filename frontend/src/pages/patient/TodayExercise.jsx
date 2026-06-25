@@ -192,7 +192,8 @@ function PreExamModal({ onConfirm, onClose, onBlocked }) {
     if (answers.some((a) => a === 'yes')) {
       setBlocked(true);
       patientApi.reportExerciseBlocked().catch(() => {});
-      const today = new Date().toISOString().slice(0, 10);
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       localStorage.setItem(getBlockedKey(token), today);
       onBlocked?.();
     } else {
@@ -426,7 +427,8 @@ export default function TodayExercise() {
   const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     setIsBlocked(localStorage.getItem(getBlockedKey(token)) === today);
 
     patientApi.getTodayExercises()
