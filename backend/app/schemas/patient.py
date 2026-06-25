@@ -50,8 +50,8 @@ class ExerciseSessionCreateRequest(BaseModel):
     schedule_id: int
     performed_reps: Optional[int] = Field(default=None, ge=0)
     performed_sets: Optional[int] = Field(default=None, ge=0)
-    progress_rate: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    end_type: Literal['완료', '운동차단', '중도종료'] = "완료"
+    progress_rate: Optional[float] = Field(default=None, ge=0.0)
+    end_type: Literal['완료', '목표조정', '안전종료', '운동차단'] = "완료"
     finger_accuracy: List[FingerAccuracyRequest] = []
 
 

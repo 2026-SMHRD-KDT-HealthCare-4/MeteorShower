@@ -17,7 +17,9 @@ def create_token(sub: str, role: str) -> str:
         "role": role,
         "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    print(f"[create_token] KEY앞10={SECRET_KEY[:10]}  token앞30={token[:30]}")
+    return token
 
 
 def hash_password(password: str) -> str:

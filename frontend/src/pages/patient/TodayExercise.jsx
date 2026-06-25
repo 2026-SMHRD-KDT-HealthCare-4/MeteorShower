@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import PatientNavBar from '../../components/PatientNavBar';
 import { useAuth } from '../../context/AuthContext';
 import { patientApi } from '../../api';
@@ -421,25 +421,28 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
 
 export default function TodayExercise() {
   const { user, token } = useAuth();
+  const { key: locationKey } = useLocation();
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weeklyStats, setWeeklyStats] = useState([]);
   const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
+    console.log('[TodayExercise] useEffect 실행, locationKey:', locationKey);
+    setLoading(true);
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     setIsBlocked(localStorage.getItem(getBlockedKey(token)) === today);
 
     patientApi.getTodayExercises()
-      .then((data) => setExercises(data))
-      .catch(() => setExercises(INITIAL_EXERCISES))
+      .then((data) => { console.log('[TodayExercise] 데이터 수신:', data); setExercises(data); })
+      .catch((err) => { console.error('[TodayExercise] API 실패:', err); setExercises(INITIAL_EXERCISES); })
       .finally(() => setLoading(false));
 
     patientApi.getWeeklyStats()
       .then((data) => setWeeklyStats(data))
       .catch(() => {});
-  }, []);
+  }, [locationKey]);
 
   const sortedExercises = useMemo(
     () => [...exercises].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]),
