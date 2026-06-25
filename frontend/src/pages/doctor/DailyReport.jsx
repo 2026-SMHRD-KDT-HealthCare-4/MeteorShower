@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
+import { patientApi, reportApi } from '../../api';
 
 /* ── 날짜 유틸 ── */
 const DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
@@ -193,40 +194,65 @@ const exerciseResults = [
   { name: '소지 (Pinky)', value: 75, warn: false },
 ];
 
-const ROM_DAILY = [
-  { key: 'thumb',  label: '엄지 (Thumb)',
-    joints: [
-      { name: 'MCP', ref: 50.0, max: 45.2, min: 28.5 },
-      { name: 'IP',  ref: 80.0, max: 73.0, min: 54.0 },
-      { name: 'DIP', ref: 60.0, max: 55.5, min: 38.0 },
+const ROM_BY_EXERCISE = [
+  {
+    key: 'right_tapping', label: '오른손 태핑',
+    fingers: [
+      { key: 'thumb',  label: '엄지 (Thumb)',
+        joints: [{ name: 'MCP', ref: 50.0, max: 46.5, min: 29.5 }, { name: 'PIP', ref: 80.0, max: 75.0, min: 55.5 }, { name: 'DIP', ref: 60.0, max: 57.0, min: 40.5 }] },
+      { key: 'index',  label: '검지 (Index)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 88.0, min: 63.5 }, { name: 'PIP', ref: 100.0, max: 97.5, min: 71.5 }, { name: 'DIP', ref: 80.0, max: 74.5, min: 52.5 }] },
+      { key: 'middle', label: '중지 (Middle)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 90.5, min: 66.5 }, { name: 'PIP', ref: 100.0, max: 101.0, min: 74.0 }, { name: 'DIP', ref: 80.0, max: 78.0, min: 56.5 }] },
+      { key: 'ring',   label: '약지 (Ring)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 67.0, min: 41.0 }, { name: 'PIP', ref: 100.0, max: 74.0, min: 46.5 }, { name: 'DIP', ref: 80.0, max: 59.5, min: 36.0 }] },
+      { key: 'pinky',  label: '소지 (Pinky)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 82.0, min: 59.5 }, { name: 'PIP', ref: 100.0, max: 90.5, min: 66.5 }, { name: 'DIP', ref: 80.0, max: 72.0, min: 51.5 }] },
     ],
   },
-  { key: 'index',  label: '검지 (Index)',
-    joints: [
-      { name: 'MCP', ref: 90.0, max: 85.5, min: 62.0 },
-      { name: 'PIP', ref: 100.0, max: 95.0, min: 70.0 },
-      { name: 'DIP', ref: 80.0, max: 72.5, min: 51.0 },
+  {
+    key: 'left_tapping', label: '왼손 태핑',
+    fingers: [
+      { key: 'thumb',  label: '엄지 (Thumb)',
+        joints: [{ name: 'MCP', ref: 50.0, max: 44.0, min: 28.0 }, { name: 'PIP', ref: 80.0, max: 71.5, min: 53.0 }, { name: 'DIP', ref: 60.0, max: 54.0, min: 38.0 }] },
+      { key: 'index',  label: '검지 (Index)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 83.5, min: 61.0 }, { name: 'PIP', ref: 100.0, max: 92.5, min: 68.5 }, { name: 'DIP', ref: 80.0, max: 70.5, min: 50.0 }] },
+      { key: 'middle', label: '중지 (Middle)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 85.5, min: 63.0 }, { name: 'PIP', ref: 100.0, max: 95.5, min: 70.0 }, { name: 'DIP', ref: 80.0, max: 73.5, min: 53.0 }] },
+      { key: 'ring',   label: '약지 (Ring)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 63.0, min: 38.5 }, { name: 'PIP', ref: 100.0, max: 70.0, min: 43.5 }, { name: 'DIP', ref: 80.0, max: 56.5, min: 34.0 }] },
+      { key: 'pinky',  label: '소지 (Pinky)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 77.5, min: 56.0 }, { name: 'PIP', ref: 100.0, max: 85.5, min: 62.5 }, { name: 'DIP', ref: 80.0, max: 68.0, min: 48.0 }] },
     ],
   },
-  { key: 'middle', label: '중지 (Middle)',
-    joints: [
-      { name: 'MCP', ref: 90.0, max: 88.0, min: 65.0 },
-      { name: 'PIP', ref: 100.0, max: 98.5, min: 72.0 },
-      { name: 'DIP', ref: 80.0, max: 76.0, min: 55.0 },
+  {
+    key: 'right_grip', label: '오른손 그립',
+    fingers: [
+      { key: 'thumb',  label: '엄지 (Thumb)',
+        joints: [{ name: 'MCP', ref: 50.0, max: 45.2, min: 28.5 }, { name: 'PIP', ref: 80.0, max: 73.0, min: 54.0 }, { name: 'DIP', ref: 60.0, max: 55.5, min: 38.0 }] },
+      { key: 'index',  label: '검지 (Index)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 85.5, min: 62.0 }, { name: 'PIP', ref: 100.0, max: 95.0, min: 70.0 }, { name: 'DIP', ref: 80.0, max: 72.5, min: 51.0 }] },
+      { key: 'middle', label: '중지 (Middle)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 88.0, min: 65.0 }, { name: 'PIP', ref: 100.0, max: 98.5, min: 72.0 }, { name: 'DIP', ref: 80.0, max: 76.0, min: 55.0 }] },
+      { key: 'ring',   label: '약지 (Ring)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 65.0, min: 40.0 }, { name: 'PIP', ref: 100.0, max: 72.0, min: 45.0 }, { name: 'DIP', ref: 80.0, max: 58.0, min: 35.0 }] },
+      { key: 'pinky',  label: '소지 (Pinky)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 80.0, min: 58.0 }, { name: 'PIP', ref: 100.0, max: 88.0, min: 65.0 }, { name: 'DIP', ref: 80.0, max: 70.0, min: 50.0 }] },
     ],
   },
-  { key: 'ring',   label: '약지 (Ring)',
-    joints: [
-      { name: 'MCP', ref: 90.0, max: 65.0, min: 40.0 },
-      { name: 'PIP', ref: 100.0, max: 72.0, min: 45.0 },
-      { name: 'DIP', ref: 80.0, max: 58.0, min: 35.0 },
-    ],
-  },
-  { key: 'pinky',  label: '소지 (Pinky)',
-    joints: [
-      { name: 'MCP', ref: 90.0, max: 80.0, min: 58.0 },
-      { name: 'PIP', ref: 100.0, max: 88.0, min: 65.0 },
-      { name: 'DIP', ref: 80.0, max: 70.0, min: 50.0 },
+  {
+    key: 'left_grip', label: '왼손 그립',
+    fingers: [
+      { key: 'thumb',  label: '엄지 (Thumb)',
+        joints: [{ name: 'MCP', ref: 50.0, max: 43.0, min: 26.5 }, { name: 'PIP', ref: 80.0, max: 70.0, min: 51.5 }, { name: 'DIP', ref: 60.0, max: 52.5, min: 36.0 }] },
+      { key: 'index',  label: '검지 (Index)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 83.0, min: 59.5 }, { name: 'PIP', ref: 100.0, max: 92.0, min: 67.0 }, { name: 'DIP', ref: 80.0, max: 70.0, min: 49.0 }] },
+      { key: 'middle', label: '중지 (Middle)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 85.5, min: 62.0 }, { name: 'PIP', ref: 100.0, max: 95.5, min: 70.0 }, { name: 'DIP', ref: 80.0, max: 73.5, min: 53.0 }] },
+      { key: 'ring',   label: '약지 (Ring)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 62.0, min: 38.0 }, { name: 'PIP', ref: 100.0, max: 69.0, min: 42.5 }, { name: 'DIP', ref: 80.0, max: 55.0, min: 33.0 }] },
+      { key: 'pinky',  label: '소지 (Pinky)',
+        joints: [{ name: 'MCP', ref: 90.0, max: 77.0, min: 55.0 }, { name: 'PIP', ref: 100.0, max: 85.0, min: 62.0 }, { name: 'DIP', ref: 80.0, max: 67.0, min: 47.0 }] },
     ],
   },
 ];
@@ -251,28 +277,196 @@ const defaultOpinion =
   `• 세션 전환: 운동 후 이번 주 이내에 다음 운동으로 전환하는 것이 좋습니다. 만약 15분간 날카로운 통증이 지속될 경우 다음을 수료하시오.\n\n` +
   `• 향상 권고: 본격 치료 관련으로 손가락 관절에 대한 가벼운 스트레칭을 병행하며 유연성을 확보하시오.`;
 
+const FINGER_LABELS = ['엄지', '검지', '중지', '약지', '소지'];
+const FINGER_LABEL_WITH_EN = {
+  엄지: '엄지 (Thumb)',
+  검지: '검지 (Index)',
+  중지: '중지 (Middle)',
+  약지: '약지 (Ring)',
+  소지: '소지 (Pinky)',
+};
+
+function buildRomExercises(exercises = []) {
+  return exercises
+    .filter((exercise) => (exercise.finger_accuracy ?? []).length > 0)
+    .map((exercise, idx) => {
+      const byFinger = new Map();
+      (exercise.finger_accuracy ?? []).forEach((item) => {
+        if (!byFinger.has(item.finger_type)) byFinger.set(item.finger_type, []);
+        byFinger.get(item.finger_type).push({
+          name: item.joint_type,
+          ref: item.target_rom,
+          max: item.max_angle,
+          min: item.min_angle,
+          avg: item.avg_match_rate,
+        });
+      });
+
+      return {
+        key: `${exercise.schedule_id ?? idx}`,
+        label: exercise.exercise_name,
+        fingers: FINGER_LABELS
+          .filter((finger) => byFinger.has(finger))
+          .map((finger) => ({
+            key: finger,
+            label: FINGER_LABEL_WITH_EN[finger] ?? finger,
+            joints: byFinger.get(finger),
+          })),
+      };
+    })
+    .filter((exercise) => exercise.fingers.length > 0);
+}
+
 /* ── 컴포넌트 ── */
 export default function DailyReport() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [opinion, setOpinion]               = useState(defaultOpinion);
   const [editingOpinion, setEditingOpinion] = useState(false);
   const [lightboxPhoto, setLightboxPhoto]   = useState(null);
   const [showRomDetail, setShowRomDetail]   = useState(false);
+  const [romExerciseIdx, setRomExerciseIdx] = useState(0);
   const [romFingerIdx, setRomFingerIdx]     = useState(0);
   const [prescription, setPrescription]     = useState(defaultPrescription);
   const [aiAdjust, setAiAdjust]             = useState(true);
   const [schedule, setSchedule]             = useState({});
+  const [allExercises, setAllExercises]     = useState([]);
+  const [showAddExercise, setShowAddExercise] = useState(false);
   const [justSaved, setJustSaved]           = useState(false);
+  const [patients, setPatients]             = useState([]);
+  const [selectedPatientId, setSelectedPatientId] = useState(location.state?.patientId ?? '');
+  const [reports, setReports]               = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [reportMessage, setReportMessage]   = useState('');
+  const [reportBusy, setReportBusy]         = useState(false);
+  const [dailyResult, setDailyResult]       = useState(null);
+  const autoCreatingReportKey = useRef(null);
 
-  const overallCompliance = Math.round(
-    exerciseResults.reduce((s, e) => s + e.value, 0) / exerciseResults.length
-  );
-  const accuracyAvg = 77.0;
+  const selectedPatient = patients.find((p) => String(p.patient_id) === String(selectedPatientId));
+  const romByExercise = buildRomExercises(dailyResult?.exercises ?? []);
+  const detailExerciseResults = (dailyResult?.exercises ?? [])
+    .filter((exercise) => exercise.is_done)
+    .map((exercise) => {
+      const values = (exercise.finger_accuracy ?? [])
+        .map((item) => item.avg_match_rate)
+        .filter((value) => value !== null && value !== undefined);
+      const value = values.length
+        ? Math.round(values.reduce((sum, current) => sum + Number(current), 0) / values.length)
+        : Math.round(exercise.progress_rate ?? 0);
+      return {
+        name: exercise.exercise_name,
+        value,
+        warn: value < 70,
+      };
+    });
 
-  const hasChecked  = prescription.some((ex) => ex.enabled);
-  const hasSchedule = Object.values(schedule).some(Boolean);
-  const canSave     = hasChecked && hasSchedule;
+  const overallCompliance = dailyResult?.overall_compliance ?? 0;
+  const accuracyAvg = dailyResult?.accuracy_average ?? 0;
+
+  const loadReports = () =>
+    reportApi.getDoctorReports()
+      .then((data) => {
+        setReports(data);
+        return data;
+      })
+      .catch(() => []);
+
+  const openReport = (reportId) => {
+    if (!reportId) return;
+    reportApi.getDoctorReport(reportId)
+      .then((data) => {
+        setSelectedReport(data);
+        setSelectedPatientId(data.patient_id);
+        setOpinion(data.edited_content || data.draft_content || data.content || '');
+        setEditingOpinion(false);
+      })
+      .catch(() => setReportMessage('리포트를 불러오지 못했습니다.'));
+  };
+
+  useEffect(() => {
+    patientApi.listPatients()
+      .then((data) => {
+        setPatients(data);
+        if (!selectedPatientId && data.length > 0) setSelectedPatientId(data[0].patient_id);
+      })
+      .catch(() => {});
+    loadReports();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPatientId) return;
+    const report = reports.find((r) => String(r.patient_id) === String(selectedPatientId));
+    if (report) {
+      autoCreatingReportKey.current = null;
+      openReport(report.report_id);
+      return;
+    }
+
+    const today = toKey(new Date());
+    const autoKey = `${selectedPatientId}|${today}`;
+    if (autoCreatingReportKey.current === autoKey) return;
+
+    autoCreatingReportKey.current = autoKey;
+    setReportBusy(true);
+    reportApi.createLlmReport({
+      patient_id: Number(selectedPatientId),
+      report_date: today,
+      exercise_blocked: false,
+    })
+      .then((data) => {
+        setSelectedReport(data);
+        setOpinion(data.draft_content || data.content || '');
+        setEditingOpinion(false);
+        setReportMessage('');
+        return loadReports();
+      })
+      .catch((err) => {
+        setSelectedReport(null);
+        setOpinion(defaultOpinion);
+        setReportMessage(err.message);
+        autoCreatingReportKey.current = null;
+      })
+      .finally(() => setReportBusy(false));
+  }, [selectedPatientId, reports]);
+
+  useEffect(() => {
+    if (!selectedPatientId) return;
+    patientApi.getPatientPrescription(selectedPatientId)
+      .then((data) => {
+        if (!data) return;
+        setPrescription(
+          (data.exercises ?? []).map((ex) => ({
+            name: ex.name,
+            sets: ex.sets ?? 1,
+            reps: ex.reps ?? 10,
+            enabled: true,
+          }))
+        );
+        setSchedule(data.schedule ?? {});
+      })
+      .catch(() => {});
+  }, [selectedPatientId]);
+
+  useEffect(() => {
+    if (!selectedPatientId) {
+      setDailyResult(null);
+      return;
+    }
+    patientApi.getPatientDailyExerciseResult(selectedPatientId, toKey(new Date()))
+      .then((data) => {
+        setDailyResult(data);
+        setRomExerciseIdx(0);
+        setRomFingerIdx(0);
+      })
+      .catch(() => setDailyResult(null));
+  }, [selectedPatientId]);
+
+  useEffect(() => {
+    patientApi.getExercises()
+      .then(setAllExercises)
+      .catch(() => {});
+  }, []);
 
   const updatePrescription = (idx, field, val) =>
     setPrescription((prev) => prev.map((row, i) => (i === idx ? { ...row, [field]: val } : row)));
@@ -280,14 +474,63 @@ export default function DailyReport() {
   const toggleEnabled = (idx) =>
     setPrescription((prev) => prev.map((row, i) => (i === idx ? { ...row, enabled: !row.enabled } : row)));
 
-  const handleOpinionChange = (val) => setOpinion(val);
+  const removePrescription = (idx) =>
+    setPrescription((prev) => prev.filter((_, i) => i !== idx));
 
-  const handleSave = () => {
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 2000);
+  const addExercise = (ex) => {
+    setPrescription((prev) => [...prev, { name: ex.name, sets: 3, reps: 10, enabled: true }]);
+    setShowAddExercise(false);
   };
 
-  const handleSend = () => navigate('/doctor/patients');
+  const handleOpinionChange = (val) => setOpinion(val);
+
+  const ensureReport = async () => {
+    if (selectedReport) return selectedReport;
+    const created = await reportApi.createLlmReport({
+      patient_id: Number(selectedPatientId),
+      report_date: new Date().toISOString().slice(0, 10),
+      exercise_blocked: false,
+    });
+    setSelectedReport(created);
+    return created;
+  };
+
+  const handleSave = () => {
+    if (!selectedPatientId) { setReportMessage('환자를 먼저 선택해 주세요.'); return; }
+    setReportBusy(true);
+    ensureReport()
+      .then((report) => reportApi.updateDoctorReport(report.report_id, { edited_content: opinion }))
+      .then((data) => {
+        setSelectedReport(data);
+        setJustSaved(true);
+        setReportMessage('수정 내용이 DB에 저장되었습니다.');
+        setTimeout(() => setJustSaved(false), 2000);
+        return loadReports();
+      })
+      .catch((err) => setReportMessage(err.message))
+      .finally(() => setReportBusy(false));
+  };
+
+  const handleSend = () => {
+    if (!selectedPatientId) { setReportMessage('환자를 먼저 선택해 주세요.'); return; }
+    setReportBusy(true);
+    ensureReport()
+      .then((report) => reportApi.approveDoctorReport(report.report_id, {
+        edited_content: opinion,
+        rehab_phase: selectedPatient?.current_rehab_phase,
+        exercises: prescription,
+        schedule,
+        prescription_date: new Date().toISOString().slice(0, 10),
+      }))
+      .then((data) => {
+        setSelectedReport(data);
+        setOpinion(data.edited_content || data.draft_content || data.content || '');
+        setReportMessage('승인 완료: 환자 진료기록 화면에 표시됩니다.');
+        return loadReports();
+      })
+      .catch((err) => setReportMessage(err.message))
+      .finally(() => setReportBusy(false));
+  };
 
   /* 환자 정보 셀 border 헬퍼 */
   const cellBorder = (i) => {
@@ -376,14 +619,15 @@ export default function DailyReport() {
           </button>
           <div className="flex gap-2">
             <button
-              onClick={() => navigate('/doctor/patient/info')}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors"
+              onClick={() => selectedPatientId && navigate(`/doctor/patient/info/${selectedPatientId}`)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={!selectedPatientId}
             >
               <span className="material-symbols-outlined text-sm">person</span>
               환자 정보
             </button>
             <button
-              onClick={() => navigate('/doctor/report/progress')}
+              onClick={() => navigate('/doctor/report/progress', { state: { patientId: selectedPatientId } })}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-doctor-primary text-white font-semibold text-label-sm hover:opacity-90 transition-opacity shadow-sm"
             >
               <span className="material-symbols-outlined text-sm">bar_chart</span>
@@ -394,10 +638,10 @@ export default function DailyReport() {
 
         <div>
           <h1 className="text-headline-lg-mobile md:text-headline-lg font-display font-bold text-doctor-primary tracking-tight">
-            일일 운동 레포트
+            일일 운동 리포트
           </h1>
           <p className="text-body-md text-on-surface-variant mt-1">
-            김망나뇽 환자 · 2026년 2월 15일 세션
+            {selectedPatient ? `${selectedPatient.name} 환자` : '환자를 선택해 주세요'} · LLM 리포트
           </p>
         </div>
 
@@ -455,7 +699,7 @@ export default function DailyReport() {
 
             {/* Exercise breakdown */}
             <div className="space-y-3">
-              {exerciseResults.map((ex) => (
+              {detailExerciseResults.length > 0 ? detailExerciseResults.map((ex) => (
                 <div key={ex.name} className="flex items-center gap-2 sm:gap-3">
                   <span className="w-24 sm:w-28 text-label-md text-on-surface-variant flex-shrink-0">{ex.name}</span>
                   <div className="flex-1 bg-surface-container h-3 rounded-full overflow-hidden">
@@ -472,21 +716,41 @@ export default function DailyReport() {
                     : <span className="w-4 flex-shrink-0" />
                   }
                 </div>
-              ))}
+              )) : (
+                <div className="text-label-md text-on-surface-variant bg-surface-container-low rounded-xl p-4 text-center">
+                  오늘 저장된 운동 평가 결과가 없습니다.
+                </div>
+              )}
             </div>
 
             {/* ROM 상세 패널 */}
-            {showRomDetail && (
+            {showRomDetail && romByExercise.length > 0 && (
               <div className="border border-outline-variant rounded-xl overflow-hidden">
+                {/* 운동 카테고리 탭 */}
+                <div className="flex overflow-x-auto border-b border-outline-variant">
+                  {romByExercise.map((ex, i) => (
+                    <button
+                      key={ex.key}
+                      onClick={() => { setRomExerciseIdx(i); setRomFingerIdx(0); }}
+                      className={`flex-shrink-0 flex-1 px-3 py-2 text-label-sm font-semibold transition-colors border-r border-outline-variant last:border-0
+                        ${romExerciseIdx === i
+                          ? 'bg-doctor-primary text-white'
+                          : 'bg-[#f0f6ff] text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
+                        }`}
+                    >
+                      {ex.label}
+                    </button>
+                  ))}
+                </div>
                 {/* 손가락 탭 */}
                 <div className="flex overflow-x-auto border-b border-outline-variant">
-                  {ROM_DAILY.map((f, i) => (
+                  {romByExercise[romExerciseIdx].fingers.map((f, i) => (
                     <button
                       key={f.key}
                       onClick={() => setRomFingerIdx(i)}
-                      className={`flex-shrink-0 px-4 py-2.5 text-label-sm font-semibold transition-colors border-r border-outline-variant last:border-0
+                      className={`flex-shrink-0 px-4 py-2 text-label-sm font-semibold transition-colors border-r border-outline-variant last:border-0
                         ${romFingerIdx === i
-                          ? 'bg-doctor-primary text-white'
+                          ? 'bg-[#e8f0fe] text-doctor-primary font-bold'
                           : 'bg-surface-container-low text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
                         }`}
                     >
@@ -502,18 +766,20 @@ export default function DailyReport() {
                       <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">기준값 (ROM)</th>
                       <th className="px-4 py-2.5 text-label-sm font-bold text-[#1a73e8] text-center">최댓값</th>
                       <th className="px-4 py-2.5 text-label-sm font-bold text-[#005bbf] text-center">최솟값</th>
+                      <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">평균 일치율</th>
                       <th className="px-4 py-2.5 text-label-sm font-bold text-on-surface-variant text-center">상태</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {ROM_DAILY[romFingerIdx].joints.map((j) => {
-                      const warn = j.max < j.ref * 0.85;
+                    {romByExercise[romExerciseIdx].fingers[romFingerIdx].joints.map((j) => {
+                      const warn = j.avg !== null && j.avg !== undefined ? j.avg < 70 : (j.ref && j.max ? j.max < j.ref * 0.85 : false);
                       return (
                         <tr key={j.name} className="border-b border-outline-variant last:border-0 hover:bg-surface-container-lowest transition-colors">
                           <td className="px-4 py-3 text-label-md font-bold text-on-surface">{j.name}</td>
-                          <td className="px-4 py-3 text-center text-label-md text-on-surface-variant">{j.ref}°</td>
-                          <td className="px-4 py-3 text-center text-label-md font-bold" style={{ color: warn ? '#ba1a1a' : '#1a73e8' }}>{j.max}°</td>
-                          <td className="px-4 py-3 text-center text-label-md font-semibold text-[#005bbf]">{j.min}°</td>
+                          <td className="px-4 py-3 text-center text-label-md text-on-surface-variant">{j.ref ?? '—'}{j.ref ? '°' : ''}</td>
+                          <td className="px-4 py-3 text-center text-label-md font-bold" style={{ color: warn ? '#ba1a1a' : '#1a73e8' }}>{j.max ?? '—'}{j.max !== null && j.max !== undefined ? '°' : ''}</td>
+                          <td className="px-4 py-3 text-center text-label-md font-semibold text-[#005bbf]">{j.min ?? '—'}{j.min !== null && j.min !== undefined ? '°' : ''}</td>
+                          <td className="px-4 py-3 text-center text-label-md font-bold" style={{ color: warn ? '#ba1a1a' : '#1a73e8' }}>{j.avg ?? '—'}{j.avg !== null && j.avg !== undefined ? '%' : ''}</td>
                           <td className="px-4 py-3 text-center">
                             {warn ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-error bg-error-container px-2 py-0.5 rounded-full">
@@ -531,7 +797,7 @@ export default function DailyReport() {
                   </tbody>
                 </table>
                 <div className="px-4 py-2 bg-surface-container-low border-t border-outline-variant">
-                  <p className="text-[11px] text-on-surface-variant">기준값: 의사가 입력한 목표 ROM · 최댓값/최솟값: 금일 세션 측정 결과</p>
+                  <p className="text-[11px] text-on-surface-variant">기준값: 의사가 입력한 목표 ROM · 최댓값/최솟값/평균 일치율: 금일 세션 측정 결과</p>
                 </div>
               </div>
             )}
@@ -664,6 +930,7 @@ export default function DailyReport() {
                   <th className="px-4 py-3 text-label-sm font-bold text-doctor-primary text-center">세트 수</th>
                   <th className="px-4 py-3 text-label-sm font-bold text-doctor-primary text-center">세트당 횟수</th>
                   <th className="px-4 py-3 text-label-sm font-bold text-doctor-primary text-center">예상 시간</th>
+                  <th className="px-2 py-3 w-8"></th>
                 </tr>
               </thead>
               <tbody>
@@ -727,10 +994,55 @@ export default function DailyReport() {
                     <td className="px-4 py-3 text-center text-label-md text-on-surface-variant">
                       {row.enabled ? `약 ${row.sets * row.reps * 3}초` : '—'}
                     </td>
+
+                    {/* 삭제 */}
+                    <td className="px-2 py-3 text-center">
+                      <button
+                        onClick={() => removePrescription(i)}
+                        className="text-on-surface-variant hover:text-error transition-colors"
+                        title="운동 삭제"
+                      >
+                        <span className="material-symbols-outlined text-base">close</span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* 운동 추가 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowAddExercise((v) => !v)}
+              disabled={!selectedPatientId}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-dashed border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <span className="material-symbols-outlined text-base">add</span>
+              운동 추가
+            </button>
+
+            {showAddExercise && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowAddExercise(false)} />
+              <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-outline-variant rounded-xl shadow-lg min-w-[240px] max-h-64 overflow-y-auto">
+                {allExercises
+                  .filter((ex) => !prescription.some((p) => p.name === ex.name))
+                  .map((ex) => (
+                    <button
+                      key={ex.exercise_id}
+                      onClick={() => addExercise(ex)}
+                      className="w-full text-left px-4 py-2.5 text-body-md text-on-surface hover:bg-[#e8f0fe] transition-colors border-b border-outline-variant last:border-0"
+                    >
+                      {ex.name}
+                    </button>
+                  ))}
+                {allExercises.filter((ex) => !prescription.some((p) => p.name === ex.name)).length === 0 && (
+                  <p className="px-4 py-3 text-label-sm text-on-surface-variant">추가 가능한 운동이 없습니다.</p>
+                )}
+              </div>
+              </>
+            )}
           </div>
 
           <p className="text-label-sm text-on-surface-variant flex items-center gap-1.5 pt-1">
@@ -752,9 +1064,9 @@ export default function DailyReport() {
         <div className="flex justify-end gap-3 pb-4">
           <button
             onClick={handleSave}
-            disabled={!canSave}
+            disabled={!selectedPatientId || reportBusy}
             className={`flex items-center gap-2 px-6 sm:px-8 py-3 border-2 font-semibold rounded-xl transition-all text-label-md
-              ${canSave
+              ${selectedPatientId && !reportBusy
                 ? 'border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] active:scale-95'
                 : 'border-outline-variant text-on-surface-variant cursor-not-allowed opacity-50'
               }`}
@@ -762,21 +1074,22 @@ export default function DailyReport() {
             {justSaved ? (
               <>
                 <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                저장 완료
+                DB 저장 완료
               </>
             ) : (
               <>
                 <span className="material-symbols-outlined text-base">save</span>
-                저장 (Save)
+                수정 저장
               </>
             )}
           </button>
           <button
             onClick={handleSend}
-            className="flex items-center gap-2 px-6 sm:px-8 py-3 bg-doctor-primary text-white font-semibold rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-md text-label-md"
+            disabled={!selectedPatientId || reportBusy}
+            className="flex items-center gap-2 px-6 sm:px-8 py-3 bg-doctor-primary text-white font-semibold rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-md text-label-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-base">send</span>
-            발송 (Send)
+            승인
           </button>
         </div>
 

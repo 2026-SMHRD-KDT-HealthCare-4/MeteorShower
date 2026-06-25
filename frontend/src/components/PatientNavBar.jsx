@@ -1,34 +1,28 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import { useAuth } from '../context/AuthContext';
+import { patientApi } from '../api';
 
-const INITIAL_NOTIFICATIONS = [
-  {
-    id: 1,
-    type: 'prescription',
-    message: '담당 의사가 새 운동 처방을 등록했습니다.',
-    time: '방금 전',
-    read: false,
-  },
-  {
-    id: 2,
-    type: 'appointment',
-    message: '다음 진료 예정일: 2026.03.15 (D-7)',
-    time: '1시간 전',
-    read: false,
-  },
-  {
-    id: 3,
-    type: 'report',
-    message: '이번 주 재활 보고서가 보호자 이메일로 발송되었습니다.',
-    time: '어제',
-    read: true,
-  },
-];
+function timeAgo(isoString) {
+  if (!isoString) return '';
+  const diff = Math.floor((Date.now() - new Date(isoString)) / 1000);
+  if (diff < 60) return '방금 전';
+  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+  return `${Math.floor(diff / 86400)}일 전`;
+}
 
 const TYPE_CONFIG = {
   prescription: {
+    icon: 'assignment',
+    label: '처방 업데이트',
+    color: 'text-[#1a73e8]',
+    bg: 'bg-[#e8f0fe]',
+    border: 'border-[#aecbfa]',
+    dot: 'bg-[#1a73e8]',
+  },
+  처방등록: {
     icon: 'assignment',
     label: '처방 업데이트',
     color: 'text-[#1a73e8]',
@@ -61,10 +55,20 @@ export default function PatientNavBar() {
   const path = location.pathname;
 
   const [showNotif, setShowNotif] = useState(false);
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState([]);
   const notifRef = useRef(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const fetchNotifications = useCallback(() => {
+    patientApi.getNotifications()
+      .then(setNotifications)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -74,14 +78,21 @@ export default function PatientNavBar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const markAllRead = () =>
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  const markAllRead = () => {
+    patientApi.markAllNotificationsRead()
+      .then(() => setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true }))))
+      .catch(() => {});
+  };
 
-  const markOneRead = (id) =>
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  const markOneRead = (id) => {
+    patientApi.markNotificationRead(id)
+      .then(() => setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))))
+      .catch(() => {});
+  };
 
   const NOTIF_NAV = {
     prescription: '/patient/exercise',
+    처방등록: '/patient/exercise',
     appointment: '/patient/records',
     report: '/patient/records',
   };
@@ -164,12 +175,12 @@ export default function PatientNavBar() {
                         <p className="text-label-md text-on-surface-variant">새로운 알림이 없습니다</p>
                       </div>
                     ) : notifications.map((n) => {
-                      const cfg = TYPE_CONFIG[n.type];
+                      const cfg = TYPE_CONFIG[n.type] ?? TYPE_CONFIG['prescription'];
                       return (
                         <button
                           key={n.id}
-                          onClick={() => { markOneRead(n.id); navigate(NOTIF_NAV[n.type]); setShowNotif(false); }}
-                          className={`w-full text-left px-5 py-4 flex gap-3 hover:bg-surface-container-lowest transition-colors ${n.read ? 'opacity-60' : ''}`}
+                          onClick={() => { markOneRead(n.id); navigate(NOTIF_NAV[n.type] ?? '/patient/exercise'); setShowNotif(false); }}
+                          className={`w-full text-left px-5 py-4 flex gap-3 hover:bg-surface-container-lowest transition-colors ${n.is_read ? 'opacity-60' : ''}`}
                         >
                           <div className={`flex-shrink-0 w-9 h-9 rounded-full ${cfg.bg} border ${cfg.border} flex items-center justify-center mt-0.5`}>
                             <span className={`material-symbols-outlined text-base ${cfg.color}`} style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -182,10 +193,10 @@ export default function PatientNavBar() {
                                 {cfg.label}
                               </span>
                             </div>
-                            <p className="text-label-sm text-on-surface-variant leading-snug">{n.message}</p>
-                            <p className="text-[11px] text-outline mt-1">{n.time}</p>
+                            <p className="text-label-sm text-on-surface-variant leading-snug">{n.notification_content ?? n.message}</p>
+                            <p className="text-[11px] text-outline mt-1">{timeAgo(n.created_at)}</p>
                           </div>
-                          {!n.read && (
+                          {!n.is_read && (
                             <div className={`flex-shrink-0 w-2 h-2 rounded-full ${cfg.dot} mt-2`} />
                           )}
                         </button>

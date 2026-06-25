@@ -8,30 +8,6 @@ function formatDate(dateStr) {
   return dateStr.replace(/-/g, '.');
 }
 
-// YYYY-MM-DD 형식
-const MOCK_SCHEDULE = [
-  { date: '2026-06-01', type: 'exercise', status: 'missed' },
-  { date: '2026-06-03', type: 'exercise', status: 'done' },
-  { date: '2026-06-05', type: 'exercise', status: 'done' },
-  { date: '2026-06-06', type: 'exercise', status: 'missed' },
-  { date: '2026-06-08', type: 'exercise', status: 'done' },
-  { date: '2026-06-10', type: 'exercise', status: 'done' },
-  { date: '2026-06-11', type: 'exercise', status: 'missed' },
-  { date: '2026-06-12', type: 'exercise', status: 'done' },
-  { date: '2026-06-13', type: 'hospital', status: 'done' },
-  { date: '2026-06-14', type: 'exercise', status: 'missed' },
-  { date: '2026-06-16', type: 'exercise', status: 'upcoming' },
-  { date: '2026-06-18', type: 'exercise', status: 'upcoming' },
-  { date: '2026-06-20', type: 'exercise', status: 'upcoming' },
-  { date: '2026-06-20', type: 'hospital', status: 'upcoming' },
-  { date: '2026-06-21', type: 'exercise', status: 'upcoming' },
-  { date: '2026-06-23', type: 'exercise', status: 'upcoming' },
-  { date: '2026-06-25', type: 'exercise', status: 'upcoming' },
-  { date: '2026-06-26', type: 'exercise', status: 'upcoming' },
-  { date: '2026-06-28', type: 'exercise', status: 'upcoming' },
-  { date: '2026-07-04', type: 'hospital', status: 'upcoming' },
-];
-
 const MONTH_NAMES = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 const DAY_NAMES  = ['월','화','수','목','금','토','일'];
 
@@ -51,13 +27,20 @@ function Field({ label, children }) {
 }
 
 function formatPhone(value) {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  const d = value.replace(/\D/g, '');
+  if (d.startsWith('02')) {
+    if (d.length <= 2) return d;
+    if (d.length <= 5) return `${d.slice(0,2)}-${d.slice(2)}`;
+    if (d.length <= 9) return `${d.slice(0,2)}-${d.slice(2,5)}-${d.slice(5)}`;
+    return `${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6,10)}`;
+  }
+  const s = d.slice(0, 11);
+  if (s.length <= 3) return s;
+  if (s.length <= 7) return `${s.slice(0,3)}-${s.slice(3)}`;
+  return `${s.slice(0,3)}-${s.slice(3,7)}-${s.slice(7)}`;
 }
 
-const PHONE_RE = /^01[0-9]-\d{4}-\d{4}$/;
+const PHONE_RE = /^\d{2,3}-\d{3,4}-\d{4}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function ProfileCard() {
@@ -86,7 +69,7 @@ function ProfileCard() {
 
   const validate = () => {
     const next = {};
-    if (!PHONE_RE.test(phone)) next.phone = '전화번호를 정확히 입력해 주세요';
+    if (!PHONE_RE.test(phone)) next.phone = '전화번호를 끝까지 입력하세요';
     if (guardianEmail && !EMAIL_RE.test(guardianEmail)) next.email = '올바른 이메일 형식을 입력해 주세요';
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -162,6 +145,9 @@ function ProfileCard() {
           <Field label="재활 시작">
             <input readOnly value={formatDate(profile?.rehab_start_date)} className={roInputCls} />
           </Field>
+          <Field label="재활 단계">
+            <input readOnly value={profile?.current_rehab_phase ?? ''} className={roInputCls} />
+          </Field>
         </div>
 
         <div>
@@ -219,17 +205,25 @@ function ProfileCard() {
 
 // ── 캘린더 카드 ───────────────────────────────────────────────────────────
 function ScheduleCalendar() {
-  const [calYear,  setCalYear]  = useState(2026);
-  const [calMonth, setCalMonth] = useState(6); // 1-indexed
+  const today = new Date();
+  const [calYear,  setCalYear]  = useState(today.getFullYear());
+  const [calMonth, setCalMonth] = useState(today.getMonth() + 1); // 1-indexed
+  const [scheduleData, setScheduleData] = useState([]);
+
+  useEffect(() => {
+    patientApi.getMySchedule()
+      .then(setScheduleData)
+      .catch(() => {});
+  }, []);
 
   const scheduleMap = useMemo(() => {
     const map = {};
-    MOCK_SCHEDULE.forEach((s) => {
+    scheduleData.forEach((s) => {
       if (!map[s.date]) map[s.date] = [];
       map[s.date].push(s);
     });
     return map;
-  }, []);
+  }, [scheduleData]);
 
   const prevMonth = () => {
     if (calMonth === 1) { setCalYear((y) => y - 1); setCalMonth(12); }
@@ -346,12 +340,14 @@ function ScheduleCalendar() {
 // ── 병원정보 카드 (읽기 전용) ─────────────────────────────────────────────
 function HospitalCard() {
   const [hospitalName, setHospitalName] = useState('');
+  const [doctorName, setDoctorName]     = useState('');
   const roInputCls =
     'w-full h-10 px-3 rounded-lg border border-outline-variant bg-surface-container text-on-surface-variant text-body-md outline-none cursor-not-allowed text-sm';
 
   useEffect(() => {
     patientApi.getMyProfile().then((data) => {
       setHospitalName(data.hospital_name ?? '');
+      setDoctorName(data.doctor_name ?? '');
     }).catch(() => {});
   }, []);
 
@@ -363,6 +359,7 @@ function HospitalCard() {
         <div className="grid grid-cols-2 gap-4">
           {[
             { label: '병원명', value: hospitalName },
+            { label: '주치의', value: doctorName },
           ].map(({ label, value }) => (
             <div key={label} className="space-y-1">
               <p className="text-label-sm font-semibold text-on-surface-variant">{label}</p>

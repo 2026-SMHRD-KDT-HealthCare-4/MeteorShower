@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, Date, Boolean, TIMESTAMP, ForeignKey,
+    Column, Integer, String, Text, Date, Boolean, TIMESTAMP, ForeignKey,
     CheckConstraint, func
 )
 from sqlalchemy.orm import relationship
@@ -28,6 +28,7 @@ class Patient(Base):
     report_consent = Column(Boolean, nullable=False, default=False)
     ai_difficulty_enabled = Column(Boolean, nullable=False, default=False)
     appointment_date = Column(Date)  # ✏️ 신규 추가
+    overall_evaluation = Column(Text)  # ✏️ 신규 추가: 누적 리포트 승인 후 전달되는 종합 소견
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
@@ -43,3 +44,4 @@ class Patient(Base):
     social_accounts = relationship("SocialAccount", back_populates="patient")
     prescriptions = relationship("Prescription", back_populates="patient")
     llm_reports = relationship("LlmReport", back_populates="patient")
+    notifications = relationship("PatientNotification", back_populates="patient")

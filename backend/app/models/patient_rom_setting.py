@@ -14,13 +14,12 @@ from sqlalchemy.orm import relationship
 from database import Base
 
 
-class PrescriptionFingerSetting(Base):
-    __tablename__ = "prescription_finger_setting"
+class PatientRomSetting(Base):
+    __tablename__ = "patient_rom_setting"
 
-    finger_setting_id = Column(Integer, primary_key=True, autoincrement=True)
-    prescription_exercise_id = Column(
-        Integer, ForeignKey("prescription_exercise.prescription_exercise_id"), nullable=False
-    )
+    patient_rom_setting_id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(Integer, ForeignKey("patient.patient_id"), nullable=False)
+    exercise_type = Column(String(20), nullable=False, default='grip')
     hand_type = Column(String(10), nullable=False)
     finger_type = Column(String(10), nullable=False)
     joint_type = Column(String(10), nullable=False)
@@ -38,7 +37,7 @@ class PrescriptionFingerSetting(Base):
             "joint_type IN ('MCP', 'PIP', 'DIP', 'IP')",
             name="ck_finger_setting_joint",
         ),
-        UniqueConstraint("prescription_exercise_id", "hand_type", "finger_type", "joint_type"),
+        UniqueConstraint("patient_id", "exercise_type", "hand_type", "finger_type", "joint_type"),
     )
 
-    prescription_exercise = relationship("PrescriptionExercise", back_populates="finger_settings")
+    patient = relationship("Patient")

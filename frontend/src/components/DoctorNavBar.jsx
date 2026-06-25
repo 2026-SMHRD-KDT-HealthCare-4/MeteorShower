@@ -1,50 +1,17 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
 import { useAuth } from '../context/AuthContext';
+import { doctorApi, patientApi } from '../api';
 
-const INITIAL_NOTIFICATIONS = [
-  {
-    id: 1,
-    type: 'strain',
-    patient: '김망나뇽',
-    message: '운동 중 과부하가 감지되었습니다. 확인이 필요합니다.',
-    time: '방금 전',
-    read: false,
-  },
-  {
-    id: 2,
-    type: 'missed',
-    patient: '이피카츄',
-    message: '오늘 처방된 운동을 수행하지 않았습니다.',
-    time: '23분 전',
-    read: false,
-  },
-  {
-    id: 3,
-    type: 'strain',
-    patient: '박파이리',
-    message: '운동 도중 무리가 감지되어 세션이 중단되었습니다.',
-    time: '1시간 전',
-    read: false,
-  },
-  {
-    id: 4,
-    type: 'missed',
-    patient: '최꼬부기',
-    message: '어제 처방된 운동을 수행하지 않았습니다.',
-    time: '어제',
-    read: true,
-  },
-  {
-    id: 5,
-    type: 'missed',
-    patient: '강뮤츠',
-    message: '이틀 연속 운동 미수행 상태입니다.',
-    time: '2일 전',
-    read: true,
-  },
-];
+function timeAgo(isoString) {
+  if (!isoString) return '';
+  const diff = Math.floor((Date.now() - new Date(isoString)) / 1000);
+  if (diff < 60) return '방금 전';
+  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+  return `${Math.floor(diff / 86400)}일 전`;
+}
 
 const TYPE_CONFIG = {
   missed: {
@@ -54,6 +21,22 @@ const TYPE_CONFIG = {
     bg: 'bg-[#fff3e0]',
     border: 'border-[#ffcc80]',
     dot: 'bg-[#e37400]',
+  },
+  운동미수행: {
+    icon: 'event_busy',
+    label: '운동 미수행',
+    color: 'text-[#e37400]',
+    bg: 'bg-[#fff3e0]',
+    border: 'border-[#ffcc80]',
+    dot: 'bg-[#e37400]',
+  },
+  운동차단: {
+    icon: 'block',
+    label: '운동 차단',
+    color: 'text-error',
+    bg: 'bg-[#fff4f4]',
+    border: 'border-[#ffdad6]',
+    dot: 'bg-error',
   },
   strain: {
     icon: 'warning',
@@ -70,11 +53,22 @@ export default function DoctorNavBar() {
   const { user, logout } = useAuth();
   const [showProfile, setShowProfile]   = useState(false);
   const [showNotif, setShowNotif]       = useState(false);
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState([]);
+  const [profileStats, setProfileStats] = useState(null);
   const profileRef = useRef(null);
   const notifRef   = useRef(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const fetchNotifications = useCallback(() => {
+    doctorApi.getNotifications()
+      .then(setNotifications)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -85,11 +79,35 @@ export default function DoctorNavBar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const markAllRead = () =>
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  const openProfile = () => {
+    setShowProfile((v) => {
+      const next = !v;
+      if (next && !profileStats) {
+        Promise.all([patientApi.listPatients(), doctorApi.getDashboard()])
+          .then(([patients, dashboard]) => {
+            setProfileStats({
+              patientCount: patients.length,
+              waitingCount: (dashboard.waiting_patients ?? []).length,
+            });
+          })
+          .catch(() => {});
+      }
+      return next;
+    });
+    setShowNotif(false);
+  };
 
-  const markOneRead = (id) =>
-    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  const markAllRead = () => {
+    doctorApi.markAllNotificationsRead()
+      .then(() => setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true }))))
+      .catch(() => {});
+  };
+
+  const markOneRead = (id) => {
+    doctorApi.markNotificationRead(id)
+      .then(() => setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n)))
+      .catch(() => {});
+  };
 
   return (
     <header className="bg-surface shadow-sm sticky top-0 z-50 border-b border-outline-variant">
@@ -153,12 +171,16 @@ export default function DoctorNavBar() {
                       <p className="text-label-md text-on-surface-variant">새로운 알림이 없습니다</p>
                     </div>
                   ) : notifications.map((n) => {
-                    const cfg = TYPE_CONFIG[n.type];
+                    const cfg = TYPE_CONFIG[n.type] ?? TYPE_CONFIG['missed'];
                     return (
                       <button
                         key={n.id}
-                        onClick={() => { markOneRead(n.id); navigate('/doctor/patient/info'); setShowNotif(false); }}
-                        className={`w-full text-left px-5 py-4 flex gap-3 hover:bg-surface-container-lowest transition-colors ${n.read ? 'opacity-60' : ''}`}
+                        onClick={() => {
+                          markOneRead(n.id);
+                          if (n.patient_id) navigate(`/doctor/patient/info/${n.patient_id}`);
+                          setShowNotif(false);
+                        }}
+                        className={`w-full text-left px-5 py-4 flex gap-3 hover:bg-surface-container-lowest transition-colors ${n.is_read ? 'opacity-60' : ''}`}
                       >
                         {/* 타입 아이콘 */}
                         <div className={`flex-shrink-0 w-9 h-9 rounded-full ${cfg.bg} border ${cfg.border} flex items-center justify-center mt-0.5`}>
@@ -173,14 +195,14 @@ export default function DoctorNavBar() {
                             <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${cfg.bg} ${cfg.color}`}>
                               {cfg.label}
                             </span>
-                            <span className="text-label-sm font-bold text-on-surface">{n.patient}</span>
+                            {n.patient && <span className="text-label-sm font-bold text-on-surface">{n.patient}</span>}
                           </div>
                           <p className="text-label-sm text-on-surface-variant leading-snug">{n.message}</p>
-                          <p className="text-[11px] text-outline mt-1">{n.time}</p>
+                          <p className="text-[11px] text-outline mt-1">{timeAgo(n.created_at)}</p>
                         </div>
 
                         {/* 미읽음 점 */}
-                        {!n.read && (
+                        {!n.is_read && (
                           <div className={`flex-shrink-0 w-2 h-2 rounded-full ${cfg.dot} mt-2`} />
                         )}
                       </button>
@@ -194,7 +216,7 @@ export default function DoctorNavBar() {
           {/* Profile icon + popup */}
           <div className="relative" ref={profileRef}>
             <button
-              onClick={() => { setShowProfile((v) => !v); setShowNotif(false); }}
+              onClick={openProfile}
               className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-container transition-colors"
             >
               <span className="material-symbols-outlined text-doctor-primary text-3xl">account_circle</span>
@@ -220,11 +242,15 @@ export default function DoctorNavBar() {
                   {/* Stats row */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <div className="bg-[#f0f6ff] rounded-xl p-3 text-center">
-                      <p className="text-title-md font-bold text-doctor-primary">12명</p>
+                      <p className="text-title-md font-bold text-doctor-primary">
+                        {profileStats ? `${profileStats.patientCount}명` : '—'}
+                      </p>
                       <p className="text-label-sm text-on-surface-variant mt-0.5">담당 환자</p>
                     </div>
                     <div className="bg-[#f0f6ff] rounded-xl p-3 text-center">
-                      <p className="text-title-md font-bold text-doctor-primary">3건</p>
+                      <p className="text-title-md font-bold text-doctor-primary">
+                        {profileStats ? `${profileStats.waitingCount}건` : '—'}
+                      </p>
                       <p className="text-label-sm text-on-surface-variant mt-0.5">처방 대기</p>
                     </div>
                   </div>
