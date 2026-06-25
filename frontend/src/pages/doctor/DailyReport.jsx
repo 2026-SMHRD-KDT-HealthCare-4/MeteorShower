@@ -25,37 +25,53 @@ function toKey(date) {
 }
 
 /* ── 처방 일정 컴포넌트 ── */
-function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
+function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = false, minEditableDate = null }) {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
 
   const enabled = prescription.filter((ex) => ex.enabled);
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const toggle = (name, dateStr) =>
+  const canEditDate = (dateStr) => !readOnly && (!minEditableDate || dateStr > minEditableDate);
+
+  const toggle = (name, dateStr) => {
+    if (!canEditDate(dateStr)) return;
     setSchedule((prev) => ({ ...prev, [`${name}|${dateStr}`]: !prev[`${name}|${dateStr}`] }));
+  };
 
   const isOn = (name, dateStr) => !!schedule[`${name}|${dateStr}`];
 
   const assignWeekdays = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.slice(0, 5).forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.slice(0, 5).forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const assignAll = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const clearWeek = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { delete next[`${name}|${toKey(d)}`]; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) delete next[`${name}|${dateStr}`];
+      })
     );
     setSchedule(next);
   };
@@ -124,15 +140,17 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
                 {weekDates.map((d, j) => {
                   const dateStr = toKey(d);
                   const on = isOn(ex.name, dateStr);
+                  const disabled = !canEditDate(dateStr);
                   return (
                     <td key={j} className="text-center px-2 py-3">
                       <button
                         onClick={() => toggle(ex.name, dateStr)}
+                        disabled={disabled}
                         className={`w-8 h-8 rounded-full text-label-sm font-bold transition-all active:scale-90
                           ${on
                             ? 'bg-doctor-primary text-white shadow-sm'
                             : 'bg-surface-container text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
-                          }`}
+                          } ${disabled ? 'cursor-not-allowed opacity-50 active:scale-100' : ''}`}
                       >
                         {on
                           ? <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1, 'wght' 700" }}>check</span>
@@ -153,19 +171,22 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
         <span className="text-label-sm text-on-surface-variant mr-1">빠른 설정:</span>
         <button
           onClick={assignWeekdays}
-          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors"
+          disabled={readOnly}
+          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           평일만
         </button>
         <button
           onClick={assignAll}
-          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors"
+          disabled={readOnly}
+          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           전체 선택
         </button>
         <button
           onClick={clearWeek}
-          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors"
+          disabled={readOnly}
+          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           이번 주 초기화
         </button>
@@ -330,6 +351,8 @@ export default function DailyReport() {
   const [reportBusy, setReportBusy]         = useState(false);
   const [dailyResult, setDailyResult]       = useState(null);
   const autoCreatingReportKey = useRef(null);
+  const prescriptionReadOnly = false;
+  const prescriptionMinEditableDate = toKey(new Date());
 
   const selectedPatient = patients.find((p) => String(p.patient_id) === String(selectedPatientId));
   const patientInfo = [
@@ -910,8 +933,9 @@ export default function DailyReport() {
               <span className="material-symbols-outlined text-base text-[#1a73e8]">auto_awesome</span>
               <span className="text-label-md text-on-surface font-medium">AI 난이도 조절</span>
               <button
+                disabled={prescriptionReadOnly}
                 onClick={() => setAiAdjust((v) => !v)}
-                className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${aiAdjust ? 'bg-doctor-primary' : 'bg-outline-variant'}`}
+                className={`relative w-11 h-6 rounded-full transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${aiAdjust ? 'bg-doctor-primary' : 'bg-outline-variant'}`}
               >
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${aiAdjust ? 'translate-x-[22px]' : 'translate-x-0'}`} />
               </button>
@@ -943,7 +967,8 @@ export default function DailyReport() {
                     <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => toggleEnabled(i)}
-                        className="flex items-center justify-center mx-auto w-5 h-5"
+                        disabled={prescriptionReadOnly}
+                        className="flex items-center justify-center mx-auto w-5 h-5 disabled:cursor-not-allowed"
                       >
                         <span
                           className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
@@ -970,7 +995,7 @@ export default function DailyReport() {
                         type="number"
                         min={1} max={10}
                         value={row.sets}
-                        disabled={!row.enabled}
+                        disabled={!row.enabled || prescriptionReadOnly}
                         onChange={(e) => updatePrescription(i, 'sets', Number(e.target.value))}
                         className="w-16 text-center border border-outline-variant rounded-lg py-1.5 text-label-md font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary disabled:opacity-40 disabled:cursor-not-allowed"
                       />
@@ -982,7 +1007,7 @@ export default function DailyReport() {
                         type="number"
                         min={1} max={30}
                         value={row.reps}
-                        disabled={!row.enabled}
+                        disabled={!row.enabled || prescriptionReadOnly}
                         onChange={(e) => updatePrescription(i, 'reps', Number(e.target.value))}
                         className="w-16 text-center border border-outline-variant rounded-lg py-1.5 text-label-md font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary disabled:opacity-40 disabled:cursor-not-allowed"
                       />
@@ -997,7 +1022,8 @@ export default function DailyReport() {
                     <td className="px-2 py-3 text-center">
                       <button
                         onClick={() => removePrescription(i)}
-                        className="text-on-surface-variant hover:text-error transition-colors"
+                        disabled={prescriptionReadOnly}
+                        className="text-on-surface-variant hover:text-error transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-on-surface-variant"
                         title="운동 삭제"
                       >
                         <span className="material-symbols-outlined text-base">close</span>
@@ -1013,7 +1039,7 @@ export default function DailyReport() {
           <div className="relative">
             <button
               onClick={() => setShowAddExercise((v) => !v)}
-              disabled={!selectedPatientId}
+              disabled={!selectedPatientId || prescriptionReadOnly}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-dashed border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined text-base">add</span>
@@ -1045,7 +1071,7 @@ export default function DailyReport() {
 
           <p className="text-label-sm text-on-surface-variant flex items-center gap-1.5 pt-1">
             <span className="material-symbols-outlined text-sm">info</span>
-            운동을 선택하고 아래 달력에서 날짜를 지정해야 저장할 수 있습니다.
+            오늘 이후 날짜의 처방 일정만 수정할 수 있습니다.
           </p>
 
           {/* 처방 일정 설정 */}
@@ -1055,7 +1081,13 @@ export default function DailyReport() {
               처방 일정 설정
             </h3>
           </div>
-          <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} />
+          <PrescriptionSchedule
+            prescription={prescription}
+            schedule={schedule}
+            setSchedule={setSchedule}
+            readOnly={prescriptionReadOnly}
+            minEditableDate={prescriptionMinEditableDate}
+          />
         </section>
 
         {/* ── 저장 / 발송 ── */}

@@ -501,31 +501,36 @@ def get_my_today_exercises(
     patient_id = int(payload["sub"])
     today = date.today()
 
-    prescriptions = (
-        db.query(Prescription)
-        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
-        .order_by(Prescription.prescription_date.desc())
+    schedules = (
+        db.query(ExerciseSchedule)
+        .join(
+            PrescriptionExercise,
+            PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id,
+        )
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(
+            Prescription.patient_id == patient_id,
+            ExerciseSchedule.exercise_date == today,
+        )
+        .order_by(Prescription.prescription_date.desc(), PrescriptionExercise.exercise_order)
         .all()
     )
 
     exercises = []
-    for prescription in prescriptions:
-        for pe in sorted(prescription.prescription_exercises, key=lambda x: x.exercise_order):
-            today_schedule = next((s for s in pe.schedules if s.exercise_date == today), None)
-            scheduled_today = today_schedule is not None
-            if not scheduled_today:
-                continue
-            exercises.append({
-                "id": pe.prescription_exercise_id,
-                "schedule_id": today_schedule.schedule_id if today_schedule else None,
-                "exercise_id": pe.exercise_id,
-                "name": pe.exercise.exercise_name,
-                "sets": pe.target_sets,
-                "reps": pe.target_reps,
-                "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
-                "status": "done" if today_schedule and today_schedule.sessions else "waiting",
-                "videoTime": _video_time_for_exercise(pe.exercise.exercise_name),
-            })
+    for schedule in schedules:
+        pe = schedule.prescription_exercise
+        exercise_name = pe.exercise.exercise_name
+        exercises.append({
+            "id": pe.prescription_exercise_id,
+            "schedule_id": schedule.schedule_id,
+            "exercise_id": pe.exercise_id,
+            "name": exercise_name,
+            "sets": pe.target_sets,
+            "reps": pe.target_reps,
+            "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
+            "status": "done" if schedule.sessions else "waiting",
+            "videoTime": _video_time_for_exercise(exercise_name),
+        })
 
     return exercises
 

@@ -114,6 +114,8 @@ def _save_prescription_from_report(
     db.add(prescription)
     db.flush()
 
+    base_schedule_date = report.report_date or date.today()
+
     for order, item in enumerate(enabled_exercises, start=1):
         exercise = db.query(Exercise).filter(Exercise.exercise_name == item.name).first()
         if not exercise:
@@ -141,10 +143,13 @@ def _save_prescription_from_report(
             name, _, date_text = key.partition("|")
             if name != item.name or not date_text:
                 continue
+            schedule_date = date.fromisoformat(date_text)
+            if schedule_date <= base_schedule_date:
+                continue
             db.add(
                 ExerciseSchedule(
                     prescription_exercise_id=prescription_exercise.prescription_exercise_id,
-                    exercise_date=date.fromisoformat(date_text),
+                    exercise_date=schedule_date,
                 )
             )
 
