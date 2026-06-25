@@ -351,12 +351,41 @@ def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST):
 
 def draw_animated_guide(frame, guide_frame_idx, guide_np):
     if guide_np is None: return
+    import numpy as np
+    
     h, w = frame.shape[:2]
     cx, cy = w // 2, h // 2 + 225
     gf = guide_np[guide_frame_idx % len(guide_np)]
+    
+    # 2D 투영 좌표 계산
     pts = [(int(cx + rel[0] * GUIDE_SCALE), int(cy + rel[1] * GUIDE_SCALE)) for rel in gf]
+
+    # 1. 홀로그램을 그릴 빈 검은색 캔버스 생성
+    overlay = np.zeros_like(frame, dtype=np.uint8)
+
+    # 2. 손바닥 면 채우기 (진하고 채도 높은 딥 블루)
+    palm_indices = [0, 1, 2, 5, 9, 13, 17]
+    palm_pts = np.array([pts[i] for i in palm_indices], np.int32)
+    # 배경에 묻히지 않도록 B=255, G=80, R=10 으로 설정
+    cv2.fillPoly(overlay, [cv2.convexHull(palm_pts)], (255, 150, 10)) 
+
+    # 3. 손가락 '살' 및 관절 노드
     for s_idx, e_idx in HAND_CONNECTIONS:
-        cv2.line(frame, pts[s_idx], pts[e_idx], (255, 0, 0), 3)
+        # 손가락 뼈대 (선명한 형광 스카이블루)
+        cv2.line(overlay, pts[s_idx], pts[e_idx], (255, 40, 0), thickness=20)
+        # 관절 코어 (완전한 흰색으로 뚫어줘서 대비를 극대화)
+        cv2.circle(overlay, pts[e_idx], 12, (255, 210, 0), -1)
+
+    # 4. 빛 번짐(Bloom) 효과
+    # 블러 반경을 (21, 21)로 줄여서 빛이 퍼지지 않고 밀도 있게 뭉치게 함
+    glow = cv2.GaussianBlur(overlay, (19, 19), 0)
+    
+    # 코어(overlay)의 비중을 0.9로 높여서 흐리멍덩해지는 것을 방지
+    hologram = cv2.addWeighted(overlay, 1.5, glow, 0.1, 0)
+
+    # 5. 최종 합성 ★★★ (가장 중요한 부분)
+    # 홀로그램의 투명도를 0.55 -> 0.85 로 대폭 올려서 사실상 불투명한 3D 오브젝트처럼 보이게 만듦
+    cv2.addWeighted(hologram, 0.95, frame, 1.0, 0, frame)
 
 
 def draw_hand(frame, landmarks, handedness, joint_signals=None):
