@@ -6,8 +6,15 @@ import threading
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from dotenv import load_dotenv
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 import uvicorn
+
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
+SECRET_KEY = os.environ["SECRET_KEY"]
+ALGORITHM = "HS256"
 
 sys.path.insert(0, os.path.dirname(__file__))
 from hand_tracking import run_tracking
@@ -119,7 +126,17 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("role") != "patient":
+            await websocket.close(code=4001)
+            return
+        patient_id = int(payload["sub"])
+    except (JWTError, KeyError, ValueError):
+        await websocket.close(code=4001)
+        return
+
     await manager.connect(websocket)
     try:
         while True:
@@ -127,7 +144,7 @@ async def websocket_endpoint(websocket: WebSocket):
             action = msg.get("action")
             if action == "start":
                 start_tracking(
-                    patient_id=msg.get("patient_id"),
+                    patient_id=patient_id,
                     doctor_id=msg.get("doctor_id"),
                     hand=msg.get("hand", "left"),
                     finger_rom_targets=msg.get("finger_rom_targets"),

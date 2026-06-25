@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 from jose import JWTError, jwt
 
 
-SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret")
+SECRET_KEY = os.environ["SECRET_KEY"]
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
 

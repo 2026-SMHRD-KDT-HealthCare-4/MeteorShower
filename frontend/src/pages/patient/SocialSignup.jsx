@@ -59,8 +59,7 @@ export default function SocialSignup() {
 
     setLoading(true);
     authApi.socialSignup({
-      social_platform: socialData.social_platform,
-      social_user_id:  socialData.social_user_id,
+      signup_token: socialData.signup_token,
       name,
       birth_date: birth,
       gender,
