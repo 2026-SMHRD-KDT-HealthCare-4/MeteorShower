@@ -60,7 +60,7 @@ function TrendChart({ fromVal, toVal, delta, isUp }) {
           {isUp ? `+${delta}%` : `${delta}%`}
         </p>
         <p className="text-[11px] md:text-label-lg font-bold leading-tight">
-          {isUp ? '상승했어요! 🎉' : '감소했어요 😓'}
+          {isUp ? '상승했어요!' : '감소했어요'}
         </p>
       </div>
     </div>
