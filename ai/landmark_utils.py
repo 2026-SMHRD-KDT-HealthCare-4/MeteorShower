@@ -169,6 +169,28 @@ def compute_palm_normal(coords):
     return n / norm
 
 
+def compute_guide_palm_normal(guide_np):
+    """가이드 (N,21,3) 전체 프레임의 손바닥 법선을 평균해 단위벡터로 반환.
+
+    프레임마다 법선이 들쭉날쭉(특히 주먹을 쥐는 구간 등)할 때 특정 프레임
+    하나만 보고 비교하면 오판하기 쉬워서, 전체 프레임의 법선을 모아 평균낸
+    뒤 정규화한 "대표 방향"을 한 번만 계산해 세션 내내 고정값으로 쓴다.
+    각 프레임의 compute_palm_normal 결과 중 유효한(None이 아닌) 것만 모아
+    평균하며, 유효한 법선이 하나도 없으면 None을 반환한다.
+    """
+    if guide_np is None or len(guide_np) == 0:
+        return None
+    normals = [compute_palm_normal(frame) for frame in guide_np]
+    normals = [n for n in normals if n is not None]
+    if not normals:
+        return None
+    mean_normal = np.mean(np.stack(normals, axis=0), axis=0)
+    norm = float(np.linalg.norm(mean_normal))
+    if norm < 1e-6:
+        return None
+    return mean_normal / norm
+
+
 def angle_between_vectors(a, b):
     """두 단위 벡터 사이각(0~180도). a 또는 b가 None이면 None."""
     if a is None or b is None:
