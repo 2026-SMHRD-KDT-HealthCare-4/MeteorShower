@@ -6,10 +6,13 @@ from pydantic import BaseModel
 from schemas.prescription import PrescriptionExerciseRequest
 
 
-class MockReportCreateRequest(BaseModel):
+class LlmReportCreateRequest(BaseModel):
     patient_id: int
     report_date: Optional[date] = None
     exercise_blocked: bool = False
+
+
+MockReportCreateRequest = LlmReportCreateRequest
 
 
 class ReportUpdateRequest(BaseModel):
