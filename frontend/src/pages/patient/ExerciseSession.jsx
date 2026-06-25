@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { patientApi, chatApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
@@ -69,7 +69,10 @@ export default function ExerciseSession() {
   const navigate    = useNavigate();
   const location    = useLocation();
   const { token }   = useAuth();
-  const exerciseInfo = location.state?.exercise;
+  const exerciseInfo  = location.state?.exercise;
+  const queue         = location.state?.queue        ?? [];
+  const queueIndex    = location.state?.queueIndex   ?? 0;
+  const nextExercise  = queue[queueIndex + 1] ?? null;
 
   const [showModal,    setShowModal]    = useState(false);
   const [modalError,   setModalError]   = useState('');
@@ -88,6 +91,7 @@ export default function ExerciseSession() {
   const audioRef      = useRef(null);
   const ttsQueueRef   = useRef([]);   // [{text, id}] — 직렬 재생용
   const ttsPlayingRef = useRef(false);
+  const sessionIdRef  = useRef(0);    // 다음 운동 이동 시 증가 → stale callback 무시용
 
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
 
@@ -189,7 +193,12 @@ export default function ExerciseSession() {
       setWsData(msg);
       latestDataRef.current = msg;
       if (msg.feedback_messages?.length) handleFeedbackMessages(msg.feedback_messages);
-      if (msg.session_end) saveExerciseResult('완료').finally(() => updatePhase('ended'));
+      if (msg.session_end) {
+        const sid = sessionIdRef.current;
+        saveExerciseResult('완료').finally(() => {
+          if (sessionIdRef.current === sid) updatePhase('ended');
+        });
+      }
     };
 
 
@@ -210,6 +219,26 @@ export default function ExerciseSession() {
   }, [saveExerciseResult, handleFeedbackMessages, exerciseInfo]);
 
   useEffect(() => () => wsRef.current?.close(), []);
+
+  /* ── 다음 운동으로 이동 시 상태 리셋 ─────────────────────────────── */
+  useLayoutEffect(() => {
+    sessionIdRef.current += 1;    // 이전 session_end .finally 콜백 무효화
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    savedRef.current      = false;
+    latestDataRef.current = null;
+    updatePhase('idle');
+    setShowModal(false);
+    setModalError('');
+    setFrame(null);
+    setWsData(null);
+    setSaveMessage('');
+    setConnectError('');
+    setFeedbackQueue([]);
+    setSelectedHand(null);
+    ttsQueueRef.current   = [];
+    ttsPlayingRef.current = false;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+  }, [location.key]);
 
   /* ── 파생 표시 값 ───────────────────────────────────────────────── */
   const similarity    = wsData?.similarity ?? null;
@@ -290,12 +319,28 @@ export default function ExerciseSession() {
             <p className="text-white text-3xl font-bold mb-2">운동 완료!</p>
             <p className="text-gray-300 text-sm mb-2">수고하셨습니다</p>
             {saveMessage && <p className="text-teal-300 text-sm mb-6">{saveMessage}</p>}
-            <button
-              onClick={() => { stopSession(); navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } }); }}
-              className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all"
-            >
-              돌아가기
-            </button>
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button
+                onClick={() => { stopSession(); navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } }); }}
+                className="px-8 py-3 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl transition-all"
+              >
+                돌아가기
+              </button>
+              {nextExercise && (
+                <button
+                  onClick={() => {
+                    stopSession();
+                    navigate('/patient/exercise/session', {
+                      state: { exercise: nextExercise, queue, queueIndex: queueIndex + 1 },
+                    });
+                  }}
+                  className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all flex items-center gap-2"
+                >
+                  다음 운동
+                  <span className="material-symbols-outlined text-base">arrow_forward</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
