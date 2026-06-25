@@ -27,7 +27,8 @@ export default function PatientLogin() {
   const handleSocialLogin = async (provider) => {
     const redirectUri = `${window.location.origin}/patient/auth/callback/${provider}`;
     try {
-      const { url } = await authApi.getSocialLoginUrl(provider, redirectUri);
+      const { url, state } = await authApi.getSocialLoginUrl(provider, redirectUri);
+      sessionStorage.setItem('oauthState', state);
       window.location.href = url;
     } catch {
       setLoginError('소셜 로그인 연결에 실패했습니다.');

@@ -18,7 +18,10 @@ export default function SocialCallback() {
     const state = searchParams.get('state') ?? '';
     const redirectUri = `${window.location.origin}/patient/auth/callback/${provider}`;
 
-    if (!code) {
+    const storedState = sessionStorage.getItem('oauthState');
+    sessionStorage.removeItem('oauthState');
+
+    if (!code || !storedState || state !== storedState) {
       navigate('/patient/login', { replace: true });
       return;
     }

@@ -1,30 +1,35 @@
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
+
+
+RehabPhase = Literal['초기', '중기', '후기']
+FingerType = Literal['엄지', '검지', '중지', '약지', '소지']
+JointType  = Literal['MCP', 'PIP', 'DIP', 'IP']
 
 
 class PatientUpdateRequest(BaseModel):
-    phone: Optional[str] = None
-    guardian_email: Optional[str] = None
+    phone: Optional[str] = Field(default=None, pattern=r'^\d{2,3}-\d{3,4}-\d{4}$')
+    guardian_email: Optional[EmailStr] = None
     report_consent: Optional[bool] = None
 
 
 class PatientAssignRequest(BaseModel):
-    surgery_area: Optional[str] = None
-    surgery_name: Optional[str] = None
+    surgery_area: Optional[str] = Field(default=None, max_length=50)
+    surgery_name: Optional[str] = Field(default=None, max_length=100)
     surgery_date: Optional[date] = None
     rehab_start_date: Optional[date] = None
-    current_rehab_phase: Optional[str] = None
+    current_rehab_phase: Optional[RehabPhase] = None
     appointment_date: Optional[date] = None
 
 
 class PatientMedicalUpdateRequest(BaseModel):
-    surgery_name: Optional[str] = None
-    surgery_area: Optional[str] = None
+    surgery_name: Optional[str] = Field(default=None, max_length=100)
+    surgery_area: Optional[str] = Field(default=None, max_length=50)
     surgery_date: Optional[date] = None
     rehab_start_date: Optional[date] = None
-    current_rehab_phase: Optional[str] = None
+    current_rehab_phase: Optional[RehabPhase] = None
     appointment_date: Optional[date] = None
 
 
@@ -34,8 +39,8 @@ class PatientRomUpdateRequest(BaseModel):
 
 
 class FingerAccuracyRequest(BaseModel):
-    finger_type: str
-    joint_type: str
+    finger_type: FingerType
+    joint_type: JointType
     max_angle: Optional[float] = None
     min_angle: Optional[float] = None
     avg_match_rate: Optional[float] = None
@@ -43,10 +48,10 @@ class FingerAccuracyRequest(BaseModel):
 
 class ExerciseSessionCreateRequest(BaseModel):
     schedule_id: int
-    performed_reps: Optional[int] = None
-    performed_sets: Optional[int] = None
-    progress_rate: Optional[float] = None
-    end_type: str = "완료"
+    performed_reps: Optional[int] = Field(default=None, ge=0)
+    performed_sets: Optional[int] = Field(default=None, ge=0)
+    progress_rate: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    end_type: Literal['완료', '운동차단', '중도종료'] = "완료"
     finger_accuracy: List[FingerAccuracyRequest] = []
 
 

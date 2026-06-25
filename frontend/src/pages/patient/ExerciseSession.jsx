@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { patientApi, chatApi } from '../../api';
+import { useAuth } from '../../context/AuthContext';
 import VoiceChatBot from '../../components/VoiceChatBot';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
+const WS_BASE_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
 
 
 // 운동 카드 이름(예: "왼손 태핑 (Tapping)", "오른손 그립 (Grip)")에서
@@ -67,6 +68,7 @@ function FeedbackPopup({ item, onDone }) {
 export default function ExerciseSession() {
   const navigate    = useNavigate();
   const location    = useLocation();
+  const { token }   = useAuth();
   const exerciseInfo = location.state?.exercise;
 
   const [showModal,    setShowModal]    = useState(false);
@@ -159,7 +161,7 @@ export default function ExerciseSession() {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     updatePhase('connecting');
 
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(`${WS_BASE_URL}?token=${token}`);
     wsRef.current = ws;
 
     ws.onopen = () => {

@@ -3,9 +3,11 @@ import random
 import secrets
 import string
 import uuid
+from datetime import datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from crud import doctor as doctor_crud
@@ -14,8 +16,8 @@ from database import get_db
 from dependencies import get_token_payload
 from models.patient import Patient
 from models.social_account import SocialAccount
-from schemas.auth import DoctorSignupRequest, LoginRequest, PatientSignupRequest
-from security import create_token, hash_password, verify_password
+from schemas.auth import DoctorProfileUpdateRequest, DoctorSignupRequest, LoginRequest, PatientSignupRequest
+from security import ALGORITHM, SECRET_KEY, create_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -42,10 +44,9 @@ async def _get_kakao_user_info(code: str, redirect_uri: str) -> dict:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         token_data = token_res.json()
-        print(f"[Kakao Token Response] {token_data}")
         access_token = token_data.get("access_token")
         if not access_token:
-            raise Exception(f"카카오 토큰 발급 실패: {token_data}")
+            raise Exception("카카오 액세스 토큰 발급 실패")
         user_res = await client.get(
             "https://kapi.kakao.com/v2/user/me",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -156,7 +157,7 @@ def get_me(
 
 @router.patch("/doctor/me")
 def update_doctor_profile(
-    body: dict,
+    body: DoctorProfileUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ):
@@ -165,7 +166,7 @@ def update_doctor_profile(
     doctor = doctor_crud.get_doctor_by_id(db, int(payload["sub"]))
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
-    allowed = {k: v for k, v in body.items() if k in ("email", "phone")}
+    allowed = {k: v for k, v in body.model_dump(exclude_none=True).items()}
     updated = doctor_crud.update_doctor(db, doctor, allowed)
     return {
         "id": updated.doctor_id,
@@ -260,12 +261,22 @@ def patient_login(body: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/social/{provider}/url")
 def get_social_login_url(provider: str, redirect_uri: str):
+    if provider not in ("kakao", "google", "naver"):
+        raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
+
+    state = jwt.encode(
+        {"type": "oauth_state", "provider": provider, "exp": datetime.utcnow() + timedelta(minutes=10)},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+
     if provider == "kakao":
         url = (
             f"https://kauth.kakao.com/oauth/authorize"
             f"?client_id={KAKAO_CLIENT_ID}"
             f"&redirect_uri={redirect_uri}"
             f"&response_type=code"
+            f"&state={state}"
         )
     elif provider == "google":
         url = (
@@ -274,9 +285,9 @@ def get_social_login_url(provider: str, redirect_uri: str):
             f"&redirect_uri={redirect_uri}"
             f"&response_type=code"
             f"&scope=email+profile"
+            f"&state={state}"
         )
-    elif provider == "naver":
-        state = secrets.token_hex(8)
+    else:
         url = (
             f"https://nid.naver.com/oauth2.0/authorize"
             f"?response_type=code"
@@ -284,9 +295,7 @@ def get_social_login_url(provider: str, redirect_uri: str):
             f"&redirect_uri={redirect_uri}"
             f"&state={state}"
         )
-    else:
-        raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
-    return {"url": url}
+    return {"url": url, "state": state}
 
 
 @router.post("/social/{provider}")
@@ -300,15 +309,23 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
     state = body.get("state", "")
 
     try:
+        state_payload = jwt.decode(state, SECRET_KEY, algorithms=[ALGORITHM])
+        if state_payload.get("type") != "oauth_state" or state_payload.get("provider") != provider:
+            raise ValueError()
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="유효하지 않은 요청입니다.")
+
+    try:
         if provider == "kakao":
             user_info = await _get_kakao_user_info(code, redirect_uri)
         elif provider == "google":
             user_info = await _get_google_user_info(code, redirect_uri)
         else:
             user_info = await _get_naver_user_info(code, redirect_uri, state)
-    except Exception as e:
-        print(f"[Social Login Error] {provider}: {e}")
-        raise HTTPException(status_code=400, detail=f"소셜 로그인 오류: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="소셜 로그인에 실패했습니다.")
 
     social_account = db.query(SocialAccount).filter(
         SocialAccount.social_platform == provider,
@@ -320,10 +337,17 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
         token = create_token(str(patient.patient_id), "patient")
         return {"token": token, "name": patient.name, "role": "patient"}
 
-    return {
-        "status": "need_signup",
+    signup_payload = {
+        "type": "social_signup",
         "social_platform": provider,
         "social_user_id": user_info["id"],
+        "exp": datetime.utcnow() + timedelta(minutes=10),
+    }
+    signup_token = jwt.encode(signup_payload, SECRET_KEY, algorithm=ALGORITHM)
+
+    return {
+        "status": "need_signup",
+        "signup_token": signup_token,
         "name": user_info.get("name", ""),
         "email": user_info.get("email", ""),
         "phone": user_info.get("phone", ""),
@@ -333,14 +357,25 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
 @router.post("/social-signup", status_code=201)
 async def social_signup(request: Request, db: Session = Depends(get_db)):
     body = await request.json()
-    social_platform = body.get("social_platform")
-    social_user_id  = body.get("social_user_id")
+    signup_token = body.get("signup_token")
     name       = body.get("name")
     birth_date = body.get("birth_date")
     gender     = body.get("gender")
     phone      = body.get("phone")
 
-    if not all([social_platform, social_user_id, name, birth_date, gender, phone]):
+    if not signup_token:
+        raise HTTPException(status_code=400, detail="필수 정보가 누락되었습니다.")
+
+    try:
+        token_payload = jwt.decode(signup_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if token_payload.get("type") != "social_signup":
+            raise ValueError()
+        social_platform = token_payload["social_platform"]
+        social_user_id  = token_payload["social_user_id"]
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="유효하지 않은 회원가입 토큰입니다.")
+
+    if not all([name, birth_date, gender, phone]):
         raise HTTPException(status_code=400, detail="필수 정보가 누락되었습니다.")
 
     existing = db.query(SocialAccount).filter(
