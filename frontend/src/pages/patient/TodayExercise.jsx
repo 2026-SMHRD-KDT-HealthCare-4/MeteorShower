@@ -308,7 +308,7 @@ function PreExamModal({ onConfirm, onClose, onBlocked }) {
   );
 }
 
-function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
+function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) {
   const navigate = useNavigate();
   const isDone = ex.status === 'done';
   const isInProgress = ex.status === 'in_progress';
@@ -318,7 +318,7 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
 
   const handleStart = () => {
     onStart(ex.id);
-    navigate('/patient/exercise/session', { state: { exercise: ex } });
+    navigate('/patient/exercise/session', { state: { exercise: ex, queue, queueIndex } });
   };
 
   return (
@@ -607,15 +607,21 @@ export default function TodayExercise() {
               오늘 운동을 불러오는 중입니다.
             </div>
           ) : sortedExercises.length > 0 ? (
-            sortedExercises.map((ex) => (
-              <ExerciseCard
-                key={ex.id}
-                ex={ex}
-                onStart={handleStart}
-                isBlocked={isBlocked}
-                onBlocked={() => setIsBlocked(true)}
-              />
-            ))
+            sortedExercises.map((ex) => {
+              const queue = sortedExercises.filter((e) => e.status !== 'done');
+              const queueIndex = queue.findIndex((e) => e.id === ex.id);
+              return (
+                <ExerciseCard
+                  key={ex.id}
+                  ex={ex}
+                  onStart={handleStart}
+                  isBlocked={isBlocked}
+                  onBlocked={() => setIsBlocked(true)}
+                  queue={queue}
+                  queueIndex={queueIndex}
+                />
+              );
+            })
           ) : (
             <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 text-center text-on-surface-variant">
               오늘 등록된 운동이 없습니다.
