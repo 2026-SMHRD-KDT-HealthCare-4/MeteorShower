@@ -30,7 +30,7 @@ from schemas.patient import (
     PatientUpdateRequest,
 )
 from schemas.prescription import PrescriptionSaveRequest
-from services.llm_report_generator import generate_daily_report_content
+from services.llm_report_generator import generate_daily_report_content, generate_monthly_report_summary
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -58,6 +58,19 @@ def _video_time_for_exercise(name: str) -> str:
     if "태핑" in name or "Tapping" in name or "두드리기" in name:
         return "00:24"
     return "00:14"
+
+
+def _avg_or_none(values):
+    values = [float(value) for value in values if value is not None]
+    return round(sum(values) / len(values), 1) if values else None
+
+
+def _round_or_none(value):
+    return round(float(value), 1) if value is not None else None
+
+
+def _finger_key(label: str):
+    return next((key for key, value in FINGER_LABELS.items() if value == label), label)
 
 
 def _parse_rom_key(key: str):
@@ -918,7 +931,7 @@ def get_patient_weekly_progress(
     days_since = (today - rehab_start).days
     total_weeks = min(max(1, days_since // 7 + 1), 12)
 
-    result = []
+    weeks = []
     for week_num in range(1, total_weeks + 1):
         week_start = rehab_start + timedelta(weeks=week_num - 1)
         week_end = week_start + timedelta(days=6)
@@ -939,49 +952,151 @@ def get_patient_weekly_progress(
         done_schedules = [s for s in schedules if s.sessions]
         done = len(done_schedules)
 
-        all_progress = [
-            float(log.progress_rate)
-            for s in done_schedules
-            for session in s.sessions
-            for log in session.logs
-            if log.progress_rate is not None
-        ]
-
-        compliance = round(done / total * 100) if total > 0 else 0
-        accuracy_avg = round(sum(all_progress) / len(all_progress)) if all_progress else 0
+        progress_values = []
+        match_values = []
 
         exercise_map: dict = {}
+        rom_map: dict = {}
         for s in schedules:
-            name = s.prescription_exercise.exercise.exercise_name
+            pe = s.prescription_exercise
+            name = pe.exercise.exercise_name
             if name not in exercise_map:
-                exercise_map[name] = {"total": 0, "done": 0, "progress": []}
+                exercise_map[name] = {"total": 0, "done": 0, "progress": [], "match": []}
             exercise_map[name]["total"] += 1
+
+            hand_type = _hand_type_from_exercise_name(name)
+            exercise_type = "tapping" if any(word in name for word in ["태핑", "Tapping", "두드리기"]) else "grip"
+            patient_rom_map = {
+                (setting.hand_type, setting.finger_type, setting.joint_type): float(setting.target_rom)
+                for setting in _get_patient_rom(db, patient_id, exercise_type)
+            }
+            prescription_rom_map = {
+                (setting.hand_type, setting.finger_type, setting.joint_type): float(setting.target_rom)
+                for setting in pe.finger_settings
+            }
+            target_rom_map = {**patient_rom_map, **prescription_rom_map}
+            exercise_rom = rom_map.setdefault(name, {})
+            for (target_hand, finger_type, joint_type), target_rom in target_rom_map.items():
+                if target_hand != hand_type:
+                    continue
+                exercise_rom.setdefault(
+                    (finger_type, joint_type),
+                    {
+                        "finger_type": finger_type,
+                        "joint_type": joint_type,
+                        "target_rom": target_rom,
+                        "min_values": [],
+                        "max_values": [],
+                        "match_values": [],
+                    },
+                )
+
             if s.sessions:
                 exercise_map[name]["done"] += 1
                 for session in s.sessions:
                     for log in session.logs:
                         if log.progress_rate is not None:
-                            exercise_map[name]["progress"].append(float(log.progress_rate))
+                            progress = float(log.progress_rate)
+                            progress_values.append(progress)
+                            exercise_map[name]["progress"].append(progress)
+                        for accuracy in log.finger_accuracies:
+                            target_rom = (
+                                prescription_rom_map.get((hand_type, accuracy.finger_type, accuracy.joint_type))
+                                or patient_rom_map.get((hand_type, accuracy.finger_type, accuracy.joint_type))
+                            )
+                            rom_item = exercise_rom.setdefault(
+                                (accuracy.finger_type, accuracy.joint_type),
+                                {
+                                    "finger_type": accuracy.finger_type,
+                                    "joint_type": accuracy.joint_type,
+                                    "target_rom": target_rom,
+                                    "min_values": [],
+                                    "max_values": [],
+                                    "match_values": [],
+                                },
+                            )
+                            if rom_item["target_rom"] is None:
+                                rom_item["target_rom"] = target_rom
+                            if accuracy.min_angle is not None:
+                                rom_item["min_values"].append(float(accuracy.min_angle))
+                            if accuracy.max_angle is not None:
+                                rom_item["max_values"].append(float(accuracy.max_angle))
+                            if accuracy.avg_match_rate is not None:
+                                match = float(accuracy.avg_match_rate)
+                                match_values.append(match)
+                                exercise_map[name]["match"].append(match)
+                                rom_item["match_values"].append(match)
+
+        compliance = round(done / total * 100) if total > 0 else None
+        accuracy_avg = _avg_or_none(match_values) or _avg_or_none(progress_values)
 
         exercises = [
             {
                 "name": name,
-                "compliance": round(v["done"] / v["total"] * 100) if v["total"] > 0 else 0,
-                "accuracy": round(sum(v["progress"]) / len(v["progress"])) if v["progress"] else 0,
+                "compliance": round(v["done"] / v["total"] * 100) if v["total"] > 0 else None,
+                "accuracy": _avg_or_none(v["match"]) or _avg_or_none(v["progress"]),
             }
             for name, v in exercise_map.items()
         ]
 
-        result.append({
+        rom = []
+        for exercise_name, items in rom_map.items():
+            fingers = []
+            for finger_type in ["엄지", "검지", "중지", "약지", "소지"]:
+                joints = []
+                for joint_type in ["MCP", "IP", "PIP", "DIP"]:
+                    item = items.get((finger_type, joint_type))
+                    if not item:
+                        continue
+                    max_angle = max(item["max_values"]) if item["max_values"] else None
+                    target_rom = item["target_rom"]
+                    achievement = (
+                        min(round(float(max_angle) / float(target_rom) * 100), 100)
+                        if max_angle is not None and target_rom
+                        else None
+                    )
+                    joints.append(
+                        {
+                            "name": joint_type,
+                            "ref": _round_or_none(target_rom),
+                            "max": _round_or_none(max_angle),
+                            "min": _round_or_none(min(item["min_values"]) if item["min_values"] else None),
+                            "avg": _avg_or_none(item["match_values"]),
+                            "achievement": achievement,
+                        }
+                    )
+                if joints:
+                    fingers.append(
+                        {
+                            "key": _finger_key(finger_type),
+                            "label": finger_type,
+                            "joints": joints,
+                        }
+                    )
+            rom.append(
+                {
+                    "key": exercise_name,
+                    "label": exercise_name,
+                    "fingers": fingers,
+                }
+            )
+
+        weeks.append({
             "week": f"{week_num}주차",
             "dates": f"{week_start.strftime('%Y.%m.%d')} ~ {week_end.strftime('%Y.%m.%d')}",
             "sessionCount": done,
             "overallCompliance": compliance,
             "accuracyAvg": accuracy_avg,
             "exercises": exercises,
+            "rom": rom,
         })
 
-    return result
+    llm_summary = generate_monthly_report_summary(patient, weeks)
+    return {
+        "weeks": weeks,
+        "summary": llm_summary.get("summary"),
+        "keywords": llm_summary.get("keywords") or [],
+    }
 
 
 @router.get("/{patient_id}")
