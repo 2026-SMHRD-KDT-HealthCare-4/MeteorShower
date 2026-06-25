@@ -14,7 +14,7 @@ def get_patient_by_id(db: Session, patient_id: int):
 
 
 def get_patients_by_doctor_id(db: Session, doctor_id: int):
-    return db.query(Patient).filter(Patient.doctor_id == doctor_id).all()
+    return db.query(Patient).filter(Patient.doctor_id == doctor_id).order_by(Patient.name).all()
 
 
 def get_patient_by_code(db: Session, patient_code: str):
