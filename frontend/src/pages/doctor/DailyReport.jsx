@@ -174,18 +174,6 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
   );
 }
 
-/* ── 더미 데이터 ── */
-const patientInfo = [
-  { label: '성명 (Name)',       value: '김망나뇽' },
-  { label: '환자번호 (Code)',   value: 'F310957194583' },
-  { label: '성별 (Gender)',     value: '남자' },
-  { label: '생년월일 (Birth)', value: '1960.01.02' },
-  { label: '수술명 (Surgery)', value: '손가락 골절 수술' },
-  { label: '수술일 (Date)',     value: '2026.01.01' },
-  { label: '진행 단계 (Stage)', value: '손가락 굽히기 운동' },
-  { label: '재활 시작일',       value: '2026.01.25' },
-];
-
 const exerciseResults = [
   { name: '엄지 (Thumb)',  value: 75, warn: false },
   { name: '검지 (Index)',  value: 82, warn: false },
@@ -344,6 +332,16 @@ export default function DailyReport() {
   const autoCreatingReportKey = useRef(null);
 
   const selectedPatient = patients.find((p) => String(p.patient_id) === String(selectedPatientId));
+  const patientInfo = [
+    { label: '성명 (Name)',       value: selectedPatient?.name },
+    { label: '환자번호 (Code)',   value: selectedPatient?.patient_code },
+    { label: '성별 (Gender)',     value: selectedPatient?.gender },
+    { label: '생년월일 (Birth)', value: selectedPatient?.birth_date },
+    { label: '수술명 (Surgery)', value: selectedPatient?.surgery_name },
+    { label: '수술일 (Date)',     value: selectedPatient?.surgery_date },
+    { label: '진행 단계 (Stage)', value: selectedPatient?.current_rehab_phase },
+    { label: '재활 시작일',       value: selectedPatient?.rehab_start_date },
+  ];
   const romByExercise = buildRomExercises(dailyResult?.exercises ?? []);
   const detailExerciseResults = (dailyResult?.exercises ?? [])
     .filter((exercise) => exercise.is_done)
@@ -654,7 +652,7 @@ export default function DailyReport() {
                   {item.label}
                 </div>
                 <div className="flex-1 min-w-0 px-3 sm:px-4 py-3 text-label-md sm:text-body-md text-on-surface truncate">
-                  {item.value}
+                  {item.value ?? '-'}
                 </div>
               </div>
             ))}
