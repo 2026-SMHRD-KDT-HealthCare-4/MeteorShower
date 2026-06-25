@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { patientApi, chatApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import VoiceChatBot from '../../components/VoiceChatBot';
+import NextExamModal from '../../components/NextExamModal';
 
 const WS_BASE_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
 
@@ -69,13 +70,15 @@ export default function ExerciseSession() {
   const navigate    = useNavigate();
   const location    = useLocation();
   const { token }   = useAuth();
-  const exerciseInfo  = location.state?.exercise;
-  const queue         = location.state?.queue        ?? [];
-  const queueIndex    = location.state?.queueIndex   ?? 0;
-  const nextExercise  = queue[queueIndex + 1] ?? null;
+  const exerciseInfo    = location.state?.exercise;
+  const queue           = location.state?.queue          ?? [];
+  const queueIndex      = location.state?.queueIndex     ?? 0;
+  const isNextExercise  = location.state?.isNextExercise ?? false;
+  const nextExercise    = queue[queueIndex + 1] ?? null;
 
   const [showModal,    setShowModal]    = useState(false);
   const [modalError,   setModalError]   = useState('');
+  const [showPreExam,  setShowPreExam]  = useState(false);
   const [phase,        setPhase]        = useState('idle');
   const [connectError, setConnectError] = useState('');
   const [frame,        setFrame]        = useState(null);
@@ -229,6 +232,7 @@ export default function ExerciseSession() {
     updatePhase('idle');
     setShowModal(false);
     setModalError('');
+    setShowPreExam(false);
     setFrame(null);
     setWsData(null);
     setSaveMessage('');
@@ -293,12 +297,20 @@ export default function ExerciseSession() {
             </div>
           )}
           <button
-            onClick={() => { setConnectError(''); connect(); }}
+            onClick={() => { setConnectError(''); isNextExercise ? setShowPreExam(true) : connect(); }}
             className="px-10 py-4 bg-teal-500 hover:bg-teal-400 text-white font-bold text-lg rounded-2xl shadow-xl shadow-teal-500/30 active:scale-95 transition-all"
           >
             운동 시작하기
           </button>
         </div>
+      )}
+
+      {showPreExam && (
+        <NextExamModal
+          onConfirm={() => { setShowPreExam(false); connect(); }}
+          onClose={() => setShowPreExam(false)}
+          onBlocked={() => { setShowPreExam(false); navigate('/patient/exercise'); }}
+        />
       )}
 
       {/* connecting */}
@@ -331,7 +343,7 @@ export default function ExerciseSession() {
                   onClick={() => {
                     stopSession();
                     navigate('/patient/exercise/session', {
-                      state: { exercise: nextExercise, queue, queueIndex: queueIndex + 1 },
+                      state: { exercise: nextExercise, queue, queueIndex: queueIndex + 1, isNextExercise: true },
                     });
                   }}
                   className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all flex items-center gap-2"
