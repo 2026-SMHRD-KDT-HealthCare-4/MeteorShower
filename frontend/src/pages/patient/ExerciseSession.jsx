@@ -204,6 +204,8 @@ export default function ExerciseSession() {
   const accuracyLabel = similarity == null ? '—' : similarity >= 80 ? 'Excellent' : similarity >= 50 ? 'Good' : 'Keep Going';
   const signalClass   = signal === 'green' ? 'text-teal-300' : signal === 'yellow' ? 'text-yellow-300' : 'text-red-400';
   const barClass      = signal === 'green' ? 'bg-teal-400'   : signal === 'yellow' ? 'bg-yellow-400'   : 'bg-red-400';
+  const orientAngle   = wsData?.orient_angle ?? null;
+  const isTilted      = orientAngle !== null && orientAngle > 30;
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0c1a1a]">
@@ -361,6 +363,16 @@ export default function ExerciseSession() {
               <span className="material-symbols-outlined text-base">stop_circle</span>
               종료
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 손 방향 틀어짐 경고 배너 ── */}
+      {phase === 'running' && isTilted && (
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+          <div className="flex items-center gap-2 bg-yellow-400/90 backdrop-blur-sm text-black font-semibold text-sm px-5 py-2.5 rounded-full shadow-lg">
+            <span className="material-symbols-outlined text-base">rotate_right</span>
+            손을 가이드 방향에 맞게 돌려주세요
           </div>
         </div>
       )}
