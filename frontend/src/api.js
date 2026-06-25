@@ -14,6 +14,7 @@ async function request(method, path, body = null) {
     method,
     headers,
     body: body !== null ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
   });
 
   if (!res.ok) {

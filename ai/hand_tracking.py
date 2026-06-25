@@ -1067,7 +1067,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 time.sleep(0.001)
 
         cap.release()
-        cv2.destroyAllWindows()
+        if show_window:
+            cv2.destroyAllWindows()
 
         print_angle_summary(angle_stats, angle_sample_frames)
 

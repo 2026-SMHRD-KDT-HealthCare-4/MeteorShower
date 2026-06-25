@@ -24,9 +24,12 @@ export function AuthProvider({ children }) {
   const login = (userData, accessToken, remember = false) => {
     setUser(userData);
     setToken(accessToken);
-    const storage = remember ? localStorage : sessionStorage;
+    const storage      = remember ? localStorage : sessionStorage;
+    const otherStorage = remember ? sessionStorage : localStorage;
     storage.setItem('user', JSON.stringify(userData));
     storage.setItem('token', accessToken);
+    otherStorage.removeItem('user');
+    otherStorage.removeItem('token');
   };
 
   const logout = () => {
