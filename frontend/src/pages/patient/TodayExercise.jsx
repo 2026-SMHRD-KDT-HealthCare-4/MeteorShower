@@ -325,7 +325,7 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
     <div
       className={`bg-surface-container-lowest rounded-xl p-4 flex flex-col md:flex-row gap-gutter items-center transition-all duration-300 relative
         ${isInProgress ? 'border-2 border-primary/30 shadow-md overflow-hidden' : 'border border-outline-variant hover:shadow-md'}
-        ${isDone ? 'opacity-40 pointer-events-none' : ''}
+        ${isDone ? 'opacity-60' : ''}
       `}
     >
       {isInProgress && <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-xl" />}
@@ -383,10 +383,11 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
       <div className="w-full md:w-auto">
         {isDone ? (
           <button
-            disabled
-            className="w-full md:w-32 h-12 border border-primary text-primary text-label-md rounded-lg cursor-not-allowed"
+            onClick={() => setShowModal(true)}
+            className="w-full md:w-32 h-12 border border-primary text-primary text-label-md rounded-lg hover:bg-primary/10 transition-all active:scale-95 flex items-center justify-center gap-1"
           >
-            운동 완료
+            <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+            재시작
           </button>
         ) : isBlocked ? (
           <button
