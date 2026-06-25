@@ -132,8 +132,10 @@ export default function ExerciseSession() {
   const saveExerciseResult = useCallback((endType = '완료') => {
     if (savedRef.current || !exerciseInfo?.schedule_id) return Promise.resolve();
     savedRef.current = true;
-    const latest   = latestDataRef.current ?? {};
-    const progress = latest.similarity == null ? null : Number(latest.similarity.toFixed(2));
+    const latest      = latestDataRef.current ?? {};
+    const doneReps    = ((latest.set ?? 1) - 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1) + (latest.count ?? 0);
+    const totalReps   = (latest.total_sets ?? exerciseInfo?.sets ?? 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1);
+    const progress    = endType === '완료' ? 100 : totalReps > 0 ? Math.min(100, Math.round(doneReps / totalReps * 100)) : null;
 
     const payload = {
       schedule_id:    exerciseInfo.schedule_id,
