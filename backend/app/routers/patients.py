@@ -510,6 +510,7 @@ def get_my_today_exercises(
         .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
         .filter(
             Prescription.patient_id == patient_id,
+            Prescription.status == "적용중",
             ExerciseSchedule.exercise_date == today,
         )
         .order_by(Prescription.prescription_date.desc(), PrescriptionExercise.exercise_order)

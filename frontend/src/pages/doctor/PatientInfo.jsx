@@ -224,7 +224,8 @@ export default function PatientInfo() {
   const [aiAdjust, setAiAdjust] = useState(true);
   const [aiJustSaved, setAiJustSaved] = useState(false);
   const [schedule, setSchedule] = useState({});
-  const [justSaved, setJustSaved] = useState(false);
+  const [justSaved,  setJustSaved]  = useState(false);
+  const [isSaving,   setIsSaving]   = useState(false);
   const [selectedSession, setSelectedSession] = useState(0);
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
   const [isEditing, setIsEditing] = useState(true);
@@ -328,7 +329,8 @@ export default function PatientInfo() {
   const canSave = hasChecked && hasSchedule;
 
   const handleSave = () => {
-    if (!canSave) return;
+    if (!canSave || isSaving) return;
+    setIsSaving(true);
     patientApi.savePatientPrescription(patientId, {
       rehab_phase: patient?.current_rehab_phase || undefined,
       exercises: prescription,
@@ -340,7 +342,8 @@ export default function PatientInfo() {
         setIsEditing(false);
         setTimeout(() => setJustSaved(false), 2000);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsSaving(false));
   };
 
   const handleEditStart = () => {
@@ -1010,34 +1013,38 @@ export default function PatientInfo() {
 
         {/* 저장 / 취소 */}
         {isEditing && (
-        <div className="flex justify-end gap-3 pb-4">
-          {!isEditing && (
+          <div className="flex justify-end gap-3 pb-4">
             <button
               onClick={handleEditCancel}
-              className="px-6 py-3 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md"
+              disabled={isSaving}
+              className="px-6 py-3 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               취소
             </button>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!canSave}
-            className={`flex items-center gap-2 px-6 sm:px-8 py-3 font-semibold rounded-xl transition-opacity shadow-md text-label-md
-              ${canSave ? 'bg-doctor-primary text-white hover:opacity-90' : 'bg-surface-container text-on-surface-variant cursor-not-allowed opacity-50'}`}
-          >
-            {justSaved ? (
-              <>
-                <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                저장 완료
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-base">save</span>
-                저장 (Save)
-              </>
-            )}
-          </button>
-        </div>
+            <button
+              onClick={handleSave}
+              disabled={!canSave || isSaving}
+              className={`flex items-center gap-2 px-6 sm:px-8 py-3 font-semibold rounded-xl transition-opacity shadow-md text-label-md
+                ${canSave && !isSaving ? 'bg-doctor-primary text-white hover:opacity-90' : 'bg-surface-container text-on-surface-variant cursor-not-allowed opacity-50'}`}
+            >
+              {isSaving ? (
+                <>
+                  <span className="material-symbols-outlined text-base animate-spin">progress_activity</span>
+                  저장 중...
+                </>
+              ) : justSaved ? (
+                <>
+                  <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                  저장 완료
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-base">save</span>
+                  저장 (Save)
+                </>
+              )}
+            </button>
+          </div>
         )}
 
       </main>
