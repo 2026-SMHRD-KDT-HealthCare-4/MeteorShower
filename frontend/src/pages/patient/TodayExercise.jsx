@@ -325,7 +325,7 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
     <div
       className={`bg-surface-container-lowest rounded-xl p-4 flex flex-col md:flex-row gap-gutter items-center transition-all duration-300 relative
         ${isInProgress ? 'border-2 border-primary/30 shadow-md overflow-hidden' : 'border border-outline-variant hover:shadow-md'}
-        ${isDone ? 'opacity-40 pointer-events-none' : ''}
+        ${isDone ? 'opacity-60' : ''}
       `}
     >
       {isInProgress && <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-xl" />}
@@ -383,10 +383,11 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
       <div className="w-full md:w-auto">
         {isDone ? (
           <button
-            disabled
-            className="w-full md:w-32 h-12 border border-primary text-primary text-label-md rounded-lg cursor-not-allowed"
+            onClick={() => setShowModal(true)}
+            className="w-full md:w-32 h-12 border border-primary text-primary text-label-md rounded-lg hover:bg-primary/10 transition-all active:scale-95 flex items-center justify-center gap-1"
           >
-            운동 완료
+            <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+            재시작
           </button>
         ) : isBlocked ? (
           <button
@@ -421,22 +422,27 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked }) {
 
 export default function TodayExercise() {
   const { user, token } = useAuth();
-  const { key: locationKey } = useLocation();
+  const { key: locationKey, state: navState } = useLocation();
+  const doneId = navState?.doneId ?? null;
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weeklyStats, setWeeklyStats] = useState([]);
   const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
-    console.log('[TodayExercise] useEffect 실행, locationKey:', locationKey);
     setLoading(true);
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     setIsBlocked(localStorage.getItem(getBlockedKey(token)) === today);
 
     patientApi.getTodayExercises()
-      .then((data) => { console.log('[TodayExercise] 데이터 수신:', data); setExercises(data); })
-      .catch((err) => { console.error('[TodayExercise] API 실패:', err); setExercises(INITIAL_EXERCISES); })
+      .then((data) => {
+        const updated = doneId
+          ? data.map((ex) => ex.id === doneId ? { ...ex, status: 'done' } : ex)
+          : data;
+        setExercises(updated);
+      })
+      .catch(() => setExercises(INITIAL_EXERCISES))
       .finally(() => setLoading(false));
 
     patientApi.getWeeklyStats()
