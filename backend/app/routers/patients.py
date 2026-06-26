@@ -97,6 +97,23 @@ def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date
     return schedule
 
 
+def _first_schedule_log(schedule: ExerciseSchedule):
+    session = schedule.sessions[0] if schedule.sessions else None
+    return session.logs[0] if session and session.logs else None
+
+
+def _progress_from_log(log):
+    if not log or log.progress_rate is None:
+        return 0
+    return min(100, max(0, round(float(log.progress_rate))))
+
+
+def _exercise_status_from_log(log):
+    if not log:
+        return "waiting"
+    return "done" if _progress_from_log(log) >= 100 else "partial"
+
+
 def _finger_key(label: str):
     return next((key for key, value in FINGER_LABELS.items() if value == label), label)
 
@@ -560,33 +577,33 @@ def get_my_today_exercises(
 
     exercises = []
     added_keys = set()
-    # 적용중 처방의 스케줄을 항상 먼저 채택한다 — 의사가 방금 재처방했다면 그 최신
-    # 값(target_reps/target_sets)이 화면에 우선 반영되어야 한다. 같은 이름의 운동을
-    # 오늘 다른(특히 종료된) 처방으로 이미 완료한 세션이 있어도, 적용중 처방에 그
-    # 운동이 있는 한 그 세션은 화면에서 적용중 처방 쪽 스케줄로 대체된다.
+    attempted_schedules = [schedule for schedule in completed_schedules if schedule.sessions]
+    attempted_by_key = {
+        (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date): schedule
+        for schedule in attempted_schedules
+    }
     schedules = list(active_schedules)
     active_keys = {
         (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date)
         for schedule in schedules
     }
-    # completed_schedules(세션이 기록된 스케줄)는 적용중 처방에 같은 이름의 운동이
-    # 없을 때만 보조로 추가한다(예: 재처방으로 그 운동 자체가 빠진 경우에도 완료
-    # 기록은 보존해서 보여준다).
     schedules.extend(
         schedule
-        for schedule in completed_schedules
-        if schedule.sessions
-        and (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date) not in active_keys
+        for schedule in attempted_schedules
+        if (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date) not in active_keys
     )
     for schedule in schedules:
         pe = schedule.prescription_exercise
         exercise_name = pe.exercise.exercise_name
-        key = (exercise_name, schedule.exercise_date, "done" if schedule.sessions else "waiting")
+        schedule_key = (exercise_name, schedule.exercise_date)
+        log_source = schedule if schedule.sessions else attempted_by_key.get(schedule_key, schedule)
+        log = _first_schedule_log(log_source)
+        progress_rate = _progress_from_log(log)
+        status_text = _exercise_status_from_log(log)
+        key = (exercise_name, schedule.exercise_date, status_text)
         if key in added_keys:
             continue
         added_keys.add(key)
-        session = schedule.sessions[0] if schedule.sessions else None
-        log = session.logs[0] if session and session.logs else None
         exercises.append({
             "id": pe.prescription_exercise_id,
             "schedule_id": schedule.schedule_id,
@@ -595,9 +612,9 @@ def get_my_today_exercises(
             "sets": pe.target_sets,
             "reps": pe.target_reps,
             "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
-            "status": "done" if schedule.sessions else "waiting",
+            "status": status_text,
             "videoTime": _video_time_for_exercise(exercise_name),
-            "progress_rate": float(log.progress_rate) if log and log.progress_rate is not None else None,
+            "progress_rate": progress_rate,
         })
 
     return exercises
@@ -631,8 +648,9 @@ def get_my_weekly_stats(
             .all()
         )
         total = len(schedules)
-        done = sum(1 for s in schedules if s.sessions)
-        rate = round(done / total * 100) if total > 0 else 0
+        progress_values = [_progress_from_log(_first_schedule_log(s)) for s in schedules]
+        done = sum(1 for value in progress_values if value >= 100)
+        rate = round(sum(progress_values) / total) if total > 0 else 0
         result.append({
             "day": day_labels[i],
             "date": day_date.isoformat(),
@@ -670,7 +688,26 @@ def create_my_exercise_session(
     )
     if existing:
         log = existing.logs[0] if existing.logs else None
+        now = datetime.now()
         if log:
+            log.performed_reps = body.performed_reps
+            log.performed_sets = body.performed_sets
+            log.progress_rate = body.progress_rate
+            log.end_time = now
+            log.end_type = body.end_type
+            _save_finger_accuracy_items(db, log, body.finger_accuracy)
+            db.flush()
+        else:
+            log = RehabExerciseLog(
+                rehab_session_id=existing.rehab_session_id,
+                performed_reps=body.performed_reps,
+                performed_sets=body.performed_sets,
+                progress_rate=body.progress_rate,
+                end_time=now,
+                end_type=body.end_type,
+            )
+            db.add(log)
+            db.flush()
             _save_finger_accuracy_items(db, log, body.finger_accuracy)
             db.flush()
         _ensure_pending_report_for_exercise(db, patient, schedule, log)
@@ -903,8 +940,8 @@ def get_patient_daily_exercise_result(
 
     exercise_results = []
     total_logs = 0
-    done_count = 0
     progress_values = []
+    schedule_progress_values = []
     match_values = []
 
     for schedule in schedules:
@@ -926,9 +963,14 @@ def get_patient_daily_exercise_result(
         log = session.logs[0] if session and session.logs else None
         total_logs += 1
         if log:
-            done_count += 1
             if log.progress_rate is not None:
-                progress_values.append(float(log.progress_rate))
+                progress = float(log.progress_rate)
+                progress_values.append(progress)
+                schedule_progress_values.append(progress)
+            else:
+                schedule_progress_values.append(0)
+        else:
+            schedule_progress_values.append(0)
 
         finger_accuracy = []
         if log:
@@ -963,7 +1005,7 @@ def get_patient_daily_exercise_result(
             "finger_accuracy": finger_accuracy,
         })
 
-    overall_compliance = round(done_count / total_logs * 100) if total_logs else 0
+    overall_compliance = round(sum(schedule_progress_values) / total_logs) if total_logs else 0
     accuracy_average = round(sum(match_values) / len(match_values), 1) if match_values else (
         round(sum(progress_values) / len(progress_values), 1) if progress_values else 0
     )
