@@ -37,10 +37,10 @@ HOLOGRAM_SAT_BASE               = 1.00
 HOLOGRAM_SAT_BRIGHTNESS_GAIN    = 1.20
 HOLOGRAM_SAT_MIN                = 1.00
 HOLOGRAM_SAT_MAX                = 2.20
-HOLOGRAM_VAL_BASE               = 1.40
-HOLOGRAM_VAL_BRIGHTNESS_GAIN    = -0.25  # 배경 밝을수록 명도를 살짝 낮춰 대비는 유지하되, 전반적으로는 항상 원본보다 밝게
-HOLOGRAM_VAL_MIN                = 1.00
-HOLOGRAM_VAL_MAX                = 1.40
+HOLOGRAM_VAL_BASE               = 1.05
+HOLOGRAM_VAL_BRIGHTNESS_GAIN    = -0.25  # 배경 밝을수록 명도를 낮춰 대비를 만듦
+HOLOGRAM_VAL_MIN                = 0.80
+HOLOGRAM_VAL_MAX                = 1.05
 
 
 def draw_animated_guide(frame, guide_frame_idx, guide_np):
