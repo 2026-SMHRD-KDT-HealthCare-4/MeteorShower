@@ -111,7 +111,7 @@ def build_daily_report_data(
         "pinky_pip": [],
         "pinky_dip": [],
     }
-    done_count = 0
+    recorded_count = 0
     duration_minutes = 0
     overload_notes: list[str] = []
 
@@ -125,9 +125,11 @@ def build_daily_report_data(
         if not log:
             continue
 
-        done_count += 1
+        recorded_count += 1
         if log.progress_rate is not None:
             progress_values.append(float(log.progress_rate))
+        else:
+            progress_values.append(0)
         if session.start_time and log.end_time:
             duration_minutes += max(0, round((log.end_time - session.start_time).total_seconds() / 60))
         if log.end_type and log.end_type != "완료":
@@ -151,7 +153,7 @@ def build_daily_report_data(
                         rom_values[key].append(float(accuracy.max_angle))
 
     total_count = len(schedules)
-    overall_compliance = round(done_count / total_count * 100) if total_count else 0
+    overall_compliance = round(sum(progress_values) / total_count) if total_count else 0
     accuracy_average = _average(match_values) or _average(progress_values)
     exercise_list = ", ".join(dict.fromkeys(exercise_names)) if exercise_names else "저장된 운동 없음"
 
@@ -164,7 +166,7 @@ def build_daily_report_data(
         "rehab_start_date": _date_text(patient.rehab_start_date),
         "rehab_stage": patient.current_rehab_phase or "미지정",
         "session_date": report_date.isoformat(),
-        "session_status": "운동차단" if exercise_blocked else ("정상종료" if done_count else "운동기록 없음"),
+        "session_status": "운동차단" if exercise_blocked else ("운동기록 있음" if recorded_count else "운동기록 없음"),
         "is_blocked": exercise_blocked,
         "block_reason": "사전 문진에서 운동 차단으로 기록되었습니다." if exercise_blocked else "",
         "exercise_duration": duration_minutes,
