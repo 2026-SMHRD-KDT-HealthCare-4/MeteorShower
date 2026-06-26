@@ -21,50 +21,6 @@ function parseExerciseName(name = '') {
 const HAND_LABEL = { left: '왼손', right: '오른손' };
 const TYPE_LABEL = { full_fist: '그립', tapping: '태핑' };
 
-/* ── 피드백 팝업 ─────────────────────────────────────────────────── */
-const LEVEL_STYLE = {
-  yellow: {
-    bg:   'bg-yellow-400/90',
-    icon: 'warning',
-    text: 'text-gray-900',
-  },
-  red: {
-    bg:   'bg-red-500/90',
-    icon: 'emergency',
-    text: 'text-white',
-  },
-};
-
-function FeedbackPopup({ item, onDone }) {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const hide  = setTimeout(() => setVisible(false), 3200);
-    const clean = setTimeout(onDone,                  3700);
-    return () => { clearTimeout(hide); clearTimeout(clean); };
-  }, [onDone]);
-
-  const style = LEVEL_STYLE[item.level] ?? LEVEL_STYLE.yellow;
-
-  return (
-    <div
-      className={`flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-sm
-        ${style.bg} ${style.text}
-        transition-all duration-500
-        ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'}`}
-      style={{ minWidth: 260, maxWidth: 360 }}
-    >
-      <span
-        className="material-symbols-outlined text-2xl shrink-0"
-        style={{ fontVariationSettings: "'FILL' 1" }}
-      >
-        {style.icon}
-      </span>
-      <p className="text-sm font-semibold leading-snug">{item.message}</p>
-    </div>
-  );
-}
-
 /* ── 메인 컴포넌트 ───────────────────────────────────────────────── */
 export default function ExerciseSession() {
   const navigate    = useNavigate();
@@ -84,7 +40,6 @@ export default function ExerciseSession() {
   const [frame,        setFrame]        = useState(null);
   const [wsData,       setWsData]       = useState(null);
   const [saveMessage,  setSaveMessage]  = useState('');
-  const [feedbackQueue, setFeedbackQueue] = useState([]);
   const [selectedHand, setSelectedHand] = useState(null); // 세션 시작 시 보낸 hand('left'/'right')
 
   const wsRef         = useRef(null);
@@ -92,48 +47,9 @@ export default function ExerciseSession() {
   const savedRef      = useRef(false);
   const latestDataRef = useRef(null);
   const audioRef      = useRef(null);
-  const ttsQueueRef   = useRef([]);   // [{text, id}] — 직렬 재생용
-  const ttsPlayingRef = useRef(false);
   const sessionIdRef  = useRef(0);    // 다음 운동 이동 시 증가 → stale callback 무시용
 
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
-
-  /* ── TTS 직렬 재생 ──────────────────────────────────────────────── */
-  const playNextTts = useCallback(() => {
-    if (ttsPlayingRef.current || ttsQueueRef.current.length === 0) return;
-    const { text } = ttsQueueRef.current.shift();
-    ttsPlayingRef.current = true;
-
-    chatApi.tts(text)
-      .then(({ audio_base64 }) => {
-        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
-        audioRef.current = audio;
-        audio.onended = () => {
-          ttsPlayingRef.current = false;
-          playNextTts();
-        };
-        audio.onerror = () => {
-          ttsPlayingRef.current = false;
-          playNextTts();
-        };
-        audio.play();
-      })
-      .catch(() => {
-        ttsPlayingRef.current = false;
-        playNextTts();
-      });
-  }, []);
-
-  /* ── 피드백 메시지 처리 ─────────────────────────────────────────── */
-  const handleFeedbackMessages = useCallback((messages) => {
-    if (!messages || messages.length === 0) return;
-    messages.forEach((msg) => {
-      const id = `${Date.now()}-${Math.random()}`;
-      setFeedbackQueue((prev) => [...prev, { ...msg, id }]);
-      ttsQueueRef.current.push({ text: msg.message, id });
-      playNextTts();
-    });
-  }, [playNextTts]);
 
   /* ── 운동 결과 저장 ─────────────────────────────────────────────── */
   const saveExerciseResult = useCallback((endType = '완료') => {
@@ -195,7 +111,6 @@ export default function ExerciseSession() {
       if (msg.frame)   setFrame(msg.frame);
       setWsData(msg);
       latestDataRef.current = msg;
-      if (msg.feedback_messages?.length) handleFeedbackMessages(msg.feedback_messages);
       if (msg.session_end) {
         const sid = sessionIdRef.current;
         saveExerciseResult('완료').finally(() => {
@@ -219,7 +134,7 @@ export default function ExerciseSession() {
       }
       updatePhase('idle');
     };
-  }, [saveExerciseResult, handleFeedbackMessages, exerciseInfo]);
+  }, [saveExerciseResult, exerciseInfo]);
 
   useEffect(() => () => wsRef.current?.close(), []);
 
@@ -237,10 +152,7 @@ export default function ExerciseSession() {
     setWsData(null);
     setSaveMessage('');
     setConnectError('');
-    setFeedbackQueue([]);
     setSelectedHand(null);
-    ttsQueueRef.current   = [];
-    ttsPlayingRef.current = false;
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
   }, [location.key]);
 
@@ -263,6 +175,24 @@ export default function ExerciseSession() {
   const barClass      = signal === 'green' ? 'bg-teal-400'   : signal === 'yellow' ? 'bg-yellow-400'   : 'bg-red-400';
   const orientAngle   = wsData?.orient_angle ?? null;
   const isTilted      = orientAngle !== null && orientAngle > 30;
+
+  /* ── 손 방향 틀어짐 TTS (isTilted 변화 시에만 실행) ────────────── */
+  useEffect(() => {
+    if (!isTilted) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      return;
+    }
+    chatApi.tts('손을 가이드 방향에 맞게 돌려주세요')
+      .then(({ audio_base64 }) => {
+        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
+        audioRef.current = audio;
+        audio.play();
+      })
+      .catch(() => {});
+  }, [isTilted]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0c1a1a]">
@@ -463,17 +393,6 @@ export default function ExerciseSession() {
           </div>
         </div>
       )}
-
-      {/* ── 피드백 팝업 (한 번에 1개만) ── */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
-        {feedbackQueue.slice(0, 1).map((item) => (
-          <FeedbackPopup
-            key={item.id}
-            item={item}
-            onDone={() => setFeedbackQueue((prev) => prev.filter((f) => f.id !== item.id))}
-          />
-        ))}
-      </div>
 
       <VoiceChatBot />
 
