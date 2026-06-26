@@ -225,7 +225,7 @@ def _report_summary(report: LlmReport) -> dict:
 
 
 def _report_detail(report: LlmReport, db: Session, include_draft: bool = True) -> dict:
-    content = report.edited_content or report.draft_content
+    content = report.draft_content
     prescription = _latest_active_prescription(db, report.patient_id)
     exercises = _prescription_exercises_to_dict(prescription)
     achievements = _get_date_achievements(db, report.patient_id, report.report_date)
@@ -240,6 +240,16 @@ def _report_detail(report: LlmReport, db: Session, include_draft: bool = True) -
     }
     if include_draft:
         data["draft_content"] = report.draft_content
+    return data
+
+
+def _patient_report_detail(report: LlmReport, db: Session) -> dict:
+    if not report.edited_content:
+        raise HTTPException(status_code=404, detail="Report not found")
+    data = _report_detail(report, db, include_draft=False)
+    data["content"] = report.edited_content
+    data["edited_content"] = report.edited_content
+    data["approval_status"] = "승인"
     return data
 
 
@@ -323,12 +333,9 @@ def approve_my_doctor_report(
         raise HTTPException(status_code=404, detail="Report not found")
     _require_doctor_report_access(report, int(payload["sub"]))
 
-    if body.edited_content:
-        report.edited_content = body.edited_content
-
     was_approved = report.approval_status == "승인"
     prescription = None if was_approved else _save_prescription_from_report(db, report, body)
-    report = report_crud.approve_report(db, report)
+    report = report_crud.approve_report(db, report, body.edited_content)
 
     if not was_approved:
         _notify_patient_report_approved(db, report, prescription)
@@ -345,7 +352,7 @@ def get_my_patient_reports(
 ):
     _require_role(payload, "patient")
     reports = report_crud.get_patient_approved_reports(db, int(payload["sub"]))
-    return [_report_summary(report) for report in reports]
+    return [{**_report_summary(report), "approval_status": "승인"} for report in reports]
 
 
 @router.get("/patients/me/reports/{report_id}")
@@ -357,6 +364,6 @@ def get_my_patient_report_detail(
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     report = report_crud.get_report_by_id(db, report_id)
-    if not report or report.patient_id != patient_id or report.approval_status != "승인":
+    if not report or report.patient_id != patient_id or not report.edited_content:
         raise HTTPException(status_code=404, detail="Report not found")
-    return _report_detail(report, db, include_draft=False)
+    return _patient_report_detail(report, db)

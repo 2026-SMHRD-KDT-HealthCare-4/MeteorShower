@@ -342,7 +342,6 @@ export default function DailyReport() {
   const [schedule, setSchedule]             = useState({});
   const [allExercises, setAllExercises]     = useState([]);
   const [showAddExercise, setShowAddExercise] = useState(false);
-  const [justSaved, setJustSaved]           = useState(false);
   const [patients, setPatients]             = useState([]);
   const [selectedPatientId, setSelectedPatientId] = useState(location.state?.patientId ?? '');
   const [reports, setReports]               = useState([]);
@@ -398,7 +397,7 @@ export default function DailyReport() {
       .then((data) => {
         setSelectedReport(data);
         setSelectedPatientId(data.patient_id);
-        setOpinion(data.edited_content || data.draft_content || data.content || '');
+        setOpinion(data.draft_content || data.content || '');
         setEditingOpinion(false);
       })
       .catch(() => setReportMessage('리포트를 불러오지 못했습니다.'));
@@ -491,22 +490,6 @@ export default function DailyReport() {
     });
     setSelectedReport(created);
     return created;
-  };
-
-  const handleSave = () => {
-    if (!selectedPatientId) { setReportMessage('환자를 먼저 선택해 주세요.'); return; }
-    setReportBusy(true);
-    ensureReport()
-      .then((report) => reportApi.updateDoctorReport(report.report_id, { edited_content: opinion }))
-      .then((data) => {
-        setSelectedReport(data);
-        setJustSaved(true);
-        setReportMessage('수정 내용이 DB에 저장되었습니다.');
-        setTimeout(() => setJustSaved(false), 2000);
-        return loadReports();
-      })
-      .catch((err) => setReportMessage(err.message))
-      .finally(() => setReportBusy(false));
   };
 
   const handleSend = () => {
@@ -891,7 +874,7 @@ export default function DailyReport() {
 
           <div className="flex items-center gap-2 pt-1 text-label-sm text-on-surface-variant">
             <span className="material-symbols-outlined text-[#1a73e8] text-base" style={{ fontVariationSettings: "'FILL' 1" }}>smart_toy</span>
-            LLM이 생성한 소견입니다. 수정 버튼으로 직접 편집할 수 있습니다.
+            LLM이 생성한 최신 초안입니다. 수정 후 승인하면 환자 진료기록에 표시됩니다.
           </div>
         </section>
 
@@ -1063,29 +1046,8 @@ export default function DailyReport() {
           />
         </section>
 
-        {/* ── 저장 / 발송 ── */}
+        {/* ── 승인 ── */}
         <div className="flex justify-end gap-3 pb-4">
-          <button
-            onClick={handleSave}
-            disabled={!selectedPatientId || reportBusy}
-            className={`flex items-center gap-2 px-6 sm:px-8 py-3 border-2 font-semibold rounded-xl transition-all text-label-md
-              ${selectedPatientId && !reportBusy
-                ? 'border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] active:scale-95'
-                : 'border-outline-variant text-on-surface-variant cursor-not-allowed opacity-50'
-              }`}
-          >
-            {justSaved ? (
-              <>
-                <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                DB 저장 완료
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-base">save</span>
-                수정 저장
-              </>
-            )}
-          </button>
           <button
             onClick={handleSend}
             disabled={!selectedPatientId || reportBusy}
