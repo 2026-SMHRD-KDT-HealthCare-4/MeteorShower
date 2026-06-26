@@ -763,6 +763,8 @@ def save_patient_prescription(
             if name != ex.name or not date_text:
                 continue
             sched_date = date.fromisoformat(date_text)
+            if sched_date < date.today():
+                continue
             if completed_schedules.get((ex.name, sched_date)):
                 continue
             existing_schedule = _pop_reusable_schedule(reusable_schedules, ex.name, sched_date)
