@@ -69,6 +69,34 @@ def _round_or_none(value):
     return round(float(value), 1) if value is not None else None
 
 
+def _collect_active_schedule_maps(db: Session, patient_id: int):
+    reusable_schedules = {}
+    completed_schedules = {}
+    active_prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .all()
+    )
+    for prescription in active_prescriptions:
+        for prescription_exercise in prescription.prescription_exercises:
+            exercise_name = prescription_exercise.exercise.exercise_name
+            for schedule in prescription_exercise.schedules:
+                key = (exercise_name, schedule.exercise_date)
+                target = completed_schedules if schedule.sessions else reusable_schedules
+                target.setdefault(key, []).append(schedule)
+    return reusable_schedules, completed_schedules
+
+
+def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date):
+    schedules = schedule_map.get((exercise_name, exercise_date))
+    if not schedules:
+        return None
+    schedule = schedules.pop(0)
+    if not schedules:
+        schedule_map.pop((exercise_name, exercise_date), None)
+    return schedule
+
+
 def _finger_key(label: str):
     return next((key for key, value in FINGER_LABELS.items() if value == label), label)
 
@@ -501,7 +529,7 @@ def get_my_today_exercises(
     patient_id = int(payload["sub"])
     today = date.today()
 
-    schedules = (
+    active_schedules = (
         db.query(ExerciseSchedule)
         .join(
             PrescriptionExercise,
@@ -516,11 +544,40 @@ def get_my_today_exercises(
         .order_by(Prescription.prescription_date.desc(), PrescriptionExercise.exercise_order)
         .all()
     )
+    completed_schedules = (
+        db.query(ExerciseSchedule)
+        .join(
+            PrescriptionExercise,
+            PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id,
+        )
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(
+            Prescription.patient_id == patient_id,
+            ExerciseSchedule.exercise_date == today,
+        )
+        .order_by(Prescription.prescription_date.desc(), PrescriptionExercise.exercise_order)
+        .all()
+    )
 
     exercises = []
+    added_keys = set()
+    schedules = [schedule for schedule in completed_schedules if schedule.sessions]
+    completed_keys = {
+        (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date)
+        for schedule in schedules
+    }
+    schedules.extend(
+        schedule
+        for schedule in active_schedules
+        if (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date) not in completed_keys
+    )
     for schedule in schedules:
         pe = schedule.prescription_exercise
         exercise_name = pe.exercise.exercise_name
+        key = (exercise_name, schedule.exercise_date, "done" if schedule.sessions else "waiting")
+        if key in added_keys:
+            continue
+        added_keys.add(key)
         exercises.append({
             "id": pe.prescription_exercise_id,
             "schedule_id": schedule.schedule_id,
@@ -661,19 +718,7 @@ def save_patient_prescription(
     if not enabled_exercises:
         raise HTTPException(status_code=422, detail="At least one exercise is required")
 
-    # 기존 완료 세션 보존: (운동이름, 날짜) → 세션 목록
-    old_sessions_map: dict = {}
-    old_prescriptions = (
-        db.query(Prescription)
-        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
-        .all()
-    )
-    for old_p in old_prescriptions:
-        for pe in old_p.prescription_exercises:
-            ex_name = pe.exercise.exercise_name
-            for sched in pe.schedules:
-                if sched.sessions:
-                    old_sessions_map[(ex_name, sched.exercise_date)] = sched.sessions
+    reusable_schedules, completed_schedules = _collect_active_schedule_maps(db, patient_id)
 
     (
         db.query(Prescription)
@@ -719,17 +764,18 @@ def save_patient_prescription(
             if name != ex.name or not date_text:
                 continue
             sched_date = date.fromisoformat(date_text)
-            new_schedule = ExerciseSchedule(
-                prescription_exercise_id=prescription_exercise.prescription_exercise_id,
-                exercise_date=sched_date,
-            )
-            db.add(new_schedule)
-            db.flush()
-            # 기존 완료 세션을 새 스케줄로 이전
-            old_sessions = old_sessions_map.get((ex.name, sched_date))
-            if old_sessions:
-                for session in old_sessions:
-                    session.schedule_id = new_schedule.schedule_id
+            if completed_schedules.get((ex.name, sched_date)):
+                continue
+            existing_schedule = _pop_reusable_schedule(reusable_schedules, ex.name, sched_date)
+            if existing_schedule:
+                existing_schedule.prescription_exercise_id = prescription_exercise.prescription_exercise_id
+            else:
+                db.add(
+                    ExerciseSchedule(
+                        prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                        exercise_date=sched_date,
+                    )
+                )
 
         for key, target_rom in body.rom.items():
             parsed = _parse_rom_key(key)
