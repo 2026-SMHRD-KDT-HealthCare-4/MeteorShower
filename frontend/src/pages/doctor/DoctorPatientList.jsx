@@ -52,6 +52,7 @@ export default function DoctorPatientList() {
   const [allPatients, setAllPatients] = useState([]);
   const [waitingPatients, setWaitingPatients] = useState([]);
   const [prescribedPatients, setPrescribedPatients] = useState([]);
+  const [todayReportPatientIds, setTodayReportPatientIds] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
@@ -77,6 +78,7 @@ export default function DoctorPatientList() {
       .then((data) => {
         setWaitingPatients((data.waiting_patients ?? []).map((p) => ({ ...p, birth: formatDate(p.birth) })));
         setPrescribedPatients((data.weekly_prescriptions ?? []).map((p) => ({ ...p, birth: formatDate(p.birth) })));
+        setTodayReportPatientIds(data.today_report_patient_ids ?? []);
       })
       .catch(() => {});
   }, [location.key]);
@@ -220,13 +222,24 @@ export default function DoctorPatientList() {
                 <span className="material-symbols-outlined text-sm">person</span>
                 환자 정보
               </button>
-              <button
-                onClick={() => navigate('/doctor/report/daily', { state: { patientId: selectedInfo.patient_id } })}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-md hover:bg-doctor-primary hover:text-white transition-all"
-              >
-                <span className="material-symbols-outlined text-sm">today</span>
-                일일 리포트
-              </button>
+              {(() => {
+                const hasReport = todayReportPatientIds.includes(selectedInfo.patient_id);
+                return (
+                  <button
+                    onClick={() => hasReport && navigate('/doctor/report/daily', { state: { patientId: selectedInfo.patient_id } })}
+                    disabled={!hasReport}
+                    title={hasReport ? '' : '오늘 발송된 일일 리포트가 없습니다'}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 font-semibold text-label-md transition-all
+                      ${hasReport
+                        ? 'border-doctor-primary text-doctor-primary hover:bg-doctor-primary hover:text-white'
+                        : 'border-outline-variant text-on-surface-variant cursor-not-allowed opacity-50'
+                      }`}
+                  >
+                    <span className="material-symbols-outlined text-sm">today</span>
+                    일일 리포트
+                  </button>
+                );
+              })()}
               <button
                 onClick={() => navigate('/doctor/report/progress', { state: { patientId: selectedInfo.patient_id } })}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-doctor-primary text-doctor-primary font-semibold text-label-md hover:bg-doctor-primary hover:text-white transition-all"

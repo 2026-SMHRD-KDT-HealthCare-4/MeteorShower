@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
 import { patientApi, reportApi } from '../../api';
@@ -350,7 +350,6 @@ export default function DailyReport() {
   const [reportMessage, setReportMessage]   = useState('');
   const [reportBusy, setReportBusy]         = useState(false);
   const [dailyResult, setDailyResult]       = useState(null);
-  const autoCreatingReportKey = useRef(null);
   const prescriptionReadOnly = false;
   const prescriptionMinEditableDate = toKey(new Date());
 
@@ -417,38 +416,16 @@ export default function DailyReport() {
 
   useEffect(() => {
     if (!selectedPatientId) return;
-    const report = reports.find((r) => String(r.patient_id) === String(selectedPatientId));
-    if (report) {
-      autoCreatingReportKey.current = null;
-      openReport(report.report_id);
-      return;
-    }
-
     const today = toKey(new Date());
-    const autoKey = `${selectedPatientId}|${today}`;
-    if (autoCreatingReportKey.current === autoKey) return;
-
-    autoCreatingReportKey.current = autoKey;
-    setReportBusy(true);
-    reportApi.createLlmReport({
-      patient_id: Number(selectedPatientId),
-      report_date: today,
-      exercise_blocked: false,
-    })
-      .then((data) => {
-        setSelectedReport(data);
-        setOpinion(data.draft_content || data.content || '');
-        setEditingOpinion(false);
-        setReportMessage('');
-        return loadReports();
-      })
-      .catch((err) => {
-        setSelectedReport(null);
-        setOpinion(defaultOpinion);
-        setReportMessage(err.message);
-        autoCreatingReportKey.current = null;
-      })
-      .finally(() => setReportBusy(false));
+    const report = reports.find(
+      (r) => String(r.patient_id) === String(selectedPatientId) && r.report_date === today
+    );
+    if (report) {
+      openReport(report.report_id);
+    } else {
+      setSelectedReport(null);
+      setOpinion(defaultOpinion);
+    }
   }, [selectedPatientId, reports]);
 
   useEffect(() => {
@@ -543,14 +520,10 @@ export default function DailyReport() {
         schedule,
         prescription_date: new Date().toISOString().slice(0, 10),
       }))
-      .then((data) => {
-        setSelectedReport(data);
-        setOpinion(data.edited_content || data.draft_content || data.content || '');
-        setReportMessage('승인 완료: 환자 진료기록 화면에 표시됩니다.');
-        return loadReports();
+      .then(() => {
+        navigate('/doctor/patients');
       })
-      .catch((err) => setReportMessage(err.message))
-      .finally(() => setReportBusy(false));
+      .catch((err) => { setReportMessage(err.message); setReportBusy(false); });
   };
 
   /* 환자 정보 셀 border 헬퍼 */
