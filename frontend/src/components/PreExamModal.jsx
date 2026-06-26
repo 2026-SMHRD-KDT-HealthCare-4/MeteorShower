@@ -3,8 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { patientApi } from '../api';
 
 const QUESTIONS = [
-  '주먹을 쥐었다 필 때 공간이 있나요?',
-  '손가락을 구부릴 때 걸리는 느낌이 있나요?',
+  '어지럽거나 평소보다 컨디션이 좋지않나요?',
+  '손이 평소보다 부어 있거나 붉게 변해 있나요?',
 ];
 
 export function getBlockedKey(token) {

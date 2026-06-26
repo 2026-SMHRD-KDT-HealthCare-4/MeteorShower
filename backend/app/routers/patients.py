@@ -212,10 +212,9 @@ def _ensure_pending_report_for_exercise(db: Session, patient, schedule: Exercise
         .first()
     )
     if report:
-        if report.approval_status != "승인":
-            report.doctor_id = patient.doctor_id
-            report.draft_content = draft_content
-            report.approval_status = "대기"
+        report.doctor_id = patient.doctor_id
+        report.draft_content = draft_content
+        report.approval_status = "대기"
         return report
 
     report = LlmReport(

@@ -30,7 +30,7 @@ def get_doctor_reports(db: Session, doctor_id: int):
 def get_patient_approved_reports(db: Session, patient_id: int):
     return (
         db.query(LlmReport)
-        .filter(LlmReport.patient_id == patient_id, LlmReport.approval_status == "승인")
+        .filter(LlmReport.patient_id == patient_id, LlmReport.edited_content.isnot(None))
         .order_by(LlmReport.report_date.desc(), LlmReport.created_at.desc())
         .all()
     )
@@ -48,9 +48,7 @@ def create_or_update_mock_report(
     if report:
         report.doctor_id = doctor_id
         report.draft_content = draft_content
-        report.edited_content = None
         report.approval_status = "대기"
-        report.approved_at = None
         report.guardian_sent_status = "대기"
         report.exercise_blocked = exercise_blocked
     else:
@@ -71,16 +69,15 @@ def create_or_update_mock_report(
 
 
 def update_report_content(db: Session, report: LlmReport, edited_content: str) -> LlmReport:
-    report.edited_content = edited_content
-    report.approval_status = "수정"
+    report.draft_content = edited_content
+    report.approval_status = "대기"
     db.commit()
     db.refresh(report)
     return report
 
 
-def approve_report(db: Session, report: LlmReport) -> LlmReport:
-    if not report.edited_content:
-        report.edited_content = report.draft_content
+def approve_report(db: Session, report: LlmReport, approved_content: str | None = None) -> LlmReport:
+    report.edited_content = approved_content or report.draft_content
     report.approval_status = "승인"
     report.approved_at = datetime.now()
     db.commit()
