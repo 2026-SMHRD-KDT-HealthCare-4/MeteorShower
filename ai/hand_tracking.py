@@ -27,7 +27,6 @@ from landmark_utils import (
     _FINGER_JOINT_INDICES
 )
 from notification_trigger import build_blocking_event, send_notification_to_backend
-from feedback_trigger import FeedbackTracker
 from guide_render import HAND_CONNECTIONS, draw_animated_guide
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
@@ -450,7 +449,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         # 가이드 로드 시점에 전체 프레임 평균으로 한 번만 고정해둔다.
         current_guide_palm_normal = compute_guide_palm_normal(current_guide_raw)
         joint_signals = None
-        feedback_tracker = FeedbackTracker()
 
         count           = 0
         phase           = None
@@ -761,7 +759,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                     rom_score     = None
                                     rom_score_buf.clear()
                                     joint_signals = None
-                                    feedback_tracker.reset()
 
             if first_landmarks is not None:
                 coords_raw = np.array([[lm.x, lm.y, lm.z] for lm in first_landmarks], dtype=np.float32)
@@ -873,11 +870,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     if joint_signals is not None:
                         joint_signals[0] = "green"
 
-            if joint_signals is not None:
-                feedback_messages = feedback_tracker.update(joint_signals)
-                for msg in feedback_messages:
-                    print(f"[{time.time():.2f}] [Feedback] {msg['finger']}/{msg['level']} {msg['message']}")
-
             if valid_hands:
                 landmarks, handedness = valid_hands[0]
                 draw_hand(frame, landmarks, handedness, joint_signals)
@@ -947,7 +939,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "target_count":   ex_now["target_count"],
                     "rom_score":      round(rom_score, 1) if rom_score is not None else None,
                     "joint_signals":  joint_signals,
-                    "feedback_messages": feedback_messages if 'feedback_messages' in locals() else [],
                     "finger_angles":  angles if first_landmarks is not None else None,
                     "orient_angle":   round(orient_angle, 1) if orient_angle is not None else None,
                     "orient_warning": (orient_angle is not None and orient_angle > ORIENT_TOLERANCE_DEG),
