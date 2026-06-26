@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
 const QUESTIONS = [
-  '주먹을 쥐었다 필 때 공간이 있나요? (예시)',
-  '손가락을 구부릴 때 걸리는 느낌이 있나요? (예시)',
+  '휴식 후에도 운동 시작 전보다 통증이 심해졌나요?',
+  '방금 동작 중에 갑자기 아프거나 걸리는 느낌이 있었나요?',
 ];
 
 export default function NextExamModal({ onConfirm, onClose, onBlocked }) {
