@@ -560,15 +560,23 @@ def get_my_today_exercises(
 
     exercises = []
     added_keys = set()
-    schedules = [schedule for schedule in completed_schedules if schedule.sessions]
-    completed_keys = {
+    # 적용중 처방의 스케줄을 항상 먼저 채택한다 — 의사가 방금 재처방했다면 그 최신
+    # 값(target_reps/target_sets)이 화면에 우선 반영되어야 한다. 같은 이름의 운동을
+    # 오늘 다른(특히 종료된) 처방으로 이미 완료한 세션이 있어도, 적용중 처방에 그
+    # 운동이 있는 한 그 세션은 화면에서 적용중 처방 쪽 스케줄로 대체된다.
+    schedules = list(active_schedules)
+    active_keys = {
         (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date)
         for schedule in schedules
     }
+    # completed_schedules(세션이 기록된 스케줄)는 적용중 처방에 같은 이름의 운동이
+    # 없을 때만 보조로 추가한다(예: 재처방으로 그 운동 자체가 빠진 경우에도 완료
+    # 기록은 보존해서 보여준다).
     schedules.extend(
         schedule
-        for schedule in active_schedules
-        if (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date) not in completed_keys
+        for schedule in completed_schedules
+        if schedule.sessions
+        and (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date) not in active_keys
     )
     for schedule in schedules:
         pe = schedule.prescription_exercise
