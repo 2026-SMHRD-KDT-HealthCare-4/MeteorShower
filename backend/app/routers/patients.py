@@ -578,6 +578,8 @@ def get_my_today_exercises(
         if key in added_keys:
             continue
         added_keys.add(key)
+        session = schedule.sessions[0] if schedule.sessions else None
+        log = session.logs[0] if session and session.logs else None
         exercises.append({
             "id": pe.prescription_exercise_id,
             "schedule_id": schedule.schedule_id,
@@ -588,6 +590,7 @@ def get_my_today_exercises(
             "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
             "status": "done" if schedule.sessions else "waiting",
             "videoTime": _video_time_for_exercise(exercise_name),
+            "progress_rate": float(log.progress_rate) if log and log.progress_rate is not None else None,
         })
 
     return exercises
