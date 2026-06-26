@@ -54,6 +54,7 @@ def get_doctor_dashboard(
         .filter(
             Patient.doctor_id == doctor_id,
             LlmReport.doctor_id == doctor_id,
+            LlmReport.report_date == date.today(),
             LlmReport.approval_status.in_(["대기", "수정"]),
         )
         .distinct()
@@ -104,7 +105,20 @@ def get_doctor_dashboard(
             }
         )
 
+    today_report_rows = (
+        db.query(LlmReport.patient_id)
+        .join(Patient, Patient.patient_id == LlmReport.patient_id)
+        .filter(
+            Patient.doctor_id == doctor_id,
+            LlmReport.doctor_id == doctor_id,
+            LlmReport.report_date == date.today(),
+        )
+        .all()
+    )
+    today_report_patient_ids = [row[0] for row in today_report_rows]
+
     return {
         "waiting_patients": waiting_patients,
         "weekly_prescriptions": weekly_prescriptions,
+        "today_report_patient_ids": today_report_patient_ids,
     }
