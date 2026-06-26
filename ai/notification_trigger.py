@@ -24,7 +24,7 @@ REASON_CODE_SAFETY_TIMEOUT = "SAFETY_TIMEOUT"
 _NOTIFIABLE_END_TYPES = ("안전종료", "운동차단")
 
 
-def build_blocking_event(session_data: dict):
+def build_blocking_event(session_data: dict) -> dict | None:
     """세션 종료 데이터(session_data) → doctor_notification용 구조화 이벤트.
 
     end_type이 "완료" 또는 "목표조정"이면 알림 대상이 아니므로 None을 반환한다.

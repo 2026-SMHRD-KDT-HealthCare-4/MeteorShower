@@ -4,7 +4,7 @@ import queue as stdlib_queue
 import sys
 import threading
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
@@ -28,20 +28,20 @@ _tracking_lock = threading.Lock()
 
 
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self._connections: List[WebSocket] = []
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
         self._connections.append(ws)
         print(f"[WS] connected  (total={len(self._connections)})")
 
-    def disconnect(self, ws: WebSocket):
+    def disconnect(self, ws: WebSocket) -> None:
         if ws in self._connections:
             self._connections.remove(ws)
         print(f"[WS] disconnected (total={len(self._connections)})")
 
-    async def broadcast(self, data: dict):
+    async def broadcast(self, data: dict) -> None:
         dead = []
         for ws in list(self._connections):
             try:
@@ -52,14 +52,14 @@ class ConnectionManager:
             self.disconnect(ws)
 
     @property
-    def count(self):
+    def count(self) -> int:
         return len(self._connections)
 
 
 manager = ConnectionManager()
 
 
-def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None, target_count=None, target_set=None):
+def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None, target_count=None, target_set=None) -> None:
     global _tracking_thread, _stop_event
     with _tracking_lock:
         if _tracking_thread is not None and _tracking_thread.is_alive():
@@ -86,7 +86,7 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
         print("[Server] hand_tracking thread started")
 
 
-def stop_tracking():
+def stop_tracking() -> None:
     global _tracking_thread, _stop_event
     with _tracking_lock:
         if _stop_event is not None:
@@ -98,7 +98,7 @@ def stop_tracking():
 
 _frame_log_counter = 0
 
-async def broadcast_loop():
+async def broadcast_loop() -> None:
     global _frame_log_counter
     while True:
         try:
@@ -117,7 +117,7 @@ async def broadcast_loop():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     task = asyncio.create_task(broadcast_loop())
     yield
     task.cancel()
@@ -129,7 +129,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)) -> None:
     await websocket.accept()
 
     try:

@@ -140,7 +140,7 @@ TAP_FINGER_ROM_TARGETS = {
 
 
 # ★ 수정됨: 새 데이터 구조에 맞춰 각 관절의 '랜드마크 번호'를 키로 하는 딕셔너리 반환
-def _finger_angle_signals(angles_dict, target_angles_dict):
+def _finger_angle_signals(angles_dict, target_angles_dict) -> dict[int, str]:
     signals = {i: "green" for i in range(1, 21)}  # 손목(0)은 방향 신호등 전용이라 제외
     for finger_name, joints in angles_dict.items():
         if finger_name not in target_angles_dict: continue
@@ -160,7 +160,7 @@ def _finger_angle_signals(angles_dict, target_angles_dict):
     return signals
 
 
-def build_finger_accuracy_summary(exercise_name, angle_stats):
+def build_finger_accuracy_summary(exercise_name, angle_stats) -> list[dict]:
     summary = []
     for key, stat in angle_stats.get(exercise_name, {}).items():
         finger_name, joint_type = key.split("_", 1)
@@ -177,7 +177,7 @@ def build_finger_accuracy_summary(exercise_name, angle_stats):
     return summary
 
 
-def _compute_rom_score(angles_dict, targets):
+def _compute_rom_score(angles_dict, targets) -> float:
     total_score = 0
     joint_count = 0
     for finger, joints in angles_dict.items():
@@ -215,7 +215,7 @@ EXERCISES = [
 ]
 
 
-def _load_guide(guide_path: str):
+def _load_guide(guide_path: str) -> np.ndarray | None:
     if not os.path.exists(guide_path):
         print(f"[WARN] guide not found: {guide_path}")
         return None
@@ -225,17 +225,17 @@ def _load_guide(guide_path: str):
     return arr
 
 
-def _load_guide_features(guide_path, feature_fn):
+def _load_guide_features(guide_path, feature_fn) -> np.ndarray | None:
     arr = _load_guide(guide_path)
     if arr is None: return None
     return np.array([feature_fn(frame) for frame in arr], dtype=np.float32)
 
 
-def dist2(a, b):
+def dist2(a, b) -> float:
     return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
 
 
-def get_hand_state(landmarks):
+def get_hand_state(landmarks) -> tuple[str, list[bool]]:
     wrist = landmarks[0]
     pairs = [(4, 3), (8, 6), (12, 10), (16, 14), (20, 18)]
     fingers = [
@@ -248,7 +248,7 @@ def get_hand_state(landmarks):
     else: return "partial", fingers
 
 
-def get_guide_tap_finger(guide_frame):
+def get_guide_tap_finger(guide_frame) -> int | None:
     thumb      = guide_frame[4]
     min_dist   = float("inf")
     tap_finger = None
@@ -261,7 +261,7 @@ def get_guide_tap_finger(guide_frame):
     return tap_finger
 
 
-def get_tap_state(landmarks):
+def get_tap_state(landmarks) -> tuple[str, int | None]:
     thumb = landmarks[4]
     wrist = landmarks[0]
     mcp   = landmarks[5] 
@@ -297,7 +297,7 @@ def get_tap_state(landmarks):
     else: return "open", None
 
 
-def compute_overload_rom(landmarks):
+def compute_overload_rom(landmarks) -> float:
     wrist = landmarks[0]
     tips = [landmarks[i] for i in [8, 12, 16, 20]]
     return float(np.mean([
@@ -306,7 +306,7 @@ def compute_overload_rom(landmarks):
     ]))
 
 
-def save_capture(frame, label="overload"):
+def save_capture(frame, label="overload") -> None:
     os.makedirs(CAPTURE_DIR, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
     path = os.path.join(CAPTURE_DIR, f"capture_{label}_{ts}.jpg")
@@ -314,7 +314,7 @@ def save_capture(frame, label="overload"):
     print(f"capture saved: {path}")
 
 
-def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST):
+def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST) -> float | None:
     if guide_np is None or len(patient_buf) < 2: return None
     seq1 = np.array(patient_buf, dtype=np.float32) 
     m = len(seq1)
@@ -339,7 +339,7 @@ def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST):
     return similarity
 
 
-def draw_hand(frame, landmarks, handedness, joint_signals=None):
+def draw_hand(frame, landmarks, handedness, joint_signals=None) -> None:
     h, w = frame.shape[:2]
     DEFAULT_COLOR = (0, 255, 0)
     DEFAULT_SEG_COLOR = (0, 200, 0)
@@ -385,7 +385,7 @@ _options = vision.HandLandmarkerOptions(
 )
 
 
-def print_angle_summary(angle_stats, total_frames):
+def print_angle_summary(angle_stats, total_frames) -> None:
     """운동별로 누적된 관절 각도 통계(min/max/avg)를 콘솔에 정렬해서 출력.
 
     angle_stats: { 운동명: { "finger_joint": {min,max,sum,count}, ... }, ... }
@@ -412,7 +412,7 @@ def print_angle_summary(angle_stats, total_frames):
         print("============================================")
 
 
-def _resolve_prescribed_target(raw_value, exercise_default, label):
+def _resolve_prescribed_target(raw_value, exercise_default, label) -> int:
     """처방값(raw_value)이 유효한 양의 정수면 그 값을, 아니면 운동 기본값
     (exercise_default)으로 폴백한다. 폴백이 발동하면 항상 콘솔에 경고를 남겨서,
     처방값이 조용히 무시되는 일이 없도록 한다(원인 추적용)."""
@@ -430,7 +430,7 @@ def _resolve_prescribed_target(raw_value, exercise_default, label):
     return value
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None):
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None) -> None:
     # exercise_name이 지정되면 해당 운동 하나만 실행 (다른 운동으로 자동 전환되지 않음).
     # 지정이 없거나 매칭되는 운동이 없으면 기존처럼 EXERCISES 전체를 순서대로 실행.
     if exercise_name is not None:

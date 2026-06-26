@@ -22,7 +22,7 @@ def _notif_to_dict(n: PatientNotification) -> dict:
 def get_notifications(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     if payload["role"] != "patient":
         raise HTTPException(status_code=403, detail="patient role required")
     patient_id = int(payload["sub"])
@@ -40,7 +40,7 @@ def mark_one_read(
     notification_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     if payload["role"] != "patient":
         raise HTTPException(status_code=403, detail="patient role required")
     patient_id = int(payload["sub"])
@@ -59,7 +59,7 @@ def mark_one_read(
 def mark_all_read(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     if payload["role"] != "patient":
         raise HTTPException(status_code=403, detail="patient role required")
     patient_id = int(payload["sub"])
