@@ -976,9 +976,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "finger_angles":  angles if first_landmarks is not None else None,
                     "orient_angle":   round(orient_angle, 1) if orient_angle is not None else None,
                     "orient_warning": (orient_angle is not None and orient_angle > ORIENT_TOLERANCE_DEG),
+                    "finger_accuracy": build_finger_accuracy_summary(ex_now["name"], angle_stats),
                     }
-                if payload["session_end"]:
-                    payload["finger_accuracy"] = build_finger_accuracy_summary(ex_now["name"], angle_stats)
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                 payload["frame"] = base64.b64encode(buf).decode('utf-8')
                 try: q.put_nowait(payload)
