@@ -124,6 +124,7 @@ export default function ExerciseSession() {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.status === 'tracking_started') { updatePhase('running'); return; }
+      if (msg.status === 'tracking_stopped') return;
       if (msg.frame)   setFrame(msg.frame);
       setWsData(msg);
       latestDataRef.current = msg;

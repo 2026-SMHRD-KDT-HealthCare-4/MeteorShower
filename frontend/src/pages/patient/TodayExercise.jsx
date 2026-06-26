@@ -169,11 +169,18 @@ function BlockedBanner() {
 
 function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) {
   const navigate = useNavigate();
-  const isDone = ex.status === 'done';
   const isInProgress = ex.status === 'in_progress';
+  // status==='done'은 "오늘 세션이 한 번 기록됨"이라는 뜻일 뿐, 끝까지 채웠다는
+  // 보장은 아니다(중도종료/안전종료도 done으로 남는다) — "완료"는 오직 실제
+  // 수행 비율(progress_rate)이 정확히 100일 때만으로 판정한다.
+  const isAttempted = ex.status === 'done';
+  const isFullyDone = ex.progress_rate === 100;
+
   const [showModal, setShowModal] = useState(false);
 
-  const progress = isDone ? 100 : isInProgress ? 50 : 0;
+  // progress_rate가 null/없음이면 100%가 확인된 게 아니므로 0으로 둔다 — 가짜 숫자 금지.
+  // in_progress(운동 시작 버튼을 누른 직후, 아직 수행 데이터 자체가 없는 전환 상태)도 0.
+  const progress = isAttempted ? Math.round(ex.progress_rate ?? 0) : 0;
 
   const handleStart = () => {
     onStart(ex.id);
@@ -184,7 +191,7 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
     <div
       className={`bg-surface-container-lowest rounded-xl p-4 flex flex-col md:flex-row gap-gutter items-center transition-all duration-300 relative
         ${isInProgress ? 'border-2 border-primary/30 shadow-md overflow-hidden' : 'border border-outline-variant hover:shadow-md'}
-        ${isDone ? 'opacity-60' : ''}
+        ${isFullyDone ? 'opacity-60' : ''}
       `}
     >
       {isInProgress && <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-xl" />}
@@ -210,17 +217,19 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
             </div>
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
-            {isDone && (
+            {isFullyDone ? (
               <span className="flex items-center gap-1 text-primary text-label-sm">
                 <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>완료
               </span>
-            )}
-            {isInProgress && (
+            ) : isInProgress ? (
               <span className="flex items-center gap-1 text-secondary text-label-sm animate-pulse">
                 <span className="material-symbols-outlined text-sm">pending</span>진행 중
               </span>
-            )}
-            {ex.status === 'waiting' && (
+            ) : isAttempted ? (
+              <span className="flex items-center gap-1 text-tertiary text-label-sm">
+                <span className="material-symbols-outlined text-sm">warning</span>미완료
+              </span>
+            ) : (
               <span className="flex items-center gap-1 text-on-surface-variant text-label-sm">
                 <span className="material-symbols-outlined text-sm">schedule</span>대기
               </span>
@@ -232,7 +241,9 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
         {/* 진행 바 */}
         <div className="w-full bg-surface-container h-1.5 rounded-full mb-4">
           <div
-            className={`h-full rounded-full transition-all duration-700 ${isDone ? 'bg-primary' : isInProgress ? 'bg-secondary' : 'bg-outline-variant'}`}
+            className={`h-full rounded-full transition-all duration-700 ${
+              isFullyDone ? 'bg-primary' : isInProgress ? 'bg-secondary' : isAttempted ? 'bg-tertiary' : 'bg-outline-variant'
+            }`}
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -240,7 +251,7 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
 
       {/* 액션 버튼 */}
       <div className="w-full md:w-auto">
-        {isDone ? (
+        {isFullyDone ? (
           <button
             onClick={() => setShowModal(true)}
             className="w-full md:w-32 h-12 border border-primary text-primary text-label-md rounded-lg hover:bg-primary/10 transition-all active:scale-95 flex items-center justify-center gap-1"
@@ -261,8 +272,8 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
             onClick={() => setShowModal(true)}
             className="w-full md:w-32 h-12 bg-primary text-white text-label-md rounded-lg shadow-sm hover:bg-primary-container transition-all active:scale-95 flex items-center justify-center gap-1"
           >
-            <span className="material-symbols-outlined text-base">play_arrow</span>
-            운동 시작
+            <span className="material-symbols-outlined text-base">{isAttempted ? 'replay' : 'play_arrow'}</span>
+            {isAttempted ? '다시 시작' : '운동 시작'}
           </button>
         )}
       </div>

@@ -750,9 +750,12 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                             overload_measured_count = count
                             overload_target_count   = ex["target_count"]
                             overload_exercise_name  = ex["name"]
+                            print(f"[Overload] stage=0->1, cause=count, count={count}, target_count={ex['target_count']}, current_set={current_set}")
 
                         elif count >= ex["target_count"] and overload_stage == 0:
                             current_set += 1
+                            _completed_count = count           # 리셋 전 count (디버그 로그용, 항상 target_count와 동일)
+                            _completed_set    = current_set    # 리셋 전 current_set (방금 막 채운 세트 번호)
                             count = 0
                             phase = None
                             state_buf.clear()
@@ -771,6 +774,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                 if current_exercise_idx >= len(active_exercises):
                                     session_complete    = True
                                     session_complete_at = time.time()
+                                    print(f"[SessionEnd] reason=set_done, count={_completed_count}, target_count={ex['target_count']}, current_set={_completed_set}, target_set={ex['target_set']}")
                                 else:
                                     ex_new              = active_exercises[current_exercise_idx]
                                     # 운동이 전환될 때 타겟값도 운동 타입에 맞게 변경
@@ -938,6 +942,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 overload_cause          = "rom"
                 overload_measured_rom   = current_rom
                 overload_threshold_rom  = TARGET_ROM
+                print(f"[Overload] stage=0->1, cause=rom, rom={current_rom:.3f}, target_rom={TARGET_ROM}, count={count}, current_set={current_set}")
             elif overload_stage == 1 and (
                 count > overload_count_marker
                 or (overload_stage1_started_at is not None
@@ -945,6 +950,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             ):
                 save_capture(frame)
                 overload_stage = 2
+                print(f"[Overload] stage=1->2, cause={overload_cause}, count={count}, current_set={current_set}")
+                print(f"[SessionEnd] reason=overload, cause={overload_cause}, count={count}, target_count={ex['target_count']}, current_set={current_set}, target_set={ex['target_set']}")
 
             if overload_stage == 2:
                 if session_end_at is None:
@@ -959,6 +966,13 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "green"  if (display_similarity or 0) >= 80 else
                     "yellow" if (display_similarity or 0) >= 50 else "red"
                 ) if display_similarity is not None else "gray"
+                # 세션이 왜 끝났는지를 프론트가 구분할 수 있도록 명시적인 사유 코드.
+                # session_complete(정상 완료) / overload_stage==2(안전 종료, 원인은 count 또는 rom).
+                end_reason = None
+                if session_complete:
+                    end_reason = "set_done"
+                elif overload_stage == 2:
+                    end_reason = f"overload_{overload_cause}" if overload_cause else "overload"
                 payload = {
                     "landmarks":      [[lm.x, lm.y, lm.z] for lm in first_landmarks] if first_landmarks is not None else [],
                     "count":          count,
@@ -967,6 +981,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "signal":         signal,
                     "overload":       overload_stage >= 1,
                     "session_end":    overload_stage == 2 or session_complete,
+                    "end_reason":     end_reason,
                     "exercise":       ex_now["name"],
                     "set":            current_set,
                     "total_sets":     ex_now["target_set"],
@@ -976,9 +991,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "finger_angles":  angles if first_landmarks is not None else None,
                     "orient_angle":   round(orient_angle, 1) if orient_angle is not None else None,
                     "orient_warning": (orient_angle is not None and orient_angle > ORIENT_TOLERANCE_DEG),
+                    "finger_accuracy": build_finger_accuracy_summary(ex_now["name"], angle_stats),
                     }
-                if payload["session_end"]:
-                    payload["finger_accuracy"] = build_finger_accuracy_summary(ex_now["name"], angle_stats)
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                 payload["frame"] = base64.b64encode(buf).decode('utf-8')
                 try: q.put_nowait(payload)
