@@ -36,7 +36,7 @@ def _build_system(rag_context: str) -> str:
 async def voice_chat(
     audio: UploadFile = File(...),
     history: str = Form(default="[]"),
-):
+) -> dict:
     audio_bytes = await audio.read()
 
     # 1. Whisper STT
@@ -98,7 +98,7 @@ class TtsRequest(BaseModel):
 
 
 @router.post("/tts")
-async def text_to_speech(body: TtsRequest):
+async def text_to_speech(body: TtsRequest) -> dict:
     if not body.text.strip():
         raise HTTPException(status_code=422, detail="text is empty")
     speech = await client.audio.speech.create(

@@ -122,7 +122,7 @@ def _generate_patient_code(db: Session) -> str:
 def get_me(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     user_id = int(payload["sub"])
     role = payload["role"]
 
@@ -160,7 +160,7 @@ def update_doctor_profile(
     body: DoctorProfileUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     if payload["role"] != "doctor":
         raise HTTPException(status_code=403, detail="doctor role required")
     doctor = doctor_crud.get_doctor_by_id(db, int(payload["sub"]))
@@ -182,13 +182,13 @@ def update_doctor_profile(
 # ── 아이디 중복 확인 ─────────────────────────────────────────────────────────
 
 @router.get("/doctor/check-id")
-def doctor_check_id(login_id: str, db: Session = Depends(get_db)):
+def doctor_check_id(login_id: str, db: Session = Depends(get_db)) -> dict:
     exists = doctor_crud.get_doctor_by_login_id(db, login_id) is not None
     return {"available": not exists}
 
 
 @router.get("/patient/check-id")
-def patient_check_id(login_id: str, db: Session = Depends(get_db)):
+def patient_check_id(login_id: str, db: Session = Depends(get_db)) -> dict:
     exists = patient_crud.get_patient_by_login_id(db, login_id) is not None
     return {"available": not exists}
 
@@ -196,7 +196,7 @@ def patient_check_id(login_id: str, db: Session = Depends(get_db)):
 # ── 의사 회원가입 ────────────────────────────────────────────────────────────
 
 @router.post("/doctor/signup", status_code=201)
-def doctor_signup(body: DoctorSignupRequest, db: Session = Depends(get_db)):
+def doctor_signup(body: DoctorSignupRequest, db: Session = Depends(get_db)) -> dict:
     if doctor_crud.get_doctor_by_login_id(db, body.login_id):
         raise HTTPException(status_code=400, detail="이미 사용 중인 아이디입니다.")
     if doctor_crud.get_doctor_by_email(db, body.email):
@@ -211,7 +211,7 @@ def doctor_signup(body: DoctorSignupRequest, db: Session = Depends(get_db)):
 # ── 의사 로그인 ──────────────────────────────────────────────────────────────
 
 @router.post("/doctor/login")
-def doctor_login(body: LoginRequest, db: Session = Depends(get_db)):
+def doctor_login(body: LoginRequest, db: Session = Depends(get_db)) -> dict:
     doctor = doctor_crud.get_doctor_by_login_id(db, body.login_id)
     if not doctor or not verify_password(body.password, doctor.password):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
@@ -228,7 +228,7 @@ def doctor_login(body: LoginRequest, db: Session = Depends(get_db)):
 # ── 환자 회원가입 ────────────────────────────────────────────────────────────
 
 @router.post("/patient/signup", status_code=201)
-def patient_signup(body: PatientSignupRequest, db: Session = Depends(get_db)):
+def patient_signup(body: PatientSignupRequest, db: Session = Depends(get_db)) -> dict:
     if patient_crud.get_patient_by_login_id(db, body.login_id):
         raise HTTPException(status_code=400, detail="이미 사용 중인 아이디입니다.")
 
@@ -244,7 +244,7 @@ def patient_signup(body: PatientSignupRequest, db: Session = Depends(get_db)):
 # ── 환자 로그인 ──────────────────────────────────────────────────────────────
 
 @router.post("/patient/login")
-def patient_login(body: LoginRequest, db: Session = Depends(get_db)):
+def patient_login(body: LoginRequest, db: Session = Depends(get_db)) -> dict:
     patient = patient_crud.get_patient_by_login_id(db, body.login_id)
     if not patient or not verify_password(body.password, patient.password):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
@@ -261,7 +261,7 @@ def patient_login(body: LoginRequest, db: Session = Depends(get_db)):
 # ── 소셜 로그인 ──────────────────────────────────────────────────────────────
 
 @router.get("/social/{provider}/url")
-def get_social_login_url(provider: str, redirect_uri: str):
+def get_social_login_url(provider: str, redirect_uri: str) -> dict:
     if provider not in ("kakao", "google", "naver"):
         raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
 
@@ -300,7 +300,7 @@ def get_social_login_url(provider: str, redirect_uri: str):
 
 
 @router.post("/social/{provider}")
-async def social_login(provider: str, request: Request, db: Session = Depends(get_db)):
+async def social_login(provider: str, request: Request, db: Session = Depends(get_db)) -> dict:
     if provider not in ("kakao", "google", "naver"):
         raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
 
@@ -356,7 +356,7 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
 
 
 @router.post("/social-signup", status_code=201)
-async def social_signup(request: Request, db: Session = Depends(get_db)):
+async def social_signup(request: Request, db: Session = Depends(get_db)) -> dict:
     body = await request.json()
     signup_token = body.get("signup_token")
     name       = body.get("name")

@@ -45,7 +45,7 @@ FINGER_LABELS = {
 }
 
 
-def _hand_type_from_exercise_name(name: str):
+def _hand_type_from_exercise_name(name: str) -> str:
     if "왼손" in name:
         return "왼손"
     if "오른손" in name:
@@ -60,16 +60,16 @@ def _video_time_for_exercise(name: str) -> str:
     return "00:14"
 
 
-def _avg_or_none(values):
+def _avg_or_none(values) -> float | None:
     values = [float(value) for value in values if value is not None]
     return round(sum(values) / len(values), 1) if values else None
 
 
-def _round_or_none(value):
+def _round_or_none(value) -> float | None:
     return round(float(value), 1) if value is not None else None
 
 
-def _collect_active_schedule_maps(db: Session, patient_id: int):
+def _collect_active_schedule_maps(db: Session, patient_id: int) -> tuple[dict, dict]:
     reusable_schedules = {}
     completed_schedules = {}
     active_prescriptions = (
@@ -87,7 +87,7 @@ def _collect_active_schedule_maps(db: Session, patient_id: int):
     return reusable_schedules, completed_schedules
 
 
-def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date):
+def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date) -> ExerciseSchedule | None:
     schedules = schedule_map.get((exercise_name, exercise_date))
     if not schedules:
         return None
@@ -97,28 +97,28 @@ def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date
     return schedule
 
 
-def _first_schedule_log(schedule: ExerciseSchedule):
+def _first_schedule_log(schedule: ExerciseSchedule) -> RehabExerciseLog | None:
     session = schedule.sessions[0] if schedule.sessions else None
     return session.logs[0] if session and session.logs else None
 
 
-def _progress_from_log(log):
+def _progress_from_log(log) -> int:
     if not log or log.progress_rate is None:
         return 0
     return min(100, max(0, round(float(log.progress_rate))))
 
 
-def _exercise_status_from_log(log):
+def _exercise_status_from_log(log) -> str:
     if not log:
         return "waiting"
     return "done" if _progress_from_log(log) >= 100 else "partial"
 
 
-def _finger_key(label: str):
+def _finger_key(label: str) -> str:
     return next((key for key, value in FINGER_LABELS.items() if value == label), label)
 
 
-def _parse_rom_key(key: str):
+def _parse_rom_key(key: str) -> tuple[str, str, str] | None:
     # format: {finger_key}_{joint_type}_{hand_type}  e.g. thumb_MCP_왼손
     parts = key.split("_", 2)
     if len(parts) != 3:
@@ -130,7 +130,7 @@ def _parse_rom_key(key: str):
     return finger_type, joint_type, hand_type
 
 
-def _rom_settings_to_dict(settings):
+def _rom_settings_to_dict(settings) -> dict[str, float]:
     rom = {}
     for setting in settings:
         finger_key = next(
@@ -142,7 +142,7 @@ def _rom_settings_to_dict(settings):
     return rom
 
 
-def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip'):
+def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip') -> list[PatientRomSetting]:
     return (
         db.query(PatientRomSetting)
         .filter(
@@ -153,7 +153,7 @@ def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip'):
     )
 
 
-def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dict):
+def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dict) -> dict[str, float]:
     db.query(PatientRomSetting).filter(
         PatientRomSetting.patient_id == patient_id,
         PatientRomSetting.exercise_type == exercise_type,
@@ -177,7 +177,7 @@ def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dic
     return _rom_settings_to_dict(_get_patient_rom(db, patient_id, exercise_type))
 
 
-def _patient_to_dict(patient):
+def _patient_to_dict(patient) -> dict:
     return {
         "patient_id": patient.patient_id,
         "doctor_id": patient.doctor_id,
@@ -202,7 +202,7 @@ def _patient_to_dict(patient):
     }
 
 
-def _require_role(payload: dict, role: str):
+def _require_role(payload: dict, role: str) -> None:
     if payload["role"] != role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -210,7 +210,7 @@ def _require_role(payload: dict, role: str):
         )
 
 
-def _require_patient_approved(patient):
+def _require_patient_approved(patient) -> None:
     if patient.approval_status != "승인":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -218,7 +218,7 @@ def _require_patient_approved(patient):
         )
 
 
-def _ensure_pending_report_for_exercise(db: Session, patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None):
+def _ensure_pending_report_for_exercise(db: Session, patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None) -> LlmReport | None:
     if not patient.doctor_id:
         return None
 
@@ -256,7 +256,7 @@ def _ensure_pending_report_for_exercise(db: Session, patient, schedule: Exercise
     return report
 
 
-def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items):
+def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items) -> None:
     for item in items:
         joint_type = item.joint_type
         existing = (
@@ -291,7 +291,7 @@ def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items):
 def get_my_patient_profile(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient = patient_crud.get_patient_by_id(db, int(payload["sub"]))
     if not patient:
@@ -303,7 +303,7 @@ def get_my_patient_profile(
 def approve_my_registration(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient = patient_crud.get_patient_by_id(db, int(payload["sub"]))
     if not patient:
@@ -318,7 +318,7 @@ def update_my_patient_profile(
     body: PatientUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient = patient_crud.get_patient_by_id(db, int(payload["sub"]))
     if not patient:
@@ -336,7 +336,7 @@ def update_my_patient_profile(
 def list_my_patients(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     patients = patient_crud.get_patients_by_doctor_id(db, int(payload["sub"]))
     return [_patient_to_dict(patient) for patient in patients]
@@ -347,7 +347,7 @@ def search_patients(
     q: str,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     if not q or not q.strip():
         return []
@@ -359,7 +359,7 @@ def search_patients(
 def list_all_exercises(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     exercises = db.query(Exercise).order_by(Exercise.exercise_name).all()
     return [
@@ -378,7 +378,7 @@ def assign_patient(
     body: PatientAssignRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -403,7 +403,7 @@ def update_patient_medical(
     body: PatientMedicalUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -421,7 +421,7 @@ def get_patient_rom(
     exercise_type: str = 'grip',
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -438,7 +438,7 @@ def update_patient_rom(
     body: PatientRomUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -453,7 +453,7 @@ def update_patient_rom(
 def report_exercise_blocked(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
 
@@ -480,7 +480,7 @@ def get_nearby_hospitals(
     lng: float,
     radius: int = 2000,
     payload: dict = Depends(get_token_payload),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     if not KAKAO_REST_KEY:
         raise HTTPException(status_code=503, detail="카카오 API 키가 설정되지 않았습니다.")
@@ -519,7 +519,7 @@ def get_nearby_hospitals(
 def get_my_schedule(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     today = date.today()
@@ -567,7 +567,7 @@ def get_my_schedule(
 def get_my_today_exercises(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     today = date.today()
@@ -651,7 +651,7 @@ def get_my_today_exercises(
 def get_my_weekly_stats(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     today = date.today()
@@ -695,7 +695,7 @@ def create_my_exercise_session(
     body: ExerciseSessionCreateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
 
@@ -780,7 +780,7 @@ def save_patient_prescription(
     body: PrescriptionSaveRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -886,7 +886,7 @@ def get_patient_prescriptions(
     patient_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict | None:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -946,7 +946,7 @@ def get_patient_daily_exercise_result(
     target_date: Optional[date] = Query(None, alias="date"),
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -1054,7 +1054,7 @@ def get_patient_weekly_progress(
     patient_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -1241,7 +1241,7 @@ def get_patient_detail(
     patient_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:

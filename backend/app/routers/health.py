@@ -7,11 +7,11 @@ router = APIRouter()
 engine = create_engine(os.getenv("DATABASE_URL"))
 
 @router.get("/health")
-def health():
+def health() -> dict:
     return {"status": "ok"}
 
 @router.get("/db-health")
-def db_health():
+def db_health() -> dict:
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))

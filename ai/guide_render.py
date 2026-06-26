@@ -43,7 +43,7 @@ HOLOGRAM_VAL_MIN                = 0.80
 HOLOGRAM_VAL_MAX                = 1.05
 
 
-def draw_animated_guide(frame, guide_frame_idx, guide_np):
+def draw_animated_guide(frame, guide_frame_idx, guide_np) -> None:
     if guide_np is None: return
 
     h, w = frame.shape[:2]

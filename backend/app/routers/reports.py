@@ -22,7 +22,7 @@ from services.llm_report_generator import generate_daily_report_content
 router = APIRouter(tags=["reports"])
 
 
-def _require_role(payload: dict, role: str):
+def _require_role(payload: dict, role: str) -> None:
     if payload["role"] != role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -30,7 +30,7 @@ def _require_role(payload: dict, role: str):
         )
 
 
-def _require_doctor_report_access(report: LlmReport, doctor_id: int):
+def _require_doctor_report_access(report: LlmReport, doctor_id: int) -> None:
     if report.doctor_id != doctor_id:
         raise HTTPException(status_code=403, detail="Cannot access this report")
 
@@ -90,7 +90,7 @@ def _get_date_achievements(db: Session, patient_id: int, report_date) -> dict:
     return achievements
 
 
-def _collect_active_schedule_maps(db: Session, patient_id: int):
+def _collect_active_schedule_maps(db: Session, patient_id: int) -> tuple[dict, dict]:
     reusable_schedules = {}
     completed_schedules = {}
     active_prescriptions = (
@@ -110,7 +110,7 @@ def _collect_active_schedule_maps(db: Session, patient_id: int):
     return reusable_schedules, completed_schedules
 
 
-def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date):
+def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date) -> ExerciseSchedule | None:
     schedules = schedule_map.get((exercise_name, exercise_date))
     if not schedules:
         return None
@@ -259,7 +259,7 @@ def create_llm_report(
     body: LlmReportCreateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     doctor_id = int(payload["sub"])
     patient = patient_crud.get_patient_by_id(db, body.patient_id)
@@ -285,7 +285,7 @@ def create_llm_report(
 def get_my_doctor_reports(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     reports = report_crud.get_doctor_reports(db, int(payload["sub"]))
     return [_report_summary(report) for report in reports]
@@ -296,7 +296,7 @@ def get_my_doctor_report_detail(
     report_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     report = report_crud.get_report_by_id(db, report_id)
     if not report:
@@ -311,7 +311,7 @@ def update_my_doctor_report(
     body: ReportUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     report = report_crud.get_report_by_id(db, report_id)
     if not report:
@@ -326,7 +326,7 @@ def approve_my_doctor_report(
     body: ReportApproveRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     report = report_crud.get_report_by_id(db, report_id)
     if not report:
@@ -349,7 +349,7 @@ def approve_my_doctor_report(
 def get_my_patient_reports(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     reports = report_crud.get_patient_approved_reports(db, int(payload["sub"]))
     return [{**_report_summary(report), "approval_status": "승인"} for report in reports]
@@ -360,7 +360,7 @@ def get_my_patient_report_detail(
     report_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     report = report_crud.get_report_by_id(db, report_id)
