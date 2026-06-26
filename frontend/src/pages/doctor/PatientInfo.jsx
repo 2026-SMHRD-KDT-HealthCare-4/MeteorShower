@@ -30,37 +30,53 @@ function toKey(date) {
 }
 
 /* ── 처방 일정 컴포넌트 ── */
-function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = false }) {
+function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = false, minEditableDate = null }) {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
 
   const enabled = prescription.filter((ex) => ex.enabled);
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const toggle = (name, dateStr) =>
+  const canEditDate = (dateStr) => !readOnly && (!minEditableDate || dateStr > minEditableDate);
+
+  const toggle = (name, dateStr) => {
+    if (!canEditDate(dateStr)) return;
     setSchedule((prev) => ({ ...prev, [`${name}|${dateStr}`]: !prev[`${name}|${dateStr}`] }));
+  };
 
   const isOn = (name, dateStr) => !!schedule[`${name}|${dateStr}`];
 
   const assignWeekdays = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.slice(0, 5).forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.slice(0, 5).forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const assignAll = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const clearWeek = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { delete next[`${name}|${toKey(d)}`]; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) delete next[`${name}|${dateStr}`];
+      })
     );
     setSchedule(next);
   };
@@ -129,22 +145,21 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = 
                 {weekDates.map((d, j) => {
                   const dateStr = toKey(d);
                   const on = isOn(ex.name, dateStr);
+                  const disabled = !canEditDate(dateStr);
                   return (
                     <td key={j} className="text-center px-2 py-3">
                       <button
-                        onClick={() => !readOnly && toggle(ex.name, dateStr)}
-                        className={`w-8 h-8 rounded-full text-label-sm font-bold transition-all
-                          ${readOnly ? 'cursor-default' : 'active:scale-90'}
+                        onClick={() => toggle(ex.name, dateStr)}
+                        disabled={disabled}
+                        className={`w-8 h-8 rounded-full text-label-sm font-bold transition-all active:scale-90
                           ${on
                             ? 'bg-doctor-primary text-white shadow-sm'
-                            : readOnly
-                              ? 'bg-surface-container text-on-surface-variant'
-                              : 'bg-surface-container text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
-                          }`}
+                            : 'bg-surface-container text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
+                          } ${disabled ? 'cursor-not-allowed opacity-50 active:scale-100' : ''}`}
                       >
                         {on
                           ? <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1, 'wght' 700" }}>check</span>
-                          : <span className="text-xs">{readOnly ? '' : '+'}</span>
+                          : <span className="text-xs">{disabled ? '' : '+'}</span>
                         }
                       </button>
                     </td>
@@ -1006,7 +1021,7 @@ export default function PatientInfo() {
                   처방 일정 설정
                 </h3>
               </div>
-              <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} />
+              <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} minEditableDate={toKey(new Date())} />
             </>
           )}
         </section>
