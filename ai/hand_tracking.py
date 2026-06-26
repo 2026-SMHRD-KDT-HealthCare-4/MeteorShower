@@ -413,7 +413,25 @@ def print_angle_summary(angle_stats, total_frames):
         print("============================================")
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None):
+def _resolve_prescribed_target(raw_value, exercise_default, label):
+    """처방값(raw_value)이 유효한 양의 정수면 그 값을, 아니면 운동 기본값
+    (exercise_default)으로 폴백한다. 폴백이 발동하면 항상 콘솔에 경고를 남겨서,
+    처방값이 조용히 무시되는 일이 없도록 한다(원인 추적용)."""
+    if raw_value is None:
+        print(f"[Prescription][WARN] {label} 처방값 미수신, 기본값 {exercise_default}로 폴백")
+        return exercise_default
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        print(f"[Prescription][WARN] {label} 처방값이 정수가 아님({raw_value!r}), 기본값 {exercise_default}로 폴백")
+        return exercise_default
+    if value <= 0:
+        print(f"[Prescription][WARN] {label} 처방값이 유효하지 않음({value}), 기본값 {exercise_default}로 폴백")
+        return exercise_default
+    return value
+
+
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None):
     # exercise_name이 지정되면 해당 운동 하나만 실행 (다른 운동으로 자동 전환되지 않음).
     # 지정이 없거나 매칭되는 운동이 없으면 기존처럼 EXERCISES 전체를 순서대로 실행.
     if exercise_name is not None:
@@ -421,6 +439,22 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         active_exercises = _matched if _matched else EXERCISES
     else:
         active_exercises = EXERCISES
+
+    # 의사 처방의 목표 횟수/세트수(target_count, target_set)로 EXERCISES의 기본값을
+    # 덮어써서 완료 판정 기준으로 쓴다. 처방값이 없거나(None) 0/음수/정수아님이면
+    # 해당 운동의 기존 기본값으로 폴백하며, 그때마다 경고 로그를 남긴다.
+    active_exercises = [
+        {
+            **ex,
+            "target_count": _resolve_prescribed_target(
+                target_count, ex["target_count"], f"{ex['name']} target_count"
+            ),
+            "target_set": _resolve_prescribed_target(
+                target_set, ex["target_set"], f"{ex['name']} target_set"
+            ),
+        }
+        for ex in active_exercises
+    ]
 
     # 1. 외부 입력 데이터가 있으면 그것을 우선 사용
     if finger_rom_targets is not None:
@@ -1026,7 +1060,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
         if overload_stage == 2:
             if patient_id is None:
-                print("[WARN] patient_id 없음 — 운동차단 알림을 보내지 않습니다.")
+                print("[WARN] patient_id 없음, 운동차단 알림을 보내지 않습니다.")
             else:
                 session_data = {
                     "end_type":       "운동차단",

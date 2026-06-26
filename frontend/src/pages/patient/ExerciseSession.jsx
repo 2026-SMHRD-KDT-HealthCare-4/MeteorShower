@@ -139,10 +139,20 @@ export default function ExerciseSession() {
   const saveExerciseResult = useCallback((endType = '완료') => {
     if (savedRef.current || !exerciseInfo?.schedule_id) return Promise.resolve();
     savedRef.current = true;
-    const latest      = latestDataRef.current ?? {};
-    const doneReps    = ((latest.set ?? 1) - 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1) + (latest.count ?? 0);
-    const totalReps   = (latest.total_sets ?? exerciseInfo?.sets ?? 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1);
-    const progress    = endType === '완료' ? 100 : totalReps > 0 ? Math.min(100, Math.round(doneReps / totalReps * 100)) : null;
+    const latest    = latestDataRef.current ?? {};
+    const totalReps = (latest.total_sets ?? exerciseInfo?.sets ?? 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1);
+
+    // AI는 마지막 세트의 목표 횟수를 채운 그 프레임에서 count/set을 곧바로 다음
+    // 사이클용으로 리셋한 뒤 session_end를 보낸다 — 그래서 정상 완료 시점의
+    // latest.count/latest.set은 "완료 직후" 값이 아니라 "리셋된 0"이다. 정상 완료
+    // (end_type==='완료' && !overload)는 정의상 전체 목표를 다 채운 경우이므로
+    // doneReps를 totalReps로 둔다. 과부하로 강제 종료된 경우는 이 리셋이 일어나지
+    // 않으므로 실시간 카운트를 그대로 써서, 조기 종료를 그대로 진행률에 반영한다.
+    const isNormalCompletion = endType === '완료' && !latest.overload;
+    const doneReps = isNormalCompletion
+      ? totalReps
+      : ((latest.set ?? 1) - 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1) + (latest.count ?? 0);
+    const progress = totalReps > 0 ? Math.min(100, Math.round(doneReps / totalReps * 100)) : null;
 
     const payload = {
       schedule_id:    exerciseInfo.schedule_id,
@@ -186,7 +196,13 @@ export default function ExerciseSession() {
     ws.onopen = () => {
       const { hand, exerciseName } = parseExerciseName(exerciseInfo?.name);
       setSelectedHand(hand);
-      ws.send(JSON.stringify({ action: 'start', hand, exercise_name: exerciseName }));
+      ws.send(JSON.stringify({
+        action: 'start',
+        hand,
+        exercise_name: exerciseName,
+        target_count: exerciseInfo?.reps,
+        target_set: exerciseInfo?.sets,
+      }));
     };
 
     ws.onmessage = (e) => {
