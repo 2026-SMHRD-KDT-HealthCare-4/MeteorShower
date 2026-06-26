@@ -34,8 +34,9 @@ export const api = {
 };
 
 export const patientApi = {
-  getMyProfile:    ()         => api.get('/patients/me'),
-  updateMyProfile: (body)     => api.patch('/patients/me', body),
+  getMyProfile:         ()     => api.get('/patients/me'),
+  updateMyProfile:      (body) => api.patch('/patients/me', body),
+  approveMyRegistration: ()   => api.patch('/patients/me/approve'),
   listPatients:    ()         => api.get('/patients'),
   getPatient:      (id)       => api.get(`/patients/${id}`),
   searchPatients:       (q)        => api.get(`/patients/search?q=${encodeURIComponent(q)}`),

@@ -254,6 +254,7 @@ def patient_login(body: LoginRequest, db: Session = Depends(get_db)):
         "token": token,
         "name": patient.name,
         "role": "patient",
+        "approval_status": patient.approval_status,
     }
 
 
