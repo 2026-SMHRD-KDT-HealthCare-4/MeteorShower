@@ -39,6 +39,10 @@ class Patient(Base):
             "current_rehab_phase IN ('초기', '중기', '후기')",
             name="ck_patient_phase",
         ),
+        CheckConstraint(
+            "approval_status IN ('대기', '승인')",
+            name="ck_patient_approval_status",
+        ),
     )
 
     doctor = relationship("Doctor", back_populates="patients")
