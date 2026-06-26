@@ -90,6 +90,36 @@ def _get_date_achievements(db: Session, patient_id: int, report_date) -> dict:
     return achievements
 
 
+def _collect_active_schedule_maps(db: Session, patient_id: int):
+    reusable_schedules = {}
+    completed_schedules = {}
+    active_prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .all()
+    )
+    for prescription in active_prescriptions:
+        for prescription_exercise in prescription.prescription_exercises:
+            exercise_name = prescription_exercise.exercise.exercise_name if prescription_exercise.exercise else None
+            if not exercise_name:
+                continue
+            for schedule in prescription_exercise.schedules:
+                key = (exercise_name, schedule.exercise_date)
+                target = completed_schedules if schedule.sessions else reusable_schedules
+                target.setdefault(key, []).append(schedule)
+    return reusable_schedules, completed_schedules
+
+
+def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date):
+    schedules = schedule_map.get((exercise_name, exercise_date))
+    if not schedules:
+        return None
+    schedule = schedules.pop(0)
+    if not schedules:
+        schedule_map.pop((exercise_name, exercise_date), None)
+    return schedule
+
+
 def _save_prescription_from_report(
     db: Session,
     report: LlmReport,
@@ -98,6 +128,8 @@ def _save_prescription_from_report(
     enabled_exercises = [exercise for exercise in body.exercises if exercise.enabled]
     if not enabled_exercises:
         return None
+
+    reusable_schedules, completed_schedules = _collect_active_schedule_maps(db, report.patient_id)
 
     db.query(Prescription).filter(
         Prescription.patient_id == report.patient_id,
@@ -144,14 +176,20 @@ def _save_prescription_from_report(
             if name != item.name or not date_text:
                 continue
             schedule_date = date.fromisoformat(date_text)
-            if schedule_date <= base_schedule_date:
+            if schedule_date < base_schedule_date:
                 continue
-            db.add(
-                ExerciseSchedule(
-                    prescription_exercise_id=prescription_exercise.prescription_exercise_id,
-                    exercise_date=schedule_date,
+            if completed_schedules.get((item.name, schedule_date)):
+                continue
+            existing_schedule = _pop_reusable_schedule(reusable_schedules, item.name, schedule_date)
+            if existing_schedule:
+                existing_schedule.prescription_exercise_id = prescription_exercise.prescription_exercise_id
+            else:
+                db.add(
+                    ExerciseSchedule(
+                        prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                        exercise_date=schedule_date,
+                    )
                 )
-            )
 
     return prescription
 
@@ -289,7 +327,7 @@ def approve_my_doctor_report(
         report.edited_content = body.edited_content
 
     was_approved = report.approval_status == "승인"
-    prescription = _save_prescription_from_report(db, report, body)
+    prescription = None if was_approved else _save_prescription_from_report(db, report, body)
     report = report_crud.approve_report(db, report)
 
     if not was_approved:
