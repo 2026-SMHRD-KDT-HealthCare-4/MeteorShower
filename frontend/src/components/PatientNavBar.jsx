@@ -46,6 +46,14 @@ const TYPE_CONFIG = {
     border: 'border-[#ce93d8]',
     dot: 'bg-[#6200ea]',
   },
+  운동미수행: {
+    icon: 'event_busy',
+    label: '운동 미수행',
+    color: 'text-[#e37400]',
+    bg: 'bg-[#fff3e0]',
+    border: 'border-[#ffcc80]',
+    dot: 'bg-[#e37400]',
+  },
 };
 
 export default function PatientNavBar() {
@@ -95,6 +103,7 @@ export default function PatientNavBar() {
     처방등록: '/patient/exercise',
     appointment: '/patient/records',
     report: '/patient/records',
+    운동미수행: '/patient/exercise',
   };
 
   return (
