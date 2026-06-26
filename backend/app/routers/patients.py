@@ -198,6 +198,7 @@ def _patient_to_dict(patient):
         "ai_difficulty_enabled": patient.ai_difficulty_enabled,
         "appointment_date": patient.appointment_date,
         "doctor_name": patient.doctor.name if patient.doctor else None,
+        "approval_status": patient.approval_status,
     }
 
 
@@ -206,6 +207,14 @@ def _require_role(payload: dict, role: str):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"{role} role required",
+        )
+
+
+def _require_patient_approved(patient):
+    if patient.approval_status != "승인":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="환자가 아직 등록 정보에 동의하지 않았습니다.",
         )
 
 
@@ -290,6 +299,20 @@ def get_my_patient_profile(
     return _patient_to_dict(patient)
 
 
+@router.patch("/me/approve")
+def approve_my_registration(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+):
+    _require_role(payload, "patient")
+    patient = patient_crud.get_patient_by_id(db, int(payload["sub"]))
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    patient.approval_status = "승인"
+    db.commit()
+    return {"approval_status": "승인"}
+
+
 @router.patch("/me")
 def update_my_patient_profile(
     body: PatientUpdateRequest,
@@ -366,6 +389,7 @@ def assign_patient(
     doctor = doctor_crud.get_doctor_by_id(db, int(payload["sub"]))
     values = body.model_dump(exclude_unset=True)
     values["doctor_id"] = int(payload["sub"])
+    values["approval_status"] = "대기"
     if doctor:
         values["hospital_name"] = doctor.hospital_name
 
@@ -386,6 +410,7 @@ def update_patient_medical(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
     updated = patient_crud.update_patient(db, patient, body.model_dump(exclude_unset=True))
     return _patient_to_dict(updated)
 
@@ -403,6 +428,7 @@ def get_patient_rom(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
     return {"rom": _rom_settings_to_dict(_get_patient_rom(db, patient_id, exercise_type))}
 
 
@@ -419,6 +445,7 @@ def update_patient_rom(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
     return {"rom": _save_patient_rom(db, patient_id, body.exercise_type, body.rom)}
 
 
@@ -760,6 +787,7 @@ def save_patient_prescription(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     enabled_exercises = [ex for ex in body.exercises if ex.enabled]
     if not enabled_exercises:
@@ -865,6 +893,7 @@ def get_patient_prescriptions(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     prescriptions = (
         db.query(Prescription)
@@ -924,6 +953,7 @@ def get_patient_daily_exercise_result(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     result_date = target_date or date.today()
     schedules = (
@@ -1031,6 +1061,7 @@ def get_patient_weekly_progress(
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id is not None and patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     today = date.today()
     rehab_start = patient.rehab_start_date or today
@@ -1219,5 +1250,6 @@ def get_patient_detail(
     doctor_id = int(payload["sub"])
     if patient.doctor_id is not None and patient.doctor_id != doctor_id:
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     return _patient_to_dict(patient)

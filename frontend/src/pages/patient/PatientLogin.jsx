@@ -43,9 +43,9 @@ export default function PatientLogin() {
 
     setLoading(true);
     authApi.patientLogin(id, password)
-      .then(({ token, name }) => {
-        login({ name, role: 'patient' }, token, remember);
-        navigate('/patient/exercise', { replace: true });
+      .then(({ token, name, approval_status }) => {
+        login({ name, role: 'patient', approval_status }, token, remember);
+        navigate(approval_status === '대기' ? '/patient/approval' : '/patient/exercise', { replace: true });
       })
       .catch((err) => setLoginError(err.message))
       .finally(() => setLoading(false));

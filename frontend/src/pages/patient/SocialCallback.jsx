@@ -32,8 +32,8 @@ export default function SocialCallback() {
           sessionStorage.setItem('socialSignup', JSON.stringify(data));
           navigate('/patient/auth/social-signup', { replace: true });
         } else {
-          login({ name: data.name, role: 'patient' }, data.token, true);
-          navigate('/patient/exercise', { replace: true });
+          login({ name: data.name, role: 'patient', approval_status: data.approval_status }, data.token, true);
+          navigate(data.approval_status === '대기' ? '/patient/approval' : '/patient/exercise', { replace: true });
         }
       })
       .catch(() => navigate('/patient/login', { replace: true }));
