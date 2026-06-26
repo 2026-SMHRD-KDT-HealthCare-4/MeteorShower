@@ -40,12 +40,12 @@ class FeedbackTracker:
     인스턴스를 하나씩 만들어 사용한다.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._level_started_at = {}   # finger_name -> 현재 레벨(yellow/red) 진입 시각
         self._current_level    = {}   # finger_name -> 마지막으로 본 레벨
         self._last_feedback_at = {}   # (finger_name, level) -> 마지막 피드백 발생 시각
 
-    def reset(self):
+    def reset(self) -> None:
         """지속시간·쿨다운 상태를 모두 초기화한다.
 
         운동/세트 전환처럼 맥락이 완전히 바뀌는 시점에 호출한다. 단순히 green

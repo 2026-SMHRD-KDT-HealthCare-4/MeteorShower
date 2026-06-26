@@ -46,18 +46,18 @@ SAMPLE_PRESCRIPTION = {
 
 
 class _FakeResponse:
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         pass
 
 
-def test_daily_report_success():
+def test_daily_report_success() -> None:
     with patch.object(llm_client, "_call_chat_completion", return_value="- 정상 수행, ROM 양호"):
         result = llm_client.generate_daily_report(SAMPLE_DAILY)
     assert result == {"report_text": "- 정상 수행, ROM 양호", "success": True, "error": None}
     print("[PASS] generate_daily_report (성공 케이스)")
 
 
-def test_daily_report_api_failure():
+def test_daily_report_api_failure() -> None:
     with patch.object(llm_client, "_call_chat_completion", side_effect=OpenAIError("rate limit exceeded")):
         result = llm_client.generate_daily_report(SAMPLE_DAILY)
     assert result["success"] is False
@@ -66,7 +66,7 @@ def test_daily_report_api_failure():
     print("[PASS] generate_daily_report (API 실패 케이스)")
 
 
-def test_monthly_report_success():
+def test_monthly_report_success() -> None:
     mock_json = json.dumps({"summary": "재활 경과가 양호합니다.", "keywords": ["호전", "순응도"]})
     with patch.object(llm_client, "_call_chat_completion", return_value=mock_json):
         result = llm_client.generate_monthly_report(SAMPLE_MONTHLY)
@@ -76,7 +76,7 @@ def test_monthly_report_success():
     print("[PASS] generate_monthly_report (성공 케이스)")
 
 
-def test_monthly_report_json_parse_failure():
+def test_monthly_report_json_parse_failure() -> None:
     with patch.object(llm_client, "_call_chat_completion", return_value="이건 JSON이 아닙니다"):
         result = llm_client.generate_monthly_report(SAMPLE_MONTHLY)
     assert result["success"] is False
@@ -84,7 +84,7 @@ def test_monthly_report_json_parse_failure():
     print("[PASS] generate_monthly_report (JSON 파싱 실패 케이스)")
 
 
-def test_prescription_success():
+def test_prescription_success() -> None:
     mock_json = json.dumps({
         "exercises": [{"name": "full_fist", "sets": 3, "reps": 8}],
         "reason": "과부하 이력으로 횟수를 소폭 하향 조정했습니다.",
@@ -96,7 +96,7 @@ def test_prescription_success():
     print("[PASS] generate_prescription_adjustment (성공 케이스)")
 
 
-def test_prescription_api_failure():
+def test_prescription_api_failure() -> None:
     with patch.object(llm_client, "_call_chat_completion", side_effect=OpenAIError("insufficient_quota")):
         result = llm_client.generate_prescription_adjustment(SAMPLE_PRESCRIPTION)
     assert result["success"] is False
@@ -105,7 +105,7 @@ def test_prescription_api_failure():
     print("[PASS] generate_prescription_adjustment (API 실패 케이스)")
 
 
-def test_send_report_to_backend_success():
+def test_send_report_to_backend_success() -> None:
     with patch.object(llm_client.httpx, "post", return_value=_FakeResponse()) as mock_post:
         ok = llm_client.send_report_to_backend({
             "patient_id": 1,
@@ -119,7 +119,7 @@ def test_send_report_to_backend_success():
     print("[PASS] send_report_to_backend (성공 케이스)")
 
 
-def test_send_report_to_backend_failure():
+def test_send_report_to_backend_failure() -> None:
     import httpx as httpx_module
     with patch.object(llm_client.httpx, "post", side_effect=httpx_module.ConnectError("연결 실패")):
         ok = llm_client.send_report_to_backend({
@@ -132,7 +132,7 @@ def test_send_report_to_backend_failure():
     print("[PASS] send_report_to_backend (실패 케이스)")
 
 
-def test_send_report_to_backend_no_url():
+def test_send_report_to_backend_no_url() -> None:
     original = llm_client.BACKEND_API_URL
     llm_client.BACKEND_API_URL = ""
     try:
@@ -143,7 +143,7 @@ def test_send_report_to_backend_no_url():
     print("[PASS] send_report_to_backend (BACKEND_API_URL 미설정 케이스)")
 
 
-def test_full_flow_daily_to_backend():
+def test_full_flow_daily_to_backend() -> None:
     """프롬프트 생성 → LLM 호출 → 응답 파싱 → 백엔드 전송까지 전체 흐름."""
     with patch.object(llm_client, "_call_chat_completion", return_value="- 차단 없이 정상 수행됨\n- ROM 양호"):
         report = llm_client.generate_daily_report(SAMPLE_DAILY)

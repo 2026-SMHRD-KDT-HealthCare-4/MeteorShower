@@ -18,7 +18,7 @@ def get_report_by_patient_and_date(db: Session, patient_id: int, report_date: da
     )
 
 
-def get_doctor_reports(db: Session, doctor_id: int):
+def get_doctor_reports(db: Session, doctor_id: int) -> list[LlmReport]:
     return (
         db.query(LlmReport)
         .filter(LlmReport.doctor_id == doctor_id)
@@ -27,7 +27,7 @@ def get_doctor_reports(db: Session, doctor_id: int):
     )
 
 
-def get_patient_approved_reports(db: Session, patient_id: int):
+def get_patient_approved_reports(db: Session, patient_id: int) -> list[LlmReport]:
     return (
         db.query(LlmReport)
         .filter(LlmReport.patient_id == patient_id, LlmReport.edited_content.isnot(None))

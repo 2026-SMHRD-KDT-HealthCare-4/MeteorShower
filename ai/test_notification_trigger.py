@@ -5,23 +5,23 @@ import notification_trigger as nt
 
 
 class _FakeResponse:
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         pass
 
 
-def test_completed_returns_none():
+def test_completed_returns_none() -> None:
     session_data = {"end_type": "완료", "patient_id": 1, "occurred_at": "2026-06-19T14:00:00"}
     assert nt.build_blocking_event(session_data) is None
     print("[PASS] end_type=완료 → None")
 
 
-def test_target_adjusted_returns_none():
+def test_target_adjusted_returns_none() -> None:
     session_data = {"end_type": "목표조정", "patient_id": 1, "occurred_at": "2026-06-19T14:00:00"}
     assert nt.build_blocking_event(session_data) is None
     print("[PASS] end_type=목표조정 → None")
 
 
-def test_overload_rom_event():
+def test_overload_rom_event() -> None:
     session_data = {
         "end_type": "운동차단",
         "patient_id": 1,
@@ -45,7 +45,7 @@ def test_overload_rom_event():
     print("[PASS] 운동차단(rom) → OVERLOAD_ROM 이벤트")
 
 
-def test_overload_count_event():
+def test_overload_count_event() -> None:
     session_data = {
         "end_type": "운동차단",
         "patient_id": 2,
@@ -68,7 +68,7 @@ def test_overload_count_event():
     print("[PASS] 운동차단(count) → OVERLOAD_COUNT 이벤트, doctor_id 포함")
 
 
-def test_overload_unknown_cause_returns_none():
+def test_overload_unknown_cause_returns_none() -> None:
     session_data = {
         "end_type": "운동차단",
         "patient_id": 1,
@@ -79,7 +79,7 @@ def test_overload_unknown_cause_returns_none():
     print("[PASS] 운동차단(원인 불명) → None")
 
 
-def test_safety_timeout_event():
+def test_safety_timeout_event() -> None:
     session_data = {
         "end_type": "안전종료",
         "patient_id": 3,
@@ -94,7 +94,7 @@ def test_safety_timeout_event():
     print("[PASS] 안전종료 → SAFETY_TIMEOUT 이벤트")
 
 
-def test_send_notification_success():
+def test_send_notification_success() -> None:
     with patch.object(nt.httpx, "post", return_value=_FakeResponse()) as mock_post:
         ok = nt.send_notification_to_backend({"event_type": "운동차단"})
     assert ok is True
@@ -103,7 +103,7 @@ def test_send_notification_success():
     print("[PASS] send_notification_to_backend (성공 케이스)")
 
 
-def test_send_notification_failure():
+def test_send_notification_failure() -> None:
     import httpx as httpx_module
     with patch.object(nt.httpx, "post", side_effect=httpx_module.ConnectError("연결 실패")):
         ok = nt.send_notification_to_backend({"event_type": "운동차단"})
@@ -111,7 +111,7 @@ def test_send_notification_failure():
     print("[PASS] send_notification_to_backend (실패 케이스)")
 
 
-def test_send_notification_no_url():
+def test_send_notification_no_url() -> None:
     original = nt.BACKEND_API_URL
     nt.BACKEND_API_URL = ""
     try:
@@ -122,7 +122,7 @@ def test_send_notification_no_url():
     print("[PASS] send_notification_to_backend (BACKEND_API_URL 미설정 케이스)")
 
 
-def test_full_flow_overload_to_backend():
+def test_full_flow_overload_to_backend() -> None:
     session_data = {
         "end_type": "운동차단",
         "patient_id": 1,

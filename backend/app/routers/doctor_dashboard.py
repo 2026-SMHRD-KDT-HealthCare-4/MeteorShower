@@ -14,7 +14,7 @@ from models.prescription_exercise import PrescriptionExercise
 router = APIRouter(prefix="/doctor/me", tags=["doctor-dashboard"])
 
 
-def _require_doctor(payload: dict):
+def _require_doctor(payload: dict) -> None:
     if payload["role"] != "doctor":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -33,7 +33,7 @@ def _patient_card(patient: Patient) -> dict:
     }
 
 
-def _week_range(today: date):
+def _week_range(today: date) -> tuple[date, date]:
     start = today - timedelta(days=today.weekday())
     end = start + timedelta(days=6)
     return start, end
@@ -43,7 +43,7 @@ def _week_range(today: date):
 def get_doctor_dashboard(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_doctor(payload)
     doctor_id = int(payload["sub"])
     week_start, week_end = _week_range(date.today())
