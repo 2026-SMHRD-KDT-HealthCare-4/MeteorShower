@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8001';
 
-const RMS_THRESHOLD   = 0.012; // 이 볼륨 이상이면 목소리로 판단
-const SPEECH_FRAMES   = 8;     // N프레임 연속이어야 녹음 시작 (오감지 방지)
-const SILENCE_FRAMES  = 40;    // 40 × 50ms = 2초 침묵이면 자동 전송
+const RMS_THRESHOLD         = 0.012; // 이 볼륨 이상이면 목소리로 판단
+const SPEECH_FRAMES         = 8;     // N프레임 연속이어야 녹음 시작 (오감지 방지)
+const SILENCE_FRAMES        = 40;    // 40 × 50ms = 2초 침묵이면 자동 전송
+const MAX_VOICE_INPUT_SECONDS = 20;  // 1회 음성 입력 최대 시간(초)
 
 function BotFace({ isSpeaking, isRecording }) {
   return (
@@ -42,7 +43,7 @@ function BotCharacter({ isSpeaking, isRecording, isOpen, onClick }) {
   );
 }
 
-export default function VoiceChatBot() {
+export default function VoiceChatBot({ isDisabled = false }) {
   const [isOpen, setIsOpen]         = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking]   = useState(false);
@@ -61,9 +62,19 @@ export default function VoiceChatBot() {
   const vadRef         = useRef({ active: false, audioCtx: null, stream: null, recorder: null, chunks: [], speechCnt: 0, silenceCnt: 0 });
   const isLoadingRef   = useRef(false);
   const isSpeakingRef  = useRef(false);
+  const voiceTimerRef  = useRef(null);
 
   useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
+
+  // 운동 완료 시 챗봇 전면 비활성화
+  useEffect(() => {
+    if (!isDisabled) return;
+    stopVad();
+    audioRef.current?.pause();
+    setIsSpeaking(false);
+    setIsLoading(false);
+  }, [isDisabled]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -71,6 +82,7 @@ export default function VoiceChatBot() {
 
   // ── VAD (Web Audio API) ───────────────────────────────────────────
   const startVad = async () => {
+    if (isDisabled) return;
     const state = vadRef.current;
     try {
       state.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -108,6 +120,7 @@ export default function VoiceChatBot() {
           state.chunks   = [];
           state.recorder.ondataavailable = (e) => state.chunks.push(e.data);
           state.recorder.onstop = () => {
+            clearTimeout(voiceTimerRef.current);
             const blob = new Blob(state.chunks, { type: state.recorder.mimeType });
             sendVoice(blob, state.recorder.mimeType);
             state.recorder = null;
@@ -115,6 +128,13 @@ export default function VoiceChatBot() {
           };
           state.recorder.start();
           setIsRecording(true);
+          // 최대 녹음 시간 초과 시 강제 종료
+          voiceTimerRef.current = setTimeout(() => {
+            if (state.recorder?.state === 'recording') {
+              state.recorder.stop();
+              setIsRecording(false);
+            }
+          }, MAX_VOICE_INPUT_SECONDS * 1000);
         }
       } else {
         state.speechCnt = 0;
@@ -136,6 +156,7 @@ export default function VoiceChatBot() {
   const stopVad = () => {
     const state = vadRef.current;
     state.active = false;
+    clearTimeout(voiceTimerRef.current);
     state.recorder?.state === 'recording' && state.recorder.stop();
     state.stream?.getTracks().forEach((t) => t.stop());
     state.audioCtx?.close();
@@ -148,7 +169,7 @@ export default function VoiceChatBot() {
 
   // ── Push-to-talk ─────────────────────────────────────────────────
   const startManual = async () => {
-    if (isLoading || isSpeaking || isRecording || vadActive) return;
+    if (isDisabled || isLoading || isSpeaking || isRecording || vadActive) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
@@ -175,7 +196,7 @@ export default function VoiceChatBot() {
 
   // ── 공통 전송 ─────────────────────────────────────────────────────
   const sendVoice = async (blob, mimeType) => {
-    if (isLoadingRef.current || isSpeakingRef.current) return;
+    if (isDisabled || isLoadingRef.current || isSpeakingRef.current) return;
     setIsLoading(true);
     const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('webm') ? 'webm' : 'mp4';
     const fd  = new FormData();
