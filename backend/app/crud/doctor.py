@@ -20,7 +20,8 @@ def get_doctor_by_license_number(db: Session, license_number: str) -> Doctor | N
     return db.query(Doctor).filter(Doctor.license_number == license_number).first()
 
 
-def update_doctor(db: Session, doctor, values: dict) -> Doctor:
+def update_doctor(db: Session, doctor: Doctor, values: dict) -> Doctor:
+    # value가 None인 필드는 건너뛰고 나머지만 업데이트
     for key, value in values.items():
         if value is not None:
             setattr(doctor, key, value)

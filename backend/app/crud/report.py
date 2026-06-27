@@ -28,6 +28,7 @@ def get_doctor_reports(db: Session, doctor_id: int) -> list[LlmReport]:
 
 
 def get_patient_approved_reports(db: Session, patient_id: int) -> list[LlmReport]:
+    # edited_content가 있는 리포트만 승인된 것으로 간주
     return (
         db.query(LlmReport)
         .filter(LlmReport.patient_id == patient_id, LlmReport.edited_content.isnot(None))
@@ -36,7 +37,7 @@ def get_patient_approved_reports(db: Session, patient_id: int) -> list[LlmReport
     )
 
 
-def create_or_update_mock_report(
+def create_or_update_report(
     db: Session,
     patient_id: int,
     doctor_id: int,
@@ -44,6 +45,7 @@ def create_or_update_mock_report(
     draft_content: str,
     exercise_blocked: bool = False,
 ) -> LlmReport:
+    # 같은 날짜 리포트가 이미 있으면 덮어쓰고, 없으면 새로 생성 (upsert)
     report = get_report_by_patient_and_date(db, patient_id, report_date)
     if report:
         report.doctor_id = doctor_id
@@ -77,6 +79,7 @@ def update_report_content(db: Session, report: LlmReport, edited_content: str) -
 
 
 def approve_report(db: Session, report: LlmReport, approved_content: str | None = None) -> LlmReport:
+    # approved_content가 없으면 draft_content를 최종본으로 사용
     report.edited_content = approved_content or report.draft_content
     report.approval_status = "승인"
     report.approved_at = datetime.now()

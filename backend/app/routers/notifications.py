@@ -60,6 +60,7 @@ def mark_all_read(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ) -> dict:
+    # 해당 환자의 읽지 않은 알림 전체를 한 번의 쿼리로 일괄 읽음 처리
     if payload["role"] != "patient":
         raise HTTPException(status_code=403, detail="patient role required")
     patient_id = int(payload["sub"])

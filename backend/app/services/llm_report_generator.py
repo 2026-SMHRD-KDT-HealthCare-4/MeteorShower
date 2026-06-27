@@ -36,6 +36,7 @@ FINGER_LABEL_BY_KEY = {value: key for key, value in FINGER_KEY_BY_LABEL.items()}
 
 
 def _date_text(value: Any) -> str:
+    # date/datetime 객체면 ISO 포맷으로, 없으면 "미입력"으로 변환
     if not value:
         return "미입력"
     if hasattr(value, "isoformat"):
@@ -48,6 +49,7 @@ def _average(values: list[float]) -> float:
 
 
 def _fallback_report_text(data: dict, error: str | None = None) -> str:
+    # LLM 호출 실패 시 수집된 운동 데이터로 텍스트 리포트를 대체 생성
     blocked_text = (
         f"운동 차단 사유: {data.get('block_reason') or '사전 문진에서 운동 차단으로 기록되었습니다.'}"
         if data.get("is_blocked")
@@ -75,6 +77,7 @@ def build_daily_report_data(
     report_date: date,
     exercise_blocked: bool = False,
 ) -> dict:
+    # 해당 날짜의 운동 스케줄을 조회해 수행률·정확도·ROM 값을 집계하여 LLM 입력용 데이터 딕셔너리로 반환
     schedules = (
         db.query(ExerciseSchedule)
         .join(
@@ -192,6 +195,7 @@ def generate_daily_report_content(
     report_date: date,
     exercise_blocked: bool = False,
 ) -> str:
+    # LLM 클라이언트 로드 실패 또는 생성 오류 시 폴백 텍스트로 대체
     data = build_daily_report_data(db, patient, report_date, exercise_blocked)
 
     try:
@@ -207,6 +211,7 @@ def generate_daily_report_content(
 
 
 def generate_monthly_report_summary(patient: Patient, weeks: list[dict]) -> dict:
+    # 주차별 운동 수행 데이터를 정리해 LLM으로 월간 요약(summary)과 키워드(keywords)를 생성
     weekly_data = [
         {
             "week": index + 1,
