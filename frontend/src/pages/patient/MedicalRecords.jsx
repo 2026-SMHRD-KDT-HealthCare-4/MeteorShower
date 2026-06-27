@@ -68,16 +68,7 @@ function mapReportToRecord(report, index) {
     status: '진료 완료',
     statusColor: index === 0 ? 'bg-primary-fixed text-on-primary-fixed' : 'bg-surface-container-high text-on-surface-variant',
     feedback: report.content ?? report.edited_content ?? '',
-    exercises: exercises.length > 0
-      ? exercises
-      : [{
-          name: 'LLM 재활 리포트',
-          sets: null,
-          reps: null,
-          achievement: null,
-          icon: 'description',
-          badgeColor: 'bg-surface-container-high text-primary',
-        }],
+    exercises,
     featured: index === 0,
   };
 }
@@ -222,7 +213,9 @@ export default function MedicalRecords() {
                     <h4 className="text-label-md font-semibold text-primary uppercase tracking-wider">처방 운동</h4>
                   </div>
                   <div className="space-y-3">
-                    {record.exercises.map((ex, i) => (
+                    {record.exercises.length === 0 ? (
+                      <p className="text-label-sm text-on-surface-variant py-2">처방된 운동 정보가 없습니다.</p>
+                    ) : record.exercises.map((ex, i) => (
                       <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-outline-variant">
                         <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
