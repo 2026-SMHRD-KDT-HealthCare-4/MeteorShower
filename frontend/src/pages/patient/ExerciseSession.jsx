@@ -78,12 +78,9 @@ export default function ExerciseSession() {
       end_type:       endType,
       finger_accuracy: latest.finger_accuracy ?? [],
     };
-    console.log('[saveExerciseResult] payload:', payload);
-
     return patientApi.saveExerciseSession(payload)
       .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
       .catch((err) => {
-        console.error('[saveExerciseResult] error:', err);
         savedRef.current = false;
         setSaveMessage(err.message);
         throw err;

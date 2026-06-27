@@ -253,7 +253,6 @@ def _patient_report_detail(report: LlmReport, db: Session) -> dict:
     return data
 
 
-@router.post("/reports/mock", status_code=201)
 @router.post("/reports/llm", status_code=201)
 def create_llm_report(
     body: LlmReportCreateRequest,
@@ -270,7 +269,7 @@ def create_llm_report(
 
     report_date = body.report_date or date.today()
     draft_content = generate_daily_report_content(db, patient, report_date, body.exercise_blocked)
-    report = report_crud.create_or_update_mock_report(
+    report = report_crud.create_or_update_report(
         db,
         patient_id=patient.patient_id,
         doctor_id=doctor_id,

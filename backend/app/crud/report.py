@@ -36,7 +36,7 @@ def get_patient_approved_reports(db: Session, patient_id: int) -> list[LlmReport
     )
 
 
-def create_or_update_mock_report(
+def create_or_update_report(
     db: Session,
     patient_id: int,
     doctor_id: int,
