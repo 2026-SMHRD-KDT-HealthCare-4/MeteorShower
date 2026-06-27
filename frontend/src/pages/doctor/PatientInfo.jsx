@@ -1021,7 +1021,7 @@ export default function PatientInfo() {
                   처방 일정 설정
                 </h3>
               </div>
-              <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} minEditableDate={toKey(new Date())} />
+              <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} minEditableDate={(() => { const d = new Date(); d.setDate(d.getDate() - 1); return toKey(d); })()} />
             </>
           )}
         </section>

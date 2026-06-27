@@ -1228,12 +1228,36 @@ def get_patient_weekly_progress(
             "rom": rom,
         })
 
+    if patient.overall_evaluation:
+        return {
+            "weeks": weeks,
+            "summary": patient.overall_evaluation,
+            "keywords": [],
+        }
     llm_summary = generate_monthly_report_summary(patient, weeks)
     return {
         "weeks": weeks,
         "summary": llm_summary.get("summary"),
         "keywords": llm_summary.get("keywords") or [],
     }
+
+
+@router.patch("/{patient_id}/overall-evaluation")
+def save_overall_evaluation(
+    patient_id: int,
+    body: dict,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> dict:
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    patient.overall_evaluation = body.get("summary", "")
+    db.commit()
+    return {"summary": patient.overall_evaluation}
 
 
 @router.get("/{patient_id}")

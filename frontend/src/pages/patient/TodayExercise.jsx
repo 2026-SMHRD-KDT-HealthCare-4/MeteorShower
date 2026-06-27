@@ -247,13 +247,10 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
       {/* 액션 버튼 */}
       <div className="w-full md:w-auto">
         {isDone ? (
-          <button
-            onClick={() => setShowModal(true)}
-            className="w-full md:w-32 h-12 border border-primary text-primary text-label-md rounded-lg hover:bg-primary/10 transition-all active:scale-95 flex items-center justify-center gap-1"
-          >
+          <div className="w-full md:w-32 h-12 bg-primary/10 border border-primary/30 text-primary text-label-md rounded-lg flex items-center justify-center gap-1 cursor-default select-none">
             <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-            재시작
-          </button>
+            운동 완료
+          </div>
         ) : isBlocked ? (
           <button
             disabled

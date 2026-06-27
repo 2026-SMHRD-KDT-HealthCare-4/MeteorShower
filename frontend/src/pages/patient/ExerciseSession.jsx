@@ -411,7 +411,7 @@ export default function ExerciseSession() {
         </div>
       )}
 
-      <VoiceChatBot />
+      <VoiceChatBot isDisabled={phase === 'ended'} />
 
       {/* 종료 확인 모달 */}
       {showModal && (
