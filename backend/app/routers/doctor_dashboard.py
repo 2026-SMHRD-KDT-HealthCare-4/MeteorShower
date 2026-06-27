@@ -34,6 +34,7 @@ def _patient_card(patient: Patient) -> dict:
 
 
 def _week_range(today: date) -> tuple[date, date]:
+    # 주어진 날짜가 속한 주의 월요일과 일요일을 반환
     start = today - timedelta(days=today.weekday())
     end = start + timedelta(days=6)
     return start, end
@@ -44,6 +45,7 @@ def get_doctor_dashboard(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ) -> dict:
+    # 오늘 리포트 대기 환자, 이번 주 처방별 수행 현황, 오늘 리포트 작성 환자 ID 목록을 반환
     _require_doctor(payload)
     doctor_id = int(payload["sub"])
     week_start, week_end = _week_range(date.today())

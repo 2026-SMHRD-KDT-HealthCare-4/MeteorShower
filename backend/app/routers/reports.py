@@ -91,6 +91,7 @@ def _get_date_achievements(db: Session, patient_id: int, report_date) -> dict:
 
 
 def _collect_active_schedule_maps(db: Session, patient_id: int) -> tuple[dict, dict]:
+    # 적용중인 처방의 스케줄을 완료(세션 있음)와 미완료(재사용 가능)로 분류하여 반환
     reusable_schedules = {}
     completed_schedules = {}
     active_prescriptions = (
@@ -125,6 +126,7 @@ def _save_prescription_from_report(
     report: LlmReport,
     body: ReportApproveRequest,
 ) -> Optional[Prescription]:
+    # 리포트 승인 시 body의 운동 목록으로 신규 처방을 생성, 활성화 운동이 없으면 None 반환
     enabled_exercises = [exercise for exercise in body.exercises if exercise.enabled]
     if not enabled_exercises:
         return None
@@ -225,6 +227,7 @@ def _report_summary(report: LlmReport) -> dict:
 
 
 def _report_detail(report: LlmReport, db: Session, include_draft: bool = True) -> dict:
+    # 리포트 요약 정보에 처방 운동 목록·달성률을 합산하고, include_draft 플래그로 초안 포함 여부를 제어
     content = report.draft_content
     prescription = _latest_active_prescription(db, report.patient_id)
     exercises = _prescription_exercises_to_dict(prescription)
@@ -326,6 +329,7 @@ def approve_my_doctor_report(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ) -> dict:
+    # 이미 승인된 리포트는 처방 재생성 없이 내용만 갱신, 첫 승인 시 처방 저장 및 환자 알림 발송
     _require_role(payload, "doctor")
     report = report_crud.get_report_by_id(db, report_id)
     if not report:

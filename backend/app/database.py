@@ -15,6 +15,7 @@ Base = declarative_base()
 
 
 def get_db() -> Generator[Session, None, None]:
+    # FastAPI Depends에서 사용하는 DB 세션 제공자 (요청 종료 시 자동으로 close)
     db = SessionLocal()
     try:
         yield db
