@@ -41,6 +41,9 @@ export default function ProgressReport() {
   const [summary, setSummary]               = useState(null);
   const [keywords, setKeywords]             = useState([]);
   const [loading, setLoading]               = useState(!!patientId);
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [editedSummary, setEditedSummary]       = useState('');
+  const [savingSummary, setSavingSummary]       = useState(false);
 
   useEffect(() => {
     if (!patientId) { setLoading(false); return; }
@@ -398,13 +401,56 @@ export default function ProgressReport() {
         {/* 종합 평가 + 출력 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <section className="lg:col-span-2 bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-3">
-            <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
-              <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>psychology</span>
-              종합 평가
-            </h2>
-            <p className="text-body-md text-on-surface-variant leading-relaxed">
-              {summary || '-'}
-            </p>
+            <div className="flex items-center justify-between">
+              <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
+                <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>psychology</span>
+                종합 평가
+              </h2>
+              {!isEditingSummary ? (
+                <button
+                  onClick={() => { setEditedSummary(summary || ''); setIsEditingSummary(true); }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-label-sm font-semibold text-doctor-primary border border-doctor-primary hover:bg-[#e8f0fe] transition-colors"
+                >
+                  <span className="material-symbols-outlined text-base">edit</span>
+                  수정
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setIsEditingSummary(false)}
+                    className="px-3 py-1.5 rounded-lg text-label-sm font-semibold text-on-surface-variant border border-outline-variant hover:bg-surface-container transition-colors"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSavingSummary(true);
+                      patientApi.saveOverallEvaluation(patientId, { summary: editedSummary })
+                        .then(() => { setSummary(editedSummary); setIsEditingSummary(false); })
+                        .catch(() => {})
+                        .finally(() => setSavingSummary(false));
+                    }}
+                    disabled={savingSummary}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-label-sm font-semibold text-white bg-doctor-primary hover:brightness-110 transition-colors disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-base">save</span>
+                    {savingSummary ? '저장 중...' : '저장'}
+                  </button>
+                </div>
+              )}
+            </div>
+            {isEditingSummary ? (
+              <textarea
+                value={editedSummary}
+                onChange={(e) => setEditedSummary(e.target.value)}
+                rows={6}
+                className="w-full border border-outline-variant rounded-xl p-3 text-body-md text-on-surface resize-none focus:outline-none focus:ring-2 focus:ring-doctor-primary"
+              />
+            ) : (
+              <p className="text-body-md text-on-surface-variant leading-relaxed">
+                {summary || '-'}
+              </p>
+            )}
             <div className="flex gap-2 flex-wrap pt-1">
               {keywords.length > 0 ? keywords.map((keyword, index) => (
                 <span
