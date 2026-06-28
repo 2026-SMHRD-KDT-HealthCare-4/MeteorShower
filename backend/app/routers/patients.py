@@ -46,6 +46,7 @@ FINGER_LABELS = {
 
 
 def _hand_type_from_exercise_name(name: str) -> str:
+    # 운동명에 "왼손" 포함 여부로 손 구분, 명시 없으면 오른손 기본값
     if "왼손" in name:
         return "왼손"
     if "오른손" in name:
@@ -70,6 +71,7 @@ def _round_or_none(value) -> float | None:
 
 
 def _collect_active_schedule_maps(db: Session, patient_id: int) -> tuple[dict, dict]:
+    # 적용중인 처방의 스케줄을 완료(세션 있음)와 미완료(재사용 가능)로 분류하여 반환
     reusable_schedules = {}
     completed_schedules = {}
     active_prescriptions = (
@@ -119,6 +121,7 @@ def _finger_key(label: str) -> str:
 
 
 def _parse_rom_key(key: str) -> tuple[str, str, str] | None:
+    # "{finger_key}_{joint_type}_{hand_type}" 형식의 ROM 키를 파싱, 유효하지 않으면 None 반환
     # format: {finger_key}_{joint_type}_{hand_type}  e.g. thumb_MCP_왼손
     parts = key.split("_", 2)
     if len(parts) != 3:
@@ -154,6 +157,7 @@ def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip') 
 
 
 def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dict) -> dict[str, float]:
+    # 기존 ROM 설정을 전부 삭제하고 새 값으로 교체 후 저장된 결과를 반환 (replace all)
     db.query(PatientRomSetting).filter(
         PatientRomSetting.patient_id == patient_id,
         PatientRomSetting.exercise_type == exercise_type,
@@ -219,6 +223,7 @@ def _require_patient_approved(patient) -> None:
 
 
 def _ensure_pending_report_for_exercise(db: Session, patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None) -> LlmReport | None:
+    # 운동 세션 저장 후 해당 날짜 리포트가 없으면 생성, 있으면 draft 갱신 (upsert)
     if not patient.doctor_id:
         return None
 
@@ -257,6 +262,7 @@ def _ensure_pending_report_for_exercise(db: Session, patient, schedule: Exercise
 
 
 def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items) -> None:
+    # 손가락별 정확도를 upsert (같은 finger_type+joint_type이면 덮어쓰고, 없으면 새로 추가)
     for item in items:
         joint_type = item.joint_type
         existing = (
@@ -696,6 +702,7 @@ def create_my_exercise_session(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ) -> dict:
+    # 운동 세션과 로그를 저장하고, 이미 존재하면 수치를 업데이트한 뒤 리포트 초안을 갱신
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
 
@@ -781,6 +788,7 @@ def save_patient_prescription(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ) -> dict:
+    # 기존 적용중 처방을 종료하고 새 처방을 생성하며, 재사용 가능한 스케줄은 이전 것을 그대로 활용
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -1055,6 +1063,7 @@ def get_patient_weekly_progress(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ) -> dict:
+    # 재활 시작일부터 최대 12주치 운동 수행률·정확도·ROM을 집계하고 LLM 월간 요약을 함께 반환
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -1228,12 +1237,36 @@ def get_patient_weekly_progress(
             "rom": rom,
         })
 
+    if patient.overall_evaluation:
+        return {
+            "weeks": weeks,
+            "summary": patient.overall_evaluation,
+            "keywords": [],
+        }
     llm_summary = generate_monthly_report_summary(patient, weeks)
     return {
         "weeks": weeks,
         "summary": llm_summary.get("summary"),
         "keywords": llm_summary.get("keywords") or [],
     }
+
+
+@router.patch("/{patient_id}/overall-evaluation")
+def save_overall_evaluation(
+    patient_id: int,
+    body: dict,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> dict:
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    patient.overall_evaluation = body.get("summary", "")
+    db.commit()
+    return {"summary": patient.overall_evaluation}
 
 
 @router.get("/{patient_id}")

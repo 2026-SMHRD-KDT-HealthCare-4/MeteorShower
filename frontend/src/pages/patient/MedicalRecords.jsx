@@ -3,47 +3,6 @@ import PatientNavBar from '../../components/PatientNavBar';
 import { useAuth } from '../../context/AuthContext';
 import { reportApi } from '../../api';
 
-const fallbackRecords = [
-  {
-    id: 1,
-    date: '2026.03.28',
-    doctor: '김나연 원장',
-    specialty: '재활의학과 전문의',
-    status: '진료 완료',
-    statusColor: 'bg-primary-fixed text-on-primary-fixed',
-    feedback: '"손가락 움직임과 악력이 전반적으로 향상되어 매우 긍정적이에요. 특히 엄지와 검지의 협응력이 눈에 띄게 좋아졌습니다. 지속적인 스트레칭과 강화 운동을 통해 더 안정적인 기능 회복을 기대할 수 있어요. 꾸준히 잘 따라오고 계십니다! 👍"',
-    exercises: [
-      { name: '오른손 두드리기', sets: 2, reps: 5, achievement: 85, icon: 'back_hand', badgeColor: 'bg-surface-container-high text-primary' },
-      { name: '오른손 쥐었다펴기', sets: 3, reps: 5, achievement: 100, icon: 'adjust', badgeColor: 'bg-secondary-fixed text-on-secondary-fixed' },
-    ],
-    featured: true,
-  },
-  {
-    id: 2,
-    date: '2026.03.25',
-    doctor: '김나연 원장',
-    specialty: '재활의학과 전문의',
-    status: '진료 완료',
-    statusColor: 'bg-surface-container-high text-on-surface-variant',
-    feedback: '손가락 가동성과 근력이 전반적으로 향상되고 있어요. 특히 쥐는 동작이 훨씬 안정적으로 개선되었으며, 손가락 각 마디의 독립적인 움직임도 눈에 띄게 좋아졌습니다. 태핑 훈련을 통해 반응 속도와 리듬감이 개선되고 있고, 그립 강화 운동으로 일상적인 쥐기 동작에서의 안정성도 높아졌습니다. 앞으로도 꾸준히 운동 루틴을 유지해 주시면 더욱 빠른 기능 회복을 기대할 수 있습니다.',
-    exercises: [
-      { name: '왼손 두드리기', sets: 2, reps: 5, achievement: 75, icon: 'pan_tool_alt', badgeColor: 'bg-surface-container-high text-primary' },
-      { name: '왼손 쥐었다펴기', sets: 3, reps: 10, achievement: 68, icon: 'back_hand', badgeColor: 'bg-surface-container-high text-primary' },
-    ],
-    featured: false,
-  },
-  {
-    id: 3,
-    date: '2026.03.22',
-    doctor: '김나연 원장',
-    specialty: '재활의학과 전문의',
-    status: '처방 대기',
-    statusColor: 'bg-tertiary-fixed text-on-tertiary-fixed',
-    feedback: '처방 대기 중',
-    exercises: [{ name: '오른손 쥐었다펴기 / 3세트 / 5회', icon: 'brightness_7', achievement: 60 }],
-    featured: false,
-  },
-];
 
 function formatRecordDate(dateStr) {
   if (!dateStr) return '';
@@ -68,16 +27,7 @@ function mapReportToRecord(report, index) {
     status: '진료 완료',
     statusColor: index === 0 ? 'bg-primary-fixed text-on-primary-fixed' : 'bg-surface-container-high text-on-surface-variant',
     feedback: report.content ?? report.edited_content ?? '',
-    exercises: exercises.length > 0
-      ? exercises
-      : [{
-          name: 'LLM 재활 리포트',
-          sets: null,
-          reps: null,
-          achievement: null,
-          icon: 'description',
-          badgeColor: 'bg-surface-container-high text-primary',
-        }],
+    exercises,
     featured: index === 0,
   };
 }
@@ -222,7 +172,9 @@ export default function MedicalRecords() {
                     <h4 className="text-label-md font-semibold text-primary uppercase tracking-wider">처방 운동</h4>
                   </div>
                   <div className="space-y-3">
-                    {record.exercises.map((ex, i) => (
+                    {record.exercises.length === 0 ? (
+                      <p className="text-label-sm text-on-surface-variant py-2">처방된 운동 정보가 없습니다.</p>
+                    ) : record.exercises.map((ex, i) => (
                       <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-outline-variant">
                         <div className="flex items-center gap-4">
                           <div className="w-12 h-12 rounded-lg bg-primary/5 flex items-center justify-center text-primary">

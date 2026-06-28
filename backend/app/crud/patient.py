@@ -45,6 +45,7 @@ def create_patient(
 
 
 def search_unassigned_patients(db: Session, q: str) -> list[Patient]:
+    # 담당 의사가 없는 환자 중 login_id, patient_code, name으로 부분 일치 검색 (최대 20명)
     term = f"%{q}%"
     return (
         db.query(Patient)
@@ -62,6 +63,7 @@ def search_unassigned_patients(db: Session, q: str) -> list[Patient]:
 
 
 def update_patient(db: Session, patient: Patient, values: dict) -> Patient:
+    # value가 None인 필드는 건너뛰고 나머지만 업데이트
     for key, value in values.items():
         if value is not None:
             setattr(patient, key, value)

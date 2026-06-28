@@ -31,6 +31,7 @@ FRONTEND_URL       = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
 async def _get_kakao_user_info(code: str, redirect_uri: str) -> dict:
+    # 카카오 인가 코드로 액세스 토큰을 발급받고 사용자 정보(id, name, email)를 반환
     async with httpx.AsyncClient() as client:
         token_res = await client.post(
             "https://kauth.kakao.com/oauth/token",
@@ -62,6 +63,7 @@ async def _get_kakao_user_info(code: str, redirect_uri: str) -> dict:
 
 
 async def _get_google_user_info(code: str, redirect_uri: str) -> dict:
+    # 구글 인가 코드로 액세스 토큰을 발급받고 사용자 정보(id, name, email)를 반환
     async with httpx.AsyncClient() as client:
         token_res = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -87,6 +89,7 @@ async def _get_google_user_info(code: str, redirect_uri: str) -> dict:
 
 
 async def _get_naver_user_info(code: str, redirect_uri: str, state: str) -> dict:
+    # 네이버 인가 코드로 액세스 토큰을 발급받고 사용자 정보(id, name, email, phone)를 반환
     async with httpx.AsyncClient() as client:
         token_res = await client.get(
             "https://nid.naver.com/oauth2.0/token",
@@ -112,6 +115,7 @@ async def _get_naver_user_info(code: str, redirect_uri: str, state: str) -> dict
         }
 
 def _generate_patient_code(db: Session) -> str:
+    # 충돌이 없을 때까지 F + 12자리 숫자 형식의 고유 환자 코드를 반복 생성
     while True:
         code = "F" + "".join(random.choices(string.digits, k=12))
         if not patient_crud.get_patient_by_code(db, code):
@@ -262,6 +266,7 @@ def patient_login(body: LoginRequest, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/social/{provider}/url")
 def get_social_login_url(provider: str, redirect_uri: str) -> dict:
+    # CSRF 방지를 위해 JWT state 토큰을 생성하여 소셜 로그인 URL과 함께 반환
     if provider not in ("kakao", "google", "naver"):
         raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
 
@@ -301,6 +306,7 @@ def get_social_login_url(provider: str, redirect_uri: str) -> dict:
 
 @router.post("/social/{provider}")
 async def social_login(provider: str, request: Request, db: Session = Depends(get_db)) -> dict:
+    # state JWT를 검증해 CSRF를 방지하고, 기존 연동 계정이면 로그인 / 없으면 회원가입 토큰 반환
     if provider not in ("kakao", "google", "naver"):
         raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
 
@@ -357,6 +363,7 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
 
 @router.post("/social-signup", status_code=201)
 async def social_signup(request: Request, db: Session = Depends(get_db)) -> dict:
+    # signup_token을 검증하여 소셜 계정을 신규 환자와 연동하고 JWT를 발급
     body = await request.json()
     signup_token = body.get("signup_token")
     name       = body.get("name")
