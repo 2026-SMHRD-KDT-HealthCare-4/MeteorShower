@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../../api';
 import Footer from '../../components/Footer';
-import logo from '../../assets/logo.png';
 import PatientConsent from '../../components/PatientConsent';
 
 /* 허용 특수문자 (", ', `, \, <, >, & 제외) */
@@ -167,10 +166,10 @@ export default function PatientSignup() {
     }`;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <header className="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-container-padding-mobile md:px-margin-desktop">
         <div className="flex justify-between items-center w-full max-w-7xl mx-auto">
-          <Link to="/"><img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" /></Link>
+          <Link to="/"><img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" /></Link>
           <Link to="/patient/login" className="text-on-surface-variant font-medium hover:bg-surface-container-low transition-colors px-3 py-1 rounded-lg text-body-md">로그인</Link>
         </div>
       </header>
@@ -178,7 +177,7 @@ export default function PatientSignup() {
       <main className="flex-grow flex items-center justify-center px-margin-mobile py-24">
         <div className="w-full max-w-[480px] bg-surface-container-lowest rounded-xl p-8 md:p-10 shadow-card">
           <div className="text-center mb-8">
-            <img src={logo} alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
             <h1 className="font-display text-headline-xl text-on-surface mb-2">환자 회원가입</h1>
             <p className="text-body-md text-on-surface-variant">재활의 첫 걸음을 피네(Fine)와 함께 시작하세요.</p>
           </div>

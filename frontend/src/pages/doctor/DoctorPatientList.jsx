@@ -93,7 +93,7 @@ export default function DoctorPatientList() {
   );
 
   return (
-    <div className="min-h-screen" style={{ background: '#fbf9f8' }}>
+    <div className="min-h-screen" style={{ background: '#fbf9f8', backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       <main

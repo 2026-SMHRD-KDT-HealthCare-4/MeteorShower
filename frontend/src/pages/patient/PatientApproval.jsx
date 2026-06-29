@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { patientApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
-import logo from '../../assets/logo.png';
 
 function InfoRow({ label, value }) {
   if (!value) return null;
@@ -44,9 +43,9 @@ export default function PatientApproval() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <header className="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-6 md:px-10">
-        <img src={logo} alt="Fine Rehabilitation" className="h-10 w-auto" />
+        <img src="/logo.png" alt="Fine Rehabilitation" className="h-10 w-auto" />
       </header>
 
       <main className="flex-grow flex items-center justify-center px-4 py-24">

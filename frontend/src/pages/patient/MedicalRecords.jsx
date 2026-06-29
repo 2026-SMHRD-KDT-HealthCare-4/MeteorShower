@@ -9,13 +9,19 @@ function formatRecordDate(dateStr) {
   return dateStr.replace(/-/g, '.');
 }
 
+function getExerciseImage(name) {
+  if (!name) return '/grip.png';
+  if (/태핑|두드리기|tapping/i.test(name)) return '/tapping.png';
+  return '/grip.png';
+}
+
 function mapReportToRecord(report, index) {
   const exercises = (report.exercises ?? []).map((exercise) => ({
     name: exercise.name,
     sets: exercise.sets,
     reps: exercise.reps,
     achievement: exercise.achievement ?? null,
-    icon: 'fitness_center',
+    image: getExerciseImage(exercise.name),
     badgeColor: 'bg-surface-container-high text-primary',
   }));
 
@@ -58,7 +64,7 @@ function SmallRecordCard({ record }) {
         {(expanded ? record.exercises : record.exercises.slice(0, 1)).map((ex, i) => (
           <div key={i} className="flex items-center justify-between p-2 rounded-lg">
             <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-primary text-xl">{ex.icon}</span>
+              <img src={ex.image} alt={ex.name} className="w-8 h-8 rounded object-cover" />
               <div>
                 <span className="text-sm text-on-surface">{ex.name}</span>
                 {expanded && ex.sets && <p className="text-[12px] text-on-surface-variant">{ex.sets}세트 / {ex.reps}회</p>}
@@ -107,7 +113,7 @@ export default function MedicalRecords() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background pb-24 md:pb-0">
+    <div className="min-h-screen bg-background pb-24 md:pb-0" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <PatientNavBar />
 
       <main className="pt-12 pb-stack-lg px-container-padding-mobile md:px-container-padding-desktop max-w-[1280px] mx-auto">
@@ -177,8 +183,8 @@ export default function MedicalRecords() {
                     ) : record.exercises.map((ex, i) => (
                       <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-outline-variant">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
-                            <span className="material-symbols-outlined">{ex.icon}</span>
+                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-primary/5">
+                            <img src={ex.image} alt={ex.name} className="w-full h-full object-cover" />
                           </div>
                           <div>
                             <p className="text-label-md font-medium text-on-surface">{ex.name}</p>

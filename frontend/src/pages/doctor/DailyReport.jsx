@@ -528,7 +528,7 @@ export default function DailyReport() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       {/* 라이트박스 */}

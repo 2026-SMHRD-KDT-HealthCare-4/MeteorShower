@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import Footer from '../components/Footer';
-import logo from '../assets/logo.png';
 
 export default function LandingPage() {
   return (
@@ -8,7 +7,7 @@ export default function LandingPage() {
       {/* Header */}
       <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-container-padding-mobile md:px-margin-desktop">
         <div className="flex justify-between items-center w-full max-w-7xl mx-auto">
-          <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
+          <img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" />
         </div>
       </header>
 
@@ -16,7 +15,7 @@ export default function LandingPage() {
       <main className="flex-grow flex flex-col items-center justify-center px-4 pt-24 pb-16">
         {/* Title */}
         <div className="text-center mb-10">
-          <img src={logo} alt="Fine Rehabilitation" className="h-30 w-auto mx-auto mb-6" />
+          <img src="/logo.png" alt="Fine Rehabilitation" className="h-30 w-auto mx-auto mb-6" />
           <h1 className="text-headline-lg md:text-headline-lg font-display font-bold text-on-surface mb-3">
             저희는 손 재활 보조 도우미&nbsp; "
             <span className="text-[#39C5A8]">피네(Fine)</span>

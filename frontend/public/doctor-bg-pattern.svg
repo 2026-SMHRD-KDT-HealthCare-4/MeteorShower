@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140">
+  <rect width="140" height="140" fill="#eff6ff"/>
+  <!-- pulse line -->
+  <path d="M0 70 L30 70 L38 55 L46 85 L54 60 L62 75 L70 70 L140 70" fill="none" stroke="#2563eb" stroke-width="1" opacity="0.05" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- medical cross -->
+  <rect x="95" y="15" width="12" height="36" rx="2" fill="#3b82f6" opacity="0.05"/>
+  <rect x="83" y="27" width="36" height="12" rx="2" fill="#3b82f6" opacity="0.05"/>
+  <!-- stethoscope -->
+  <circle cx="30" cy="25" r="10" fill="none" stroke="#60a5fa" stroke-width="1" opacity="0.05"/>
+  <path d="M30 35 L30 45 Q30 50 35 50" fill="none" stroke="#60a5fa" stroke-width="1" opacity="0.05" stroke-linecap="round"/>
+  <!-- clipboard -->
+  <rect x="10" y="95" width="24" height="30" rx="3" fill="none" stroke="#3b82f6" stroke-width="0.8" opacity="0.05"/>
+  <rect x="16" y="92" width="12" height="6" rx="2" fill="#3b82f6" opacity="0.04"/>
+  <line x1="15" y1="105" x2="29" y2="105" stroke="#3b82f6" stroke-width="0.7" opacity="0.04"/>
+  <line x1="15" y1="110" x2="29" y2="110" stroke="#3b82f6" stroke-width="0.7" opacity="0.04"/>
+  <line x1="15" y1="115" x2="24" y2="115" stroke="#3b82f6" stroke-width="0.7" opacity="0.04"/>
+  <!-- dots -->
+  <circle cx="70" cy="30" r="2" fill="#93c5fd" opacity="0.07"/>
+  <circle cx="120" cy="100" r="2.5" fill="#60a5fa" opacity="0.05"/>
+  <circle cx="55" cy="120" r="2" fill="#93c5fd" opacity="0.06"/>
+  <!-- hexagon -->
+  <polygon points="100,100 108,96 116,100 116,108 108,112 100,108" fill="none" stroke="#60a5fa" stroke-width="0.8" opacity="0.05"/>
+</svg>
