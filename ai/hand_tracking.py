@@ -315,7 +315,7 @@ def compute_overload_rom(landmarks) -> float:
     ]))
 
 
-def save_capture(frame_records, label, patient_id=None, exercise=None) -> None:
+def save_capture(frame_records, label, patient_id=None, exercise=None) -> str | None:
     """캡처된 프레임 버퍼(frame_records)를 짧은 GIF로 저장.
 
     frame_records는 (timestamp, BGR(OpenCV) frame) 튜플 리스트 — 시간 순서대로
@@ -326,7 +326,7 @@ def save_capture(frame_records, label, patient_id=None, exercise=None) -> None:
     실제 타임스탬프 차이를 그대로 duration으로 써서 원래 속도로 재생되게 한다.
     """
     if not frame_records:
-        return
+        return None
     os.makedirs(CAPTURE_DIR, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
     pid = patient_id if patient_id is not None else "na"
@@ -353,6 +353,14 @@ def save_capture(frame_records, label, patient_id=None, exercise=None) -> None:
         loop=0,
     )
     print(f"capture saved: {path}")
+    return path
+
+
+def encode_capture_gif(path: str | None) -> str | None:
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, "rb") as fp:
+        return base64.b64encode(fp.read()).decode("utf-8")
 
 
 def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST) -> float | None:
@@ -592,6 +600,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         first_capture_frames      = []
         first_capture_started_at  = 0.0
         first_capture_last_sample_at = 0.0
+        capture_paths = {}
+        capture_set_number = 1
 
         while cap.isOpened():
             pending_last_capture     = False
@@ -842,6 +852,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                     session_complete_at = time.time()
                                     print(f"[SessionEnd] reason=set_done, count={_completed_count}, target_count={ex['target_count']}, current_set={_completed_set}, target_set={ex['target_set']}")
                                     pending_last_capture = True
+                                    capture_set_number = _completed_set
                                 else:
                                     ex_new              = active_exercises[current_exercise_idx]
                                     # 운동이 전환될 때 타겟값도 운동 타입에 맞게 변경
@@ -1015,9 +1026,15 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     and time.time() - overload_stage1_started_at > OVERLOAD_STAGE1_TIMEOUT)
             ):
                 pending_overload_capture = True
+                capture_set_number = current_set
                 overload_stage = 2
                 print(f"[Overload] stage=1->2, cause={overload_cause}, count={count}, current_set={current_set}")
                 print(f"[SessionEnd] reason=overload, cause={overload_cause}, count={count}, target_count={ex['target_count']}, current_set={current_set}, target_set={ex['target_set']}")
+
+            if pending_last_capture and "last" not in capture_paths:
+                capture_paths["last"] = save_capture(list(recent_frames), "last", patient_id, ex["name"])
+            if pending_overload_capture and "overload" not in capture_paths:
+                capture_paths["overload"] = save_capture(list(recent_frames), "overload", patient_id, ex["name"])
 
             if overload_stage == 2:
                 if session_end_at is None:
@@ -1059,6 +1076,16 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "orient_warning": (orient_angle is not None and orient_angle > ORIENT_TOLERANCE_DEG),
                     "finger_accuracy": build_finger_accuracy_summary(ex_now["name"], angle_stats),
                     }
+                if payload["session_end"]:
+                    capture_gifs = {
+                        "set_number": capture_set_number,
+                        "first": encode_capture_gif(capture_paths.get("first")),
+                        "last": encode_capture_gif(capture_paths.get("last")),
+                        "overload": encode_capture_gif(capture_paths.get("overload")),
+                    }
+                    capture_gifs = {key: value for key, value in capture_gifs.items() if value is not None}
+                    if len(capture_gifs) > 1:
+                        payload["capture_gifs"] = capture_gifs
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                 payload["frame"] = base64.b64encode(buf).decode('utf-8')
                 try: q.put_nowait(payload)
@@ -1137,32 +1164,13 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     first_capture_frames.append((_now_gif, frame.copy()))
                     first_capture_last_sample_at = _now_gif
                 if _now_gif - first_capture_started_at >= CAPTURE_GIF_DURATION_SEC:
-                    threading.Thread(
-                        target=save_capture,
-                        args=(first_capture_frames, "first", patient_id, ex["name"]),
-                        daemon=True,
-                    ).start()
+                    capture_paths["first"] = save_capture(first_capture_frames, "first", patient_id, ex["name"])
                     first_capture_collecting = False
 
             # GIF 인코딩(색공간 변환 + 양자화 + 디스크 쓰기)은 수십~수백 ms가 걸려
             # 메인 트래킹 루프에서 동기로 돌리면 그 순간 캡처가 멈춘 것처럼 보인다.
             # 캡처가 트리거된 프레임에서만 버퍼를 추출하고, 실제 인코딩/저장은
             # 백그라운드 스레드에 맡겨 루프가 끊기지 않게 한다.
-            if pending_last_capture or pending_overload_capture:
-                gif_frames = list(recent_frames)
-            if pending_last_capture:
-                threading.Thread(
-                    target=save_capture,
-                    args=(gif_frames, "last", patient_id, ex["name"]),
-                    daemon=True,
-                ).start()
-            if pending_overload_capture:
-                threading.Thread(
-                    target=save_capture,
-                    args=(gif_frames, "overload", patient_id, ex["name"]),
-                    daemon=True,
-                ).start()
-
             if show_window:
                 cv2.imshow("Hand Tracking", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):

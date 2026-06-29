@@ -8,6 +8,7 @@ mediapipe
 numpy
 openai
 python-dotenv
+firebase-admin
 asyncpg
 sqlalchemy
 psycopg2-binary

@@ -1,8 +1,9 @@
 import os
+import uuid
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timedelta
 
@@ -20,6 +21,7 @@ from models.llm_report import LlmReport
 from models.patient_rom_setting import PatientRomSetting
 from models.prescription_finger_setting import PrescriptionFingerSetting
 from models.rehab_exercise_session import RehabExerciseSession
+from models.rehab_exercise_capture import RehabExerciseCapture
 from models.rehab_exercise_log import RehabExerciseLog
 from models.finger_accuracy import FingerAccuracy
 from schemas.patient import (
@@ -31,6 +33,7 @@ from schemas.patient import (
 )
 from schemas.prescription import PrescriptionSaveRequest
 from services.llm_report_generator import generate_daily_report_content, generate_monthly_report_summary
+from services.firebase_storage import upload_bytes_to_firebase
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -114,6 +117,41 @@ def _exercise_status_from_log(log) -> str:
     if not log:
         return "waiting"
     return "done" if _progress_from_log(log) >= 100 else "partial"
+
+
+async def _upload_capture_photo(
+    file: UploadFile | None,
+    patient_id: int,
+    rehab_session_id: int,
+    set_number: int,
+    photo_type: str,
+) -> str | None:
+    if file is None:
+        return None
+
+    content_type = file.content_type or "application/octet-stream"
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail=f"{photo_type} must be an image file")
+
+    data = await file.read()
+    if not data:
+        return None
+
+    extension = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+    }.get(content_type, "jpg")
+    file_path = (
+        f"rehab-captures/patient-{patient_id}/session-{rehab_session_id}/"
+        f"set-{set_number}/{photo_type}-{uuid.uuid4().hex}.{extension}"
+    )
+
+    try:
+        return upload_bytes_to_firebase(data, file_path, content_type)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def _finger_key(label: str) -> str:
@@ -778,6 +816,81 @@ def create_my_exercise_session(
         "rehab_session_id": session.rehab_session_id,
         "rehab_exercise_log_id": log.rehab_exercise_log_id,
         "already_saved": False,
+    }
+
+
+@router.post("/me/exercise-sessions/{rehab_session_id}/captures", status_code=201)
+async def upload_my_exercise_capture(
+    rehab_session_id: int,
+    set_number: int = Form(...),
+    set_first_photo: UploadFile | None = File(None),
+    set_last_photo: UploadFile | None = File(None),
+    overload_before_photo: UploadFile | None = File(None),
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> dict:
+    # 운동 중 촬영된 사진을 Firebase에 업로드하고 URL을 세션/세트 단위로 저장
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    if set_number < 1:
+        raise HTTPException(status_code=422, detail="set_number must be greater than 0")
+    if not any([set_first_photo, set_last_photo, overload_before_photo]):
+        raise HTTPException(status_code=422, detail="At least one photo is required")
+
+    session = (
+        db.query(RehabExerciseSession)
+        .filter(RehabExerciseSession.rehab_session_id == rehab_session_id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Exercise session not found")
+
+    prescription = session.schedule.prescription_exercise.prescription
+    if prescription.patient_id != patient_id:
+        raise HTTPException(status_code=403, detail="Cannot access this session")
+
+    first_url = await _upload_capture_photo(
+        set_first_photo, patient_id, rehab_session_id, set_number, "set-first"
+    )
+    last_url = await _upload_capture_photo(
+        set_last_photo, patient_id, rehab_session_id, set_number, "set-last"
+    )
+    overload_url = await _upload_capture_photo(
+        overload_before_photo, patient_id, rehab_session_id, set_number, "overload-before"
+    )
+
+    capture = (
+        db.query(RehabExerciseCapture)
+        .filter(
+            RehabExerciseCapture.rehab_session_id == rehab_session_id,
+            RehabExerciseCapture.set_number == set_number,
+        )
+        .first()
+    )
+    if not capture:
+        capture = RehabExerciseCapture(
+            rehab_session_id=rehab_session_id,
+            set_number=set_number,
+        )
+        db.add(capture)
+
+    if first_url:
+        capture.set_first_photo_url = first_url
+    if last_url:
+        capture.set_last_photo_url = last_url
+    if overload_url:
+        capture.overload_before_photo_url = overload_url
+    capture.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(capture)
+    return {
+        "capture_id": capture.capture_id,
+        "rehab_session_id": capture.rehab_session_id,
+        "set_number": capture.set_number,
+        "set_first_photo_url": capture.set_first_photo_url,
+        "set_last_photo_url": capture.set_last_photo_url,
+        "overload_before_photo_url": capture.overload_before_photo_url,
     }
 
 

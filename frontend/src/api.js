@@ -25,6 +25,27 @@ async function request(method, path, body = null) {
   return res.json();
 }
 
+async function requestForm(method, path, formData) {
+  const headers = {};
+
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: formData,
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
+  }
+
+  return res.json();
+}
+
 export const api = {
   get:    (path)        => request('GET',    path),
   post:   (path, body)  => request('POST',   path, body),
@@ -59,6 +80,7 @@ export const patientApi = {
   reportExerciseBlocked:    ()   => api.post('/patients/me/exercise-blocked'),
   getNearbyHospitals:       (lat, lng, radius = 2000) => api.get(`/patients/me/nearby-hospitals?lat=${lat}&lng=${lng}&radius=${radius}`),
   saveExerciseSession:      (body) => api.post('/patients/me/exercise-sessions', body),
+  uploadExerciseCapture:    (rehabSessionId, formData) => requestForm('POST', `/patients/me/exercise-sessions/${rehabSessionId}/captures`, formData),
 };
 
 export const doctorApi = {
