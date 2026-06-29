@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import os
 from datetime import date
 from pathlib import Path
 from statistics import mean
@@ -9,7 +10,20 @@ from typing import Any
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+def _resolve_project_root() -> Path:
+    env_root = os.getenv("PROJECT_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "backend").exists() and (parent / "ai").exists():
+            return parent
+
+    return current.parent
+
+
+PROJECT_ROOT = _resolve_project_root()
 AI_DIR = PROJECT_ROOT / "ai"
 
 load_dotenv(PROJECT_ROOT / "backend" / ".env")
