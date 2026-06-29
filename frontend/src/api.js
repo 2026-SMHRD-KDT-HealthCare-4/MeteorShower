@@ -69,6 +69,7 @@ export const patientApi = {
   getPatientWeeklyProgress:   (id)       => api.get(`/patients/${id}/weekly-progress`),
   saveOverallEvaluation:      (id, body) => api.patch(`/patients/${id}/overall-evaluation`, body),
   getPatientDailyExerciseResult: (id, date) => api.get(`/patients/${id}/daily-exercise-result?date=${encodeURIComponent(date)}`),
+  getPatientExerciseCaptures: (id) => api.get(`/patients/${id}/exercise-captures`),
   getExercises: () => api.get('/patients/exercises'),
   updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
   getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),

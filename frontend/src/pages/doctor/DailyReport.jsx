@@ -382,6 +382,10 @@ export default function DailyReport() {
 
   const overallCompliance = dailyResult?.overall_compliance ?? 0;
   const accuracyAvg = dailyResult?.accuracy_average ?? 0;
+  const captureGifs = dailyResult?.capture_gifs ?? [];
+  const latestCaptureGif = captureGifs[0] ?? null;
+  const startCaptureGif = captureGifs.find((gif) => gif.type === '시작 동작') ?? null;
+  const otherCaptureGif = captureGifs.find((gif) => gif.type !== '시작 동작') ?? null;
 
   const loadReports = () =>
     reportApi.getDoctorReports()
@@ -534,19 +538,20 @@ export default function DailyReport() {
           onClick={() => setLightboxPhoto(null)}
         >
           <div
-            className="relative max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
+            className="relative max-w-4xl w-full rounded-2xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`w-full aspect-[4/3] bg-gradient-to-br ${lightboxPhoto.gradient} flex items-center justify-center`}>
-              <span className="material-symbols-outlined text-white/40 text-[120px]" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
+            <div className="w-full aspect-video max-h-[72vh] bg-black flex items-center justify-center">
+              <img src={lightboxPhoto.url} alt={lightboxPhoto.exercise_name} className="w-full h-full object-cover" />
             </div>
             <div className="bg-white px-5 py-4 flex items-center justify-between">
               <div>
-                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.label}</p>
+                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.exercise_name}</p>
+                <p className="text-label-sm text-on-surface-variant mt-0.5">{lightboxPhoto.type} · {lightboxPhoto.set_number}세트</p>
                 <p className="text-label-sm text-on-surface-variant mt-0.5">촬영 시각: {lightboxPhoto.time} · 2026년 2월 15일 세션</p>
               </div>
               <div className="flex items-center gap-2">
-                {sessionPhotos.map((p) => (
+                {captureGifs.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => setLightboxPhoto(p)}
@@ -563,8 +568,8 @@ export default function DailyReport() {
             </button>
             <button
               onClick={() => {
-                const idx = sessionPhotos.findIndex((p) => p.id === lightboxPhoto.id);
-                setLightboxPhoto(sessionPhotos[(idx - 1 + sessionPhotos.length) % sessionPhotos.length]);
+                const idx = captureGifs.findIndex((p) => p.id === lightboxPhoto.id);
+                setLightboxPhoto(captureGifs[(idx - 1 + captureGifs.length) % captureGifs.length]);
               }}
               className="absolute left-3 top-1/3 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
             >
@@ -572,8 +577,8 @@ export default function DailyReport() {
             </button>
             <button
               onClick={() => {
-                const idx = sessionPhotos.findIndex((p) => p.id === lightboxPhoto.id);
-                setLightboxPhoto(sessionPhotos[(idx + 1) % sessionPhotos.length]);
+                const idx = captureGifs.findIndex((p) => p.id === lightboxPhoto.id);
+                setLightboxPhoto(captureGifs[(idx + 1) % captureGifs.length]);
               }}
               className="absolute right-3 top-1/3 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
             >
@@ -639,10 +644,10 @@ export default function DailyReport() {
         </section>
 
         {/* ── AI 분석 + 관찰 기록 ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="space-y-6">
 
           {/* AI 상세 평가 */}
-          <section className="lg:col-span-7 bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-5">
+          <section className="bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
                 <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>analytics</span>
@@ -650,7 +655,7 @@ export default function DailyReport() {
               </h2>
               <button
                 onClick={() => setShowRomDetail((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-label-sm font-semibold border transition-colors
+                className={`hidden items-center gap-1.5 px-3 py-1.5 rounded-lg text-label-sm font-semibold border transition-colors
                   ${showRomDetail
                     ? 'bg-doctor-primary text-white border-doctor-primary'
                     : 'border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe]'
@@ -674,12 +679,13 @@ export default function DailyReport() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             {/* Exercise breakdown */}
-            <div className="space-y-3">
+            <div className="space-y-5 py-2">
               {detailExerciseResults.length > 0 ? detailExerciseResults.map((ex) => (
-                <div key={ex.name} className="flex items-center gap-2 sm:gap-3">
+                <div key={ex.name} className="flex items-center gap-3 sm:gap-4 py-2">
                   <span className="w-24 sm:w-28 text-label-md text-on-surface-variant flex-shrink-0">{ex.name}</span>
-                  <div className="flex-1 bg-surface-container h-3 rounded-full overflow-hidden">
+                  <div className="flex-1 bg-surface-container h-4 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-700"
                       style={{ width: `${ex.value}%`, background: ex.warn ? '#ba1a1a' : '#1a73e8' }}
@@ -701,7 +707,7 @@ export default function DailyReport() {
             </div>
 
             {/* ROM 상세 패널 */}
-            {showRomDetail && romByExercise.length > 0 && (
+            {romByExercise.length > 0 && (
               <div className="border border-outline-variant rounded-xl overflow-hidden">
                 {/* 운동 카테고리 탭 */}
                 <div className="flex overflow-x-auto border-b border-outline-variant">
@@ -778,9 +784,10 @@ export default function DailyReport() {
                 </div>
               </div>
             )}
+            </div>
 
             {/* 운동 시간 + 통증 */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
+            <div className="hidden grid-cols-2 gap-3 pt-1">
               <div className="flex items-start gap-2 sm:gap-3 p-3 bg-surface-container-low rounded-xl">
                 <span className="material-symbols-outlined text-doctor-primary text-xl flex-shrink-0">schedule</span>
                 <div>
@@ -806,29 +813,39 @@ export default function DailyReport() {
                 <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>photo_camera</span>
                 치료 중 촬영 사진
               </h2>
-              <span className="text-label-sm text-on-surface-variant">{sessionPhotos.length}장</span>
+              <span className="text-label-sm text-on-surface-variant">{captureGifs.length}개</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 flex-1">
-              {sessionPhotos.map((photo) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
+              {false && !latestCaptureGif && (
+                <div className="col-span-2 aspect-video rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex items-center justify-center text-label-md text-on-surface-variant">
+                  촬영된 GIF가 없습니다
+                </div>
+              )}
+              {[
+                { title: '시작 동작', photo: startCaptureGif },
+                { title: '운동 완료 / 과부하 직전', photo: otherCaptureGif },
+              ].map(({ title, photo }) => photo ? (
                 <button
-                  key={photo.id}
+                  key={title}
                   onClick={() => setLightboxPhoto(photo)}
-                  className="relative aspect-square rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95"
+                  className="relative aspect-video rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95 bg-black"
                 >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${photo.gradient}`} />
-                  <div className="absolute inset-0 flex items-center justify-center opacity-30 group-hover:opacity-20 transition-opacity">
-                    <span className="material-symbols-outlined text-white text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
-                  </div>
+                  <img src={photo.url} alt={photo.exercise_name} className="absolute inset-0 w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                   <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2.5 py-1.5 flex items-center justify-between">
-                    <span className="text-white text-[11px] font-semibold">{photo.label}</span>
-                    <span className="text-white/80 text-[10px]">{photo.time}</span>
+                    <span className="text-white text-[11px] font-semibold">{photo.exercise_name}</span>
+                    <span className="text-white/80 text-[10px]">{photo.type} · {photo.time}</span>
                   </div>
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <span className="material-symbols-outlined text-white text-base drop-shadow">open_in_full</span>
                   </div>
                 </button>
+              ) : (
+                <div key={title} className="aspect-video rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex flex-col items-center justify-center text-label-md text-on-surface-variant">
+                  <span className="font-semibold">{title}</span>
+                  <span className="mt-1">촬영된 GIF가 없습니다</span>
+                </div>
               ))}
             </div>
 
