@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import logo from '../../assets/logo.png';
 import Footer from '../../components/Footer';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../api';
@@ -82,14 +81,14 @@ export default function SocialSignup() {
     <div className="min-h-screen flex flex-col bg-background" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <header className="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-container-padding-mobile md:px-margin-desktop">
         <Link to="/">
-          <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
+          <img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" />
         </Link>
       </header>
 
       <main className="flex-grow flex items-center justify-center px-margin-mobile py-24">
         <div className="w-full max-w-[420px] bg-surface-container-lowest rounded-xl p-8 md:p-10 shadow-card">
           <div className="text-center mb-8">
-            <img src={logo} alt="Fine Rehabilitation" className="h-16 w-auto mx-auto mb-4" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-16 w-auto mx-auto mb-4" />
             <h1 className="font-display text-headline-md text-on-surface mb-1">추가 정보 입력</h1>
             <p className="text-body-sm text-on-surface-variant">
               {PROVIDER_LABEL[socialData.social_platform]} 계정으로 첫 로그인입니다.<br />

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../../api';
 import Footer from '../../components/Footer';
-import logo from '../../assets/logo.png';
 import DoctorConsent from '../../components/DoctorConsent';
 
 const PW_ALLOWED_SPECIAL = /[!@#$%^*()_+\-=,./:;[\]{}|~]/;
@@ -174,7 +173,7 @@ export default function DoctorSignup() {
     <div className="min-h-screen flex flex-col" style={{ background: '#fbf9f8', backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-margin-mobile md:px-margin-desktop">
         <div className="flex justify-between items-center w-full max-w-7xl mx-auto">
-          <Link to="/"><img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" /></Link>
+          <Link to="/"><img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" /></Link>
           <Link to="/doctor/login" className="text-on-surface-variant font-medium hover:bg-surface-container-low transition-colors px-3 py-1 rounded-lg text-body-md">로그인</Link>
         </div>
       </header>
@@ -182,7 +181,7 @@ export default function DoctorSignup() {
       <main className="flex-grow flex items-center justify-center px-margin-mobile py-24">
         <div className="w-full max-w-[480px] bg-white rounded-xl p-8 md:p-10 shadow-card">
           <div className="text-center mb-8">
-            <img src={logo} alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
             <h1 className="font-display text-headline-xl mb-2" style={{ color: '#1b1c1c' }}>의료진 회원가입</h1>
             <p className="text-body-md" style={{ color: '#414754' }}>인증된 의료진만 가입할 수 있습니다.</p>
           </div>

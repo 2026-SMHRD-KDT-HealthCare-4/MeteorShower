@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Footer from '../../components/Footer';
-import logo from '../../assets/logo.png';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../api';
 
@@ -48,7 +47,7 @@ export default function DoctorLogin() {
       <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-margin-mobile md:px-margin-desktop">
         <div className="flex justify-between items-center w-full max-w-7xl mx-auto">
           <Link to="/">
-            <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" />
           </Link>
         </div>
       </header>
@@ -56,7 +55,7 @@ export default function DoctorLogin() {
       <main className="flex-grow flex flex-col items-center justify-center px-margin-mobile pt-24 pb-12 gap-8">
         <div className="w-full max-w-[420px] bg-white rounded-xl p-8 md:p-10 shadow-card transition-all duration-300">
           <div className="text-center mb-10">
-            <img src={logo} alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
             <h1 className="font-display text-headline-xl mb-2" style={{ color: '#1b1c1c' }}>의료진 로그인</h1>
             <p className="text-body-md" style={{ color: '#414754' }}>의료진 전용 포털</p>
           </div>
