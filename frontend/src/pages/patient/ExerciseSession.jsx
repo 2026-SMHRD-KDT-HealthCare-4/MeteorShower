@@ -78,9 +78,9 @@ export default function ExerciseSession() {
     const firstFile = gifToFile(firstGif, 'set-first.gif');
     const lastFile = gifToFile(lastGif, 'set-last.gif');
     const overloadFile = gifToFile(overloadGif, 'overload-before.gif');
-    if (firstFile) formData.append('set_first_photo', firstFile);
-    if (lastFile) formData.append('set_last_photo', lastFile);
-    if (overloadFile) formData.append('overload_before_photo', overloadFile);
+    if (firstFile) formData.append('set_first_gif', firstFile);
+    if (lastFile) formData.append('set_last_gif', lastFile);
+    if (overloadFile) formData.append('overload_before_gif', overloadFile);
 
     return patientApi.uploadExerciseCapture(rehabSessionId, formData);
   };
@@ -113,8 +113,10 @@ export default function ExerciseSession() {
       finger_accuracy: latest.finger_accuracy ?? [],
     };
     return patientApi.saveExerciseSession(payload)
-      .then(async (result) => {
-        await uploadCaptureGifs(result?.rehab_session_id, latest);
+      .then((result) => {
+        uploadCaptureGifs(result?.rehab_session_id, latest).catch((err) => {
+          console.error('[Capture GIF upload failed]', err);
+        });
         return result;
       })
       .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
