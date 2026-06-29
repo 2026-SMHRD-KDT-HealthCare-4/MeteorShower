@@ -9,12 +9,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir \
-    mediapipe \
-    opencv-python-headless \
-    fastapi \
-    "uvicorn[standard]" \
-    numpy
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 

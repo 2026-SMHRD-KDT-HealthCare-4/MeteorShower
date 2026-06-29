@@ -1,0 +1,4 @@
+services:
+  ai:
+    devices:
+      - /dev/video0:/dev/video0
