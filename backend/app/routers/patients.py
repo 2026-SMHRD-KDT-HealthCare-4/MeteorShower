@@ -1096,6 +1096,7 @@ def get_patient_daily_exercise_result(
     )
 
     exercise_results = []
+    capture_gifs = []
     total_logs = 0
     progress_values = []
     schedule_progress_values = []
@@ -1118,6 +1119,38 @@ def get_patient_daily_exercise_result(
 
         session = schedule.sessions[0] if schedule.sessions else None
         log = session.logs[0] if session and session.logs else None
+        if session:
+            for capture in session.captures:
+                captured_at = capture.updated_at or capture.created_at
+                common = {
+                    "capture_id": capture.capture_id,
+                    "rehab_session_id": capture.rehab_session_id,
+                    "set_number": capture.set_number,
+                    "exercise_name": exercise_name,
+                    "captured_at": captured_at.isoformat() if captured_at else None,
+                    "time": captured_at.strftime("%H:%M") if captured_at else None,
+                }
+                if capture.set_first_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-first",
+                        "url": capture.set_first_gif_url,
+                        "type": "시작 동작",
+                    })
+                if capture.set_last_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-last",
+                        "url": capture.set_last_gif_url,
+                        "type": "운동 완료",
+                    })
+                if capture.overload_before_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-overload",
+                        "url": capture.overload_before_gif_url,
+                        "type": "과부하 직전",
+                    })
         total_logs += 1
         if log:
             if log.progress_rate is not None:
@@ -1166,6 +1199,7 @@ def get_patient_daily_exercise_result(
     accuracy_average = round(sum(match_values) / len(match_values), 1) if match_values else (
         round(sum(progress_values) / len(progress_values), 1) if progress_values else 0
     )
+    capture_gifs.sort(key=lambda item: item.get("captured_at") or "", reverse=True)
 
     return {
         "patient_id": patient.patient_id,
@@ -1173,7 +1207,76 @@ def get_patient_daily_exercise_result(
         "overall_compliance": overall_compliance,
         "accuracy_average": accuracy_average,
         "exercises": exercise_results,
+        "capture_gifs": capture_gifs,
     }
+
+
+@router.get("/{patient_id}/exercise-captures")
+def get_patient_exercise_captures(
+    patient_id: int,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
+
+    captures = (
+        db.query(RehabExerciseCapture)
+        .join(RehabExerciseSession, RehabExerciseSession.rehab_session_id == RehabExerciseCapture.rehab_session_id)
+        .join(ExerciseSchedule, ExerciseSchedule.schedule_id == RehabExerciseSession.schedule_id)
+        .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(Prescription.patient_id == patient_id)
+        .order_by(ExerciseSchedule.exercise_date.desc(), RehabExerciseCapture.updated_at.desc(), RehabExerciseCapture.capture_id.desc())
+        .all()
+    )
+
+    result = []
+    for capture in captures:
+        session = capture.session
+        schedule = session.schedule
+        exercise_name = schedule.prescription_exercise.exercise.exercise_name
+        captured_at = capture.updated_at or capture.created_at
+        common = {
+            "capture_id": capture.capture_id,
+            "rehab_session_id": capture.rehab_session_id,
+            "schedule_id": schedule.schedule_id,
+            "exercise_name": exercise_name,
+            "exercise_date": schedule.exercise_date.isoformat(),
+            "set_number": capture.set_number,
+            "captured_at": captured_at.isoformat() if captured_at else None,
+            "time": captured_at.strftime("%H:%M") if captured_at else None,
+        }
+        if capture.set_first_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-first",
+                "url": capture.set_first_gif_url,
+                "type": "시작 동작",
+                "group": "start",
+            })
+        if capture.set_last_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-last",
+                "url": capture.set_last_gif_url,
+                "type": "운동 완료",
+                "group": "other",
+            })
+        if capture.overload_before_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-overload",
+                "url": capture.overload_before_gif_url,
+                "type": "과부하 직전",
+                "group": "other",
+            })
+    return result
 
 
 @router.get("/{patient_id}/weekly-progress")
