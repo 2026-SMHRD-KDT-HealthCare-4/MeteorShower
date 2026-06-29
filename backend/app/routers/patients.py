@@ -1,8 +1,9 @@
 import os
+import uuid
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timedelta
 
@@ -20,6 +21,7 @@ from models.llm_report import LlmReport
 from models.patient_rom_setting import PatientRomSetting
 from models.prescription_finger_setting import PrescriptionFingerSetting
 from models.rehab_exercise_session import RehabExerciseSession
+from models.rehab_exercise_capture import RehabExerciseCapture
 from models.rehab_exercise_log import RehabExerciseLog
 from models.finger_accuracy import FingerAccuracy
 from schemas.patient import (
@@ -31,6 +33,7 @@ from schemas.patient import (
 )
 from schemas.prescription import PrescriptionSaveRequest
 from services.llm_report_generator import generate_daily_report_content, generate_monthly_report_summary
+from services.firebase_storage import upload_bytes_to_firebase
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -114,6 +117,41 @@ def _exercise_status_from_log(log) -> str:
     if not log:
         return "waiting"
     return "done" if _progress_from_log(log) >= 100 else "partial"
+
+
+async def _upload_capture_photo(
+    file: UploadFile | None,
+    patient_id: int,
+    rehab_session_id: int,
+    set_number: int,
+    photo_type: str,
+) -> str | None:
+    if file is None:
+        return None
+
+    content_type = file.content_type or "application/octet-stream"
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail=f"{photo_type} must be an image file")
+
+    data = await file.read()
+    if not data:
+        return None
+
+    extension = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+    }.get(content_type, "jpg")
+    file_path = (
+        f"rehab-captures/patient-{patient_id}/session-{rehab_session_id}/"
+        f"set-{set_number}/{photo_type}-{uuid.uuid4().hex}.{extension}"
+    )
+
+    try:
+        return upload_bytes_to_firebase(data, file_path, content_type)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def _finger_key(label: str) -> str:
@@ -781,6 +819,87 @@ def create_my_exercise_session(
     }
 
 
+@router.post("/me/exercise-sessions/{rehab_session_id}/captures", status_code=201)
+async def upload_my_exercise_capture(
+    rehab_session_id: int,
+    set_number: int = Form(...),
+    set_first_gif: UploadFile | None = File(None),
+    set_last_gif: UploadFile | None = File(None),
+    overload_before_gif: UploadFile | None = File(None),
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> dict:
+    # 운동 중 촬영된 사진을 Firebase에 업로드하고 URL을 세션/세트 단위로 저장
+    _require_role(payload, "patient")
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    if set_number < 1:
+        raise HTTPException(status_code=422, detail="set_number must be greater than 0")
+    if not any([set_first_gif, set_last_gif, overload_before_gif]):
+        raise HTTPException(status_code=422, detail="At least one gif is required")
+
+    session = (
+        db.query(RehabExerciseSession)
+        .filter(RehabExerciseSession.rehab_session_id == rehab_session_id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Exercise session not found")
+
+    prescription = session.schedule.prescription_exercise.prescription
+    if prescription.patient_id != patient_id:
+        raise HTTPException(status_code=403, detail="Cannot access this session")
+
+    first_url = await _upload_capture_photo(
+        set_first_gif, patient_id, rehab_session_id, set_number, "set-first"
+    )
+    last_url = await _upload_capture_photo(
+        set_last_gif, patient_id, rehab_session_id, set_number, "set-last"
+    )
+    overload_url = await _upload_capture_photo(
+        overload_before_gif, patient_id, rehab_session_id, set_number, "overload-before"
+    )
+
+    capture = (
+        db.query(RehabExerciseCapture)
+        .filter(
+            RehabExerciseCapture.rehab_session_id == rehab_session_id,
+            RehabExerciseCapture.set_number == set_number,
+        )
+        .first()
+    )
+    if not capture:
+        if not first_url:
+            raise HTTPException(status_code=422, detail="set_first_gif is required for a new capture")
+        capture = RehabExerciseCapture(
+            rehab_session_id=rehab_session_id,
+            set_number=set_number,
+            set_first_gif_url=first_url,
+        )
+        db.add(capture)
+
+    if first_url:
+        capture.set_first_gif_url = first_url
+    if last_url:
+        capture.set_last_gif_url = last_url
+        capture.overload_before_gif_url = None
+    if overload_url:
+        capture.overload_before_gif_url = overload_url
+        capture.set_last_gif_url = None
+    capture.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(capture)
+    return {
+        "capture_id": capture.capture_id,
+        "rehab_session_id": capture.rehab_session_id,
+        "set_number": capture.set_number,
+        "set_first_gif_url": capture.set_first_gif_url,
+        "set_last_gif_url": capture.set_last_gif_url,
+        "overload_before_gif_url": capture.overload_before_gif_url,
+    }
+
+
 @router.post("/{patient_id}/prescriptions", status_code=201)
 def save_patient_prescription(
     patient_id: int,
@@ -977,6 +1096,7 @@ def get_patient_daily_exercise_result(
     )
 
     exercise_results = []
+    capture_gifs = []
     total_logs = 0
     progress_values = []
     schedule_progress_values = []
@@ -999,6 +1119,38 @@ def get_patient_daily_exercise_result(
 
         session = schedule.sessions[0] if schedule.sessions else None
         log = session.logs[0] if session and session.logs else None
+        if session:
+            for capture in session.captures:
+                captured_at = capture.updated_at or capture.created_at
+                common = {
+                    "capture_id": capture.capture_id,
+                    "rehab_session_id": capture.rehab_session_id,
+                    "set_number": capture.set_number,
+                    "exercise_name": exercise_name,
+                    "captured_at": captured_at.isoformat() if captured_at else None,
+                    "time": captured_at.strftime("%H:%M") if captured_at else None,
+                }
+                if capture.set_first_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-first",
+                        "url": capture.set_first_gif_url,
+                        "type": "시작 동작",
+                    })
+                if capture.set_last_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-last",
+                        "url": capture.set_last_gif_url,
+                        "type": "운동 완료",
+                    })
+                if capture.overload_before_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-overload",
+                        "url": capture.overload_before_gif_url,
+                        "type": "과부하 직전",
+                    })
         total_logs += 1
         if log:
             if log.progress_rate is not None:
@@ -1047,6 +1199,7 @@ def get_patient_daily_exercise_result(
     accuracy_average = round(sum(match_values) / len(match_values), 1) if match_values else (
         round(sum(progress_values) / len(progress_values), 1) if progress_values else 0
     )
+    capture_gifs.sort(key=lambda item: item.get("captured_at") or "", reverse=True)
 
     return {
         "patient_id": patient.patient_id,
@@ -1054,7 +1207,76 @@ def get_patient_daily_exercise_result(
         "overall_compliance": overall_compliance,
         "accuracy_average": accuracy_average,
         "exercises": exercise_results,
+        "capture_gifs": capture_gifs,
     }
+
+
+@router.get("/{patient_id}/exercise-captures")
+def get_patient_exercise_captures(
+    patient_id: int,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
+
+    captures = (
+        db.query(RehabExerciseCapture)
+        .join(RehabExerciseSession, RehabExerciseSession.rehab_session_id == RehabExerciseCapture.rehab_session_id)
+        .join(ExerciseSchedule, ExerciseSchedule.schedule_id == RehabExerciseSession.schedule_id)
+        .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(Prescription.patient_id == patient_id)
+        .order_by(ExerciseSchedule.exercise_date.desc(), RehabExerciseCapture.updated_at.desc(), RehabExerciseCapture.capture_id.desc())
+        .all()
+    )
+
+    result = []
+    for capture in captures:
+        session = capture.session
+        schedule = session.schedule
+        exercise_name = schedule.prescription_exercise.exercise.exercise_name
+        captured_at = capture.updated_at or capture.created_at
+        common = {
+            "capture_id": capture.capture_id,
+            "rehab_session_id": capture.rehab_session_id,
+            "schedule_id": schedule.schedule_id,
+            "exercise_name": exercise_name,
+            "exercise_date": schedule.exercise_date.isoformat(),
+            "set_number": capture.set_number,
+            "captured_at": captured_at.isoformat() if captured_at else None,
+            "time": captured_at.strftime("%H:%M") if captured_at else None,
+        }
+        if capture.set_first_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-first",
+                "url": capture.set_first_gif_url,
+                "type": "시작 동작",
+                "group": "start",
+            })
+        if capture.set_last_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-last",
+                "url": capture.set_last_gif_url,
+                "type": "운동 완료",
+                "group": "other",
+            })
+        if capture.overload_before_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-overload",
+                "url": capture.overload_before_gif_url,
+                "type": "과부하 직전",
+                "group": "other",
+            })
+    return result
 
 
 @router.get("/{patient_id}/weekly-progress")

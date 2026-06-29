@@ -249,6 +249,7 @@ export default function PatientInfo() {
   const [activeRomTab, setActiveRomTab] = useState('basic');
   const [tappingRom, setTappingRom]     = useState({});
   const [prescriptionLoaded, setPrescriptionLoaded] = useState(false);
+  const [exerciseCaptures, setExerciseCaptures] = useState([]);
 
   useEffect(() => {
     if (!patientId) return;
@@ -289,6 +290,9 @@ export default function PatientInfo() {
     patientApi.getPatientRom(patientId, 'tapping')
       .then((data) => setTappingRom(data.rom ?? {}))
       .catch(() => {});
+    patientApi.getPatientExerciseCaptures(patientId)
+      .then(setExerciseCaptures)
+      .catch(() => setExerciseCaptures([]));
   }, [patientId]);
 
   const handleMedicalSave = () => {
@@ -385,11 +389,16 @@ export default function PatientInfo() {
     ].join(' ');
   };
 
-  const sessionGallery = [];
+  const startCaptures = exerciseCaptures.filter((capture) => capture.group === 'start');
+  const otherCaptures = exerciseCaptures.filter((capture) => capture.group !== 'start');
+  const sessionGallery = [
+    { label: '시작 GIF', date: '전체 기록', photos: startCaptures },
+    { label: '운동 완료 / 과부하 GIF', date: '전체 기록', photos: otherCaptures },
+  ];
   const currentPhotos = sessionGallery[selectedSession]?.photos ?? [];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       {/* 라이트박스 */}
@@ -402,12 +411,12 @@ export default function PatientInfo() {
             className="relative max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`w-full aspect-[4/3] bg-gradient-to-br ${lightboxPhoto.gradient} flex items-center justify-center`}>
-              <span className="material-symbols-outlined text-white/40 text-[120px]" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
+            <div className="w-full aspect-video max-h-[72vh] bg-black flex items-center justify-center">
+              <img src={lightboxPhoto.url} alt={lightboxPhoto.exercise_name} className="w-full h-full object-cover" />
             </div>
             <div className="bg-white px-5 py-4 flex items-center justify-between">
               <div>
-                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.label}</p>
+                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.exercise_name}</p>
                 <p className="text-label-sm text-on-surface-variant mt-0.5">
                   {sessionGallery[selectedSession]?.label} · {sessionGallery[selectedSession]?.date} · {lightboxPhoto.time}
                 </p>
@@ -606,21 +615,23 @@ export default function PatientInfo() {
           </div>
 
           {/* 사진 그리드 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {currentPhotos.length === 0 && (
+              <div className="sm:col-span-2 aspect-video rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex items-center justify-center text-label-md text-on-surface-variant">
+                촬영된 GIF가 없습니다
+              </div>
+            )}
             {currentPhotos.map((photo) => (
               <button
                 key={photo.id}
                 onClick={() => setLightboxPhoto(photo)}
                 className="relative aspect-square rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95"
               >
-                <div className={`absolute inset-0 bg-gradient-to-br ${photo.gradient}`} />
-                <div className="absolute inset-0 flex items-center justify-center opacity-30 group-hover:opacity-20 transition-opacity">
-                  <span className="material-symbols-outlined text-white text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
-                </div>
+                <img src={photo.url} alt={photo.exercise_name} className="absolute inset-0 w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                 <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2 py-1.5 flex items-center justify-between">
-                  <span className="text-white text-[11px] font-semibold truncate">{photo.label}</span>
-                  <span className="text-white/80 text-[10px] flex-shrink-0 ml-1">{photo.time}</span>
+                  <span className="text-white text-[11px] font-semibold truncate">{photo.exercise_name}</span>
+                  <span className="text-white/80 text-[10px] flex-shrink-0 ml-1">{photo.type}</span>
                 </div>
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <span className="material-symbols-outlined text-white text-base drop-shadow">open_in_full</span>

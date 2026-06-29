@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import logo from '../assets/logo.png';
 import { useAuth } from '../context/AuthContext';
 import { patientApi } from '../api';
 
@@ -112,7 +111,7 @@ export default function PatientNavBar() {
       <header className="bg-surface shadow-sm sticky top-0 z-50 border-b border-outline-variant">
         <div className="flex justify-between items-center w-full px-container-padding-mobile md:px-container-padding-desktop py-2 max-w-7xl mx-auto">
           <Link to="/patient/exercise">
-            <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" />
           </Link>
           <nav className="hidden md:flex items-center space-x-8">
             <Link
