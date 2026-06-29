@@ -125,6 +125,7 @@ celerybeat.pid
 
 # Environments
 .env
+backend/firebase-service-account.json
 .venv
 env/
 venv/

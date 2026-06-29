@@ -51,6 +51,40 @@ export default function ExerciseSession() {
 
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
 
+  const gifToFile = (value, fileName) => {
+    if (!value || typeof value !== 'string') return null;
+    const dataUrl = value.startsWith('data:') ? value : `data:image/gif;base64,${value}`;
+    const [meta, base64] = dataUrl.split(',');
+    if (!base64) return null;
+    const mime = meta.match(/data:(.*?);base64/)?.[1] ?? 'image/gif';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], fileName, { type: mime });
+  };
+
+  const uploadCaptureGifs = async (rehabSessionId, latest) => {
+    const gifs = latest?.capture_gifs ?? latest?.captureGifs;
+    if (!rehabSessionId || !gifs) return null;
+
+    const firstGif = gifs.set_first ?? gifs.first ?? gifs.setFirst;
+    const lastGif = gifs.set_last ?? gifs.last ?? gifs.setLast;
+    const overloadGif = gifs.overload_before ?? gifs.overload ?? gifs.overloadBefore;
+    if (!firstGif && !lastGif && !overloadGif) return null;
+
+    const formData = new FormData();
+    formData.append('set_number', String(gifs.set_number ?? gifs.setNumber ?? latest?.set ?? 1));
+
+    const firstFile = gifToFile(firstGif, 'set-first.gif');
+    const lastFile = gifToFile(lastGif, 'set-last.gif');
+    const overloadFile = gifToFile(overloadGif, 'overload-before.gif');
+    if (firstFile) formData.append('set_first_photo', firstFile);
+    if (lastFile) formData.append('set_last_photo', lastFile);
+    if (overloadFile) formData.append('overload_before_photo', overloadFile);
+
+    return patientApi.uploadExerciseCapture(rehabSessionId, formData);
+  };
+
   /* ── 운동 결과 저장 ─────────────────────────────────────────────── */
   const saveExerciseResult = useCallback((endType = '완료') => {
     if (savedRef.current || !exerciseInfo?.schedule_id) return Promise.resolve();
@@ -79,6 +113,10 @@ export default function ExerciseSession() {
       finger_accuracy: latest.finger_accuracy ?? [],
     };
     return patientApi.saveExerciseSession(payload)
+      .then(async (result) => {
+        await uploadCaptureGifs(result?.rehab_session_id, latest);
+        return result;
+      })
       .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
       .catch((err) => {
         savedRef.current = false;
