@@ -8,11 +8,12 @@ import tempfile
 import threading
 import time
 import urllib.request
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime
 
 import cv2
 import mediapipe as mp
+from PIL import Image
 import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -58,6 +59,14 @@ TAP_THRESHOLDS  = {8: 0.06, 12: 0.07, 16: 0.09, 20: 0.09}
 TARGET_ROM      = 0.8
 OVERLOAD_STAGE1_TIMEOUT = 5.0
 CAPTURE_DIR     = os.path.join(os.path.dirname(__file__), "captures")
+# first/last/overload 캡처를 정지 이미지 대신 짧은 GIF로 저장 — 캡처 트리거 시점
+# 직전 CAPTURE_GIF_DURATION_SEC초를 계속 들고 있다가(recent_frames, 시간 기반
+# 슬라이딩 윈도우), 트리거 시 그 버퍼를 그대로 GIF로 묶는다.
+# 매 프레임을 다 담으면 5초만 돼도 GIF 인코딩이 무거워져 메인 루프가 멈춘 것처럼
+# 보이므로, CAPTURE_GIF_TARGET_FPS로 다운샘플링해서 프레임 수 자체를 줄인다.
+CAPTURE_GIF_DURATION_SEC      = 5.0  # GIF로 담을 시간 길이(초)
+CAPTURE_GIF_TARGET_FPS        = 10   # GIF 자체의 재생 fps(다운샘플링 — 인코딩 부담 억제)
+CAPTURE_GIF_FRAME_DURATION_MS = int(1000 / CAPTURE_GIF_TARGET_FPS)  # GIF 프레임당 재생 시간(ms)
 GUIDE_FPS       = 30.0
 MAX_DTW_DIST    = 0.162
 WINDOW_STRETCH  = 2
@@ -306,11 +315,43 @@ def compute_overload_rom(landmarks) -> float:
     ]))
 
 
-def save_capture(frame, label="overload") -> None:
+def save_capture(frame_records, label, patient_id=None, exercise=None) -> None:
+    """캡처된 프레임 버퍼(frame_records)를 짧은 GIF로 저장.
+
+    frame_records는 (timestamp, BGR(OpenCV) frame) 튜플 리스트 — 시간 순서대로
+    들어있다고 가정한다. 빈 리스트면 저장하지 않는다.
+
+    메인 루프가 정확히 CAPTURE_GIF_TARGET_FPS로 돌지 않기 때문에(고정값으로
+    duration을 주면 실제보다 빠르게/느리게, 즉 배속처럼 보임), 인접 프레임의
+    실제 타임스탬프 차이를 그대로 duration으로 써서 원래 속도로 재생되게 한다.
+    """
+    if not frame_records:
+        return
     os.makedirs(CAPTURE_DIR, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(CAPTURE_DIR, f"capture_{label}_{ts}.jpg")
-    cv2.imwrite(path, frame)
+    pid = patient_id if patient_id is not None else "na"
+    ex_name = exercise if exercise is not None else "na"
+    path = os.path.join(CAPTURE_DIR, f"capture_{label}_{pid}_{ex_name}_{ts}.gif")
+
+    timestamps = [t for t, _ in frame_records]
+    pil_frames = [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for _, f in frame_records]
+
+    if len(timestamps) >= 2:
+        durations = [
+            max(1, round((timestamps[i + 1] - timestamps[i]) * 1000))
+            for i in range(len(timestamps) - 1)
+        ]
+        durations.append(durations[-1])  # 마지막 프레임은 직전 간격을 그대로 재사용
+    else:
+        durations = [CAPTURE_GIF_FRAME_DURATION_MS]
+
+    pil_frames[0].save(
+        path,
+        save_all=True,
+        append_images=pil_frames[1:],
+        duration=durations,
+        loop=0,
+    )
     print(f"capture saved: {path}")
 
 
@@ -539,7 +580,23 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             for ex_def in EXERCISES
         }
 
+        first_captured = False  # 세션 첫 손 인식 프레임 캡처 시작 여부 (세션당 1회만)
+        # last/overload GIF용 최근 프레임 버퍼 — (timestamp, frame) 시간 기반 슬라이딩
+        # 윈도우. 그리기가 모두 끝난 "최종 화면" 프레임만, CAPTURE_GIF_TARGET_FPS
+        # 간격으로만 담는다.
+        recent_frames = deque()
+        last_gif_sample_at = 0.0
+
+        # first GIF용 상태 — last/overload와 달리 트리거 시점부터 "향후" 수집한다.
+        first_capture_collecting  = False
+        first_capture_frames      = []
+        first_capture_started_at  = 0.0
+        first_capture_last_sample_at = 0.0
+
         while cap.isOpened():
+            pending_last_capture     = False
+            pending_overload_capture = False
+
             if stop_event is not None and stop_event.is_set():
                 break
             ret, frame = cap.read()
@@ -657,6 +714,16 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     confirmed_state = new_state
                     should_count    = False
 
+                    # 손이 인식된 첫 프레임이 아니라, STABLE_FRAMES만큼 연속으로 같은
+                    # 상태가 확인되어 confirmed_state가 처음 정해지는 시점("손이 화면에
+                    # 안정적으로 올라온 후")부터 first GIF 수집을 시작한다.
+                    if not first_captured:
+                        first_captured = True
+                        first_capture_collecting = True
+                        first_capture_frames = []
+                        first_capture_started_at = time.time()
+                        first_capture_last_sample_at = 0.0
+
                     if count_type == "grip":
                         if confirmed_state == "open":
                             if phase == "grip": should_count = True
@@ -742,7 +809,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         _adapt["last_rep_time"] = _now
 
                         if overload_stage == 0 and count > ex["target_count"]:
-                            save_capture(frame)
                             overload_stage        = 1
                             overload_count_marker = count
                             overload_stage1_started_at = time.time()
@@ -775,6 +841,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                     session_complete    = True
                                     session_complete_at = time.time()
                                     print(f"[SessionEnd] reason=set_done, count={_completed_count}, target_count={ex['target_count']}, current_set={_completed_set}, target_set={ex['target_set']}")
+                                    pending_last_capture = True
                                 else:
                                     ex_new              = active_exercises[current_exercise_idx]
                                     # 운동이 전환될 때 타겟값도 운동 타입에 맞게 변경
@@ -935,7 +1002,6 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
             current_rom = compute_overload_rom(first_landmarks) if first_landmarks else 0.0
 
             if overload_stage == 0 and current_rom > TARGET_ROM:
-                save_capture(frame)
                 overload_stage        = 1
                 overload_count_marker = count
                 overload_stage1_started_at = time.time()
@@ -948,7 +1014,7 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 or (overload_stage1_started_at is not None
                     and time.time() - overload_stage1_started_at > OVERLOAD_STAGE1_TIMEOUT)
             ):
-                save_capture(frame)
+                pending_overload_capture = True
                 overload_stage = 2
                 print(f"[Overload] stage=1->2, cause={overload_cause}, count={count}, current_set={current_set}")
                 print(f"[SessionEnd] reason=overload, cause={overload_cause}, count={count}, target_count={ex['target_count']}, current_set={current_set}, target_set={ex['target_set']}")
@@ -1049,6 +1115,53 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                         cv2.imshow("Hand Tracking", frame)
                         cv2.waitKey(1)
                     break
+
+            # 모든 그리기(가이드 홀로그램·손 신호등·HUD·오버레이)가 끝난 최종 프레임만
+            # 버퍼에 담는다. last/overload 캡처는 이 버퍼(직전 5초)를 그대로 GIF로 저장한다.
+            # 매 프레임을 다 담으면 5초만 돼도 인코딩이 무거워지므로, CAPTURE_GIF_TARGET_FPS
+            # 간격으로만 다운샘플링해서 추가하고, CAPTURE_GIF_DURATION_SEC보다 오래된
+            # 프레임은 버려서 항상 "최근 5초"만 유지한다.
+            _now_gif = time.time()
+            if _now_gif - last_gif_sample_at >= 1.0 / CAPTURE_GIF_TARGET_FPS:
+                recent_frames.append((_now_gif, frame.copy()))
+                last_gif_sample_at = _now_gif
+                while recent_frames and _now_gif - recent_frames[0][0] > CAPTURE_GIF_DURATION_SEC:
+                    recent_frames.popleft()
+
+            # first 캡처는 last/overload와 반대로 "트리거 시점 이전 과거"가 아니라
+            # "손이 안정적으로 인식된 트리거 시점부터 향후 5초"를 모은다 — 과거 버퍼를
+            # 쓰면 손이 화면에 올라오기 전/올라오는 중인 장면까지 GIF에 섞여 들어가서
+            # "손이 이미 다 올라온 채로 시작"하길 원하는 의도와 맞지 않기 때문이다.
+            if first_capture_collecting:
+                if _now_gif - first_capture_last_sample_at >= 1.0 / CAPTURE_GIF_TARGET_FPS:
+                    first_capture_frames.append((_now_gif, frame.copy()))
+                    first_capture_last_sample_at = _now_gif
+                if _now_gif - first_capture_started_at >= CAPTURE_GIF_DURATION_SEC:
+                    threading.Thread(
+                        target=save_capture,
+                        args=(first_capture_frames, "first", patient_id, ex["name"]),
+                        daemon=True,
+                    ).start()
+                    first_capture_collecting = False
+
+            # GIF 인코딩(색공간 변환 + 양자화 + 디스크 쓰기)은 수십~수백 ms가 걸려
+            # 메인 트래킹 루프에서 동기로 돌리면 그 순간 캡처가 멈춘 것처럼 보인다.
+            # 캡처가 트리거된 프레임에서만 버퍼를 추출하고, 실제 인코딩/저장은
+            # 백그라운드 스레드에 맡겨 루프가 끊기지 않게 한다.
+            if pending_last_capture or pending_overload_capture:
+                gif_frames = list(recent_frames)
+            if pending_last_capture:
+                threading.Thread(
+                    target=save_capture,
+                    args=(gif_frames, "last", patient_id, ex["name"]),
+                    daemon=True,
+                ).start()
+            if pending_overload_capture:
+                threading.Thread(
+                    target=save_capture,
+                    args=(gif_frames, "overload", patient_id, ex["name"]),
+                    daemon=True,
+                ).start()
 
             if show_window:
                 cv2.imshow("Hand Tracking", frame)
