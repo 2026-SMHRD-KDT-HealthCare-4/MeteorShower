@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../../api';
 import Footer from '../../components/Footer';
 import logo from '../../assets/logo.png';
+import PatientConsent from '../../components/PatientConsent';
 
 /* 허용 특수문자 (", ', `, \, <, >, & 제외) */
 const PW_ALLOWED_SPECIAL = /[!@#$%^*()_+\-=,./:;[\]{}|~]/;
@@ -76,14 +77,14 @@ export default function PatientSignup() {
   const [usernameChecked, setUsernameChecked] = useState(false);
   const [usernameTaken, setUsernameTaken]     = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
-  const [agree, setAgree]                   = useState({ terms: false, data: false, guardian: false });
+  const [consentAgreed, setConsentAgreed]     = useState({});
   const [loading, setLoading]               = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [showPw, setShowPw]   = useState(false);
   const [showPw2, setShowPw2] = useState(false);
 
   const errors   = getErrors(form, usernameChecked);
-  const canSubmit = Object.keys(errors).length === 0 && agree.terms && agree.data;
+  const canSubmit = Object.keys(errors).length === 0 && consentAgreed.terms && consentAgreed.privacy;
 
   const show = (field) => (touched[field] || submitAttempted) && errors[field];
 
@@ -393,60 +394,27 @@ export default function PatientSignup() {
             </div>
 
             {/* 보호자 이메일 */}
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <label className="block text-label-lg font-semibold text-on-surface-variant ml-1" htmlFor="guardian-email">
-                  보호자 이메일 <span className="text-outline text-label-sm font-normal">(선택)</span>
-                </label>
-                <div className="relative group">
-                  <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-primary-container transition-colors">family_restroom</span>
-                  <input
-                    id="guardian-email" name="guardianEmail" type="email"
-                    placeholder="guardian@example.com"
-                    value={form.guardianEmail}
-                    onChange={handleChange}
-                    onBlur={() => handleBlur('guardianEmail')}
-                    className={inputCls('guardianEmail')}
-                  />
-                </div>
-                {show('guardianEmail') && <p className="text-label-sm text-red-500 ml-1">{errors.guardianEmail}</p>}
-              </div>
-              <label className="flex items-start gap-3 cursor-pointer pl-1">
-                <input
-                  type="checkbox"
-                  checked={agree.guardian}
-                  onChange={(e) => setAgree((p) => ({ ...p, guardian: e.target.checked }))}
-                  className="w-5 h-5 rounded accent-primary-container mt-0.5 shrink-0"
-                />
-                <span className="text-label-md text-on-surface-variant">
-                  보호자 이메일로 재활 서비스 보고서 수신에 동의합니다
-                  <span className="text-outline text-label-sm block mt-0.5">(선택) 입력한 보호자 이메일로 주간 재활 보고서가 발송됩니다.</span>
-                </span>
+            <div className="space-y-1.5">
+              <label className="block text-label-lg font-semibold text-on-surface-variant ml-1" htmlFor="guardian-email">
+                보호자 이메일 <span className="text-outline text-label-sm font-normal">(선택)</span>
               </label>
+              <div className="relative group">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-primary-container transition-colors">family_restroom</span>
+                <input
+                  id="guardian-email" name="guardianEmail" type="email"
+                  placeholder="guardian@example.com"
+                  value={form.guardianEmail}
+                  onChange={handleChange}
+                  onBlur={() => handleBlur('guardianEmail')}
+                  className={inputCls('guardianEmail')}
+                />
+              </div>
+              {show('guardianEmail') && <p className="text-label-sm text-red-500 ml-1">{errors.guardianEmail}</p>}
             </div>
 
-            {/* 필수 동의 */}
-            <div className="space-y-3 pt-1">
-              {[
-                { key: 'terms', label: '이용약관 및 개인정보처리방침에 동의합니다', sub: '(필수) 서비스 이용을 위해 반드시 동의가 필요합니다.' },
-                { key: 'data',  label: '카메라 영상 및 생체(얼굴) 데이터 수집·이용에 동의합니다', sub: '(필수) 재활 운동 분석을 위해 카메라 영상 및 생체 데이터가 수집됩니다.' },
-              ].map(({ key, label, sub }) => (
-                <label key={key} className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={agree[key]}
-                    onChange={(e) => setAgree((p) => ({ ...p, [key]: e.target.checked }))}
-                    className="w-5 h-5 rounded accent-primary-container mt-0.5 shrink-0"
-                  />
-                  <span className="text-label-md text-on-surface-variant">
-                    {label}
-                    <span className="text-outline text-label-sm block mt-0.5">{sub}</span>
-                  </span>
-                </label>
-              ))}
-              {submitAttempted && (!agree.terms || !agree.data) && (
-                <p className="text-label-sm text-red-500 ml-1">필수 항목에 모두 동의해주세요.</p>
-              )}
+            {/* 동의 항목 */}
+            <div className="pt-1">
+              <PatientConsent onChange={setConsentAgreed} submitAttempted={submitAttempted} />
             </div>
 
             <button
