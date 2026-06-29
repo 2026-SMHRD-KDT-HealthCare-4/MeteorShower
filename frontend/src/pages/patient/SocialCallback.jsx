@@ -40,7 +40,7 @@ export default function SocialCallback() {
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-screen flex items-center justify-center bg-background" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <div className="text-center">
         <span className="material-symbols-outlined animate-spin text-primary-container text-4xl">
           progress_activity

@@ -171,7 +171,7 @@ export default function DoctorSignup() {
     }`;
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#fbf9f8' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: '#fbf9f8', backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-margin-mobile md:px-margin-desktop">
         <div className="flex justify-between items-center w-full max-w-7xl mx-auto">
           <Link to="/"><img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" /></Link>

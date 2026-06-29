@@ -82,7 +82,7 @@ export default function ProgressReport() {
   const currentRomFinger = currentRomExercise?.fingers?.[romFingerIdx];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       <main className="max-w-[1100px] mx-auto px-4 md:px-8 py-8 space-y-6">

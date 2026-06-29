@@ -128,7 +128,7 @@ export default function PatientRegister() {
   /* ── 완료 화면 ── */
   if (done && patient) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
         <DoctorNavBar />
         <main className="max-w-[560px] mx-auto px-4 py-20 flex flex-col items-center gap-6 text-center">
           <div className="w-20 h-20 bg-[#e8f0fe] rounded-full flex items-center justify-center">
@@ -180,7 +180,7 @@ export default function PatientRegister() {
 
   /* ── 메인 폼 ── */
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       <main className="max-w-[860px] mx-auto px-4 md:px-8 py-8 space-y-6">
