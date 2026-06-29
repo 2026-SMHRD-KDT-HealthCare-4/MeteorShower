@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { authApi } from '../../api';
 import Footer from '../../components/Footer';
 import logo from '../../assets/logo.png';
+import DoctorConsent from '../../components/DoctorConsent';
 
 const PW_ALLOWED_SPECIAL = /[!@#$%^*()_+\-=,./:;[\]{}|~]/;
 const PW_FORBIDDEN       = /["'`\\<>&]/;
@@ -77,14 +78,14 @@ export default function DoctorSignup() {
   const [checkingUsername, setCheckingUsername] = useState(false);
   const [licenseVerified, setLicenseVerified]   = useState(false);
   const [verifyingLicense, setVerifyingLicense] = useState(false);
-  const [agree, setAgree]                       = useState({ terms: false, data: false });
+  const [consentAgreed, setConsentAgreed]       = useState({});
   const [loading, setLoading]                   = useState(false);
   const [submitAttempted, setSubmitAttempted]   = useState(false);
   const [showPw, setShowPw]   = useState(false);
   const [showPw2, setShowPw2] = useState(false);
 
   const errors   = getErrors(form, usernameChecked, licenseVerified);
-  const canSubmit = Object.keys(errors).length === 0 && agree.terms && agree.data;
+  const canSubmit = Object.keys(errors).length === 0 && consentAgreed.terms && consentAgreed.privacy;
 
   const show = (field) => (touched[field] || submitAttempted) && errors[field];
 
@@ -456,28 +457,8 @@ export default function DoctorSignup() {
             </div>
 
             {/* 필수 동의 */}
-            <div className="space-y-3 pt-1">
-              {[
-                { key: 'terms', label: '이용약관 및 개인정보처리방침에 동의합니다', sub: '(필수) 서비스 이용을 위해 반드시 동의가 필요합니다.' },
-                { key: 'data',  label: '환자 데이터 수집·이용·처리에 동의합니다', sub: '(필수) 의료진으로서 환자 재활 데이터를 처리하는 데 동의합니다.' },
-              ].map(({ key, label, sub }) => (
-                <label key={key} className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={agree[key]}
-                    onChange={(e) => setAgree((p) => ({ ...p, [key]: e.target.checked }))}
-                    className="w-5 h-5 rounded mt-0.5 shrink-0"
-                    style={{ accentColor: '#005bbf' }}
-                  />
-                  <span className="text-label-md" style={{ color: '#414754' }}>
-                    {label}
-                    <span className="block mt-0.5 text-label-sm" style={{ color: '#727785' }}>{sub}</span>
-                  </span>
-                </label>
-              ))}
-              {submitAttempted && (!agree.terms || !agree.data) && (
-                <p className="text-label-sm text-red-500 ml-1">필수 항목에 모두 동의해주세요.</p>
-              )}
+            <div className="pt-1">
+              <DoctorConsent onChange={setConsentAgreed} submitAttempted={submitAttempted} />
             </div>
 
             <button
