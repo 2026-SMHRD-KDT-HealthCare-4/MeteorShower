@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from routers import auth, chat, doctor_dashboard, doctor_notifications, health, notifications, patients, reports, ws
+from routers import auth, chat, doctor_dashboard, doctor_notifications, health, notifications, patients, reports
 from database import SessionLocal
 from models.exercise import Exercise
 import rag
@@ -57,5 +57,4 @@ app.include_router(notifications.router)
 app.include_router(doctor_notifications.router)
 app.include_router(doctor_dashboard.router)
 app.include_router(reports.router)
-app.include_router(ws.router)
 app.include_router(chat.router)
