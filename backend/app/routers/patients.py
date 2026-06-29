@@ -823,19 +823,20 @@ def create_my_exercise_session(
 async def upload_my_exercise_capture(
     rehab_session_id: int,
     set_number: int = Form(...),
-    set_first_photo: UploadFile | None = File(None),
-    set_last_photo: UploadFile | None = File(None),
-    overload_before_photo: UploadFile | None = File(None),
+    set_first_gif: UploadFile | None = File(None),
+    set_last_gif: UploadFile | None = File(None),
+    overload_before_gif: UploadFile | None = File(None),
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
 ) -> dict:
     # 운동 중 촬영된 사진을 Firebase에 업로드하고 URL을 세션/세트 단위로 저장
     _require_role(payload, "patient")
+    _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     if set_number < 1:
         raise HTTPException(status_code=422, detail="set_number must be greater than 0")
-    if not any([set_first_photo, set_last_photo, overload_before_photo]):
-        raise HTTPException(status_code=422, detail="At least one photo is required")
+    if not any([set_first_gif, set_last_gif, overload_before_gif]):
+        raise HTTPException(status_code=422, detail="At least one gif is required")
 
     session = (
         db.query(RehabExerciseSession)
@@ -850,13 +851,13 @@ async def upload_my_exercise_capture(
         raise HTTPException(status_code=403, detail="Cannot access this session")
 
     first_url = await _upload_capture_photo(
-        set_first_photo, patient_id, rehab_session_id, set_number, "set-first"
+        set_first_gif, patient_id, rehab_session_id, set_number, "set-first"
     )
     last_url = await _upload_capture_photo(
-        set_last_photo, patient_id, rehab_session_id, set_number, "set-last"
+        set_last_gif, patient_id, rehab_session_id, set_number, "set-last"
     )
     overload_url = await _upload_capture_photo(
-        overload_before_photo, patient_id, rehab_session_id, set_number, "overload-before"
+        overload_before_gif, patient_id, rehab_session_id, set_number, "overload-before"
     )
 
     capture = (
@@ -868,18 +869,23 @@ async def upload_my_exercise_capture(
         .first()
     )
     if not capture:
+        if not first_url:
+            raise HTTPException(status_code=422, detail="set_first_gif is required for a new capture")
         capture = RehabExerciseCapture(
             rehab_session_id=rehab_session_id,
             set_number=set_number,
+            set_first_gif_url=first_url,
         )
         db.add(capture)
 
     if first_url:
-        capture.set_first_photo_url = first_url
+        capture.set_first_gif_url = first_url
     if last_url:
-        capture.set_last_photo_url = last_url
+        capture.set_last_gif_url = last_url
+        capture.overload_before_gif_url = None
     if overload_url:
-        capture.overload_before_photo_url = overload_url
+        capture.overload_before_gif_url = overload_url
+        capture.set_last_gif_url = None
     capture.updated_at = datetime.now()
 
     db.commit()
@@ -888,9 +894,9 @@ async def upload_my_exercise_capture(
         "capture_id": capture.capture_id,
         "rehab_session_id": capture.rehab_session_id,
         "set_number": capture.set_number,
-        "set_first_photo_url": capture.set_first_photo_url,
-        "set_last_photo_url": capture.set_last_photo_url,
-        "overload_before_photo_url": capture.overload_before_photo_url,
+        "set_first_gif_url": capture.set_first_gif_url,
+        "set_last_gif_url": capture.set_last_gif_url,
+        "overload_before_gif_url": capture.overload_before_gif_url,
     }
 
 
