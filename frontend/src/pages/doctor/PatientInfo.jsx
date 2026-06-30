@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
 import { patientApi } from '../../api';
@@ -236,6 +236,8 @@ export default function PatientInfo() {
   const [medEdit, setMedEdit] = useState({ surgery_name: '', surgery_area: '', surgery_date: '', rehab_start_date: '', current_rehab_phase: '', appointment_date: '' });
 
   const [prescription, setPrescription] = useState(defaultPrescription);
+  const serverPrescription = useRef(defaultPrescription);
+  const serverSchedule = useRef({});
   const [aiAdjust, setAiAdjust] = useState(true);
   const [aiJustSaved, setAiJustSaved] = useState(false);
   const [schedule, setSchedule] = useState({});
@@ -277,6 +279,8 @@ export default function PatientInfo() {
             merged.push({ name: api.name, sets: api.sets, reps: api.reps, enabled: true });
           }
         });
+        serverPrescription.current = merged;
+        serverSchedule.current = data.schedule ?? {};
         setPrescription(merged);
         setSchedule(data.schedule ?? {});
         setIsEditing(false);
@@ -357,6 +361,8 @@ export default function PatientInfo() {
       rom,
     })
       .then(() => {
+        serverPrescription.current = prescription;
+        serverSchedule.current = schedule;
         setJustSaved(true);
         setIsEditing(false);
         setTimeout(() => setJustSaved(false), 2000);
@@ -370,8 +376,8 @@ export default function PatientInfo() {
   };
 
   const handleEditCancel = () => {
-    setPrescription(defaultPrescription);
-    setSchedule({});
+    setPrescription(serverPrescription.current);
+    setSchedule(serverSchedule.current);
     setIsEditing(false);
   };
 
