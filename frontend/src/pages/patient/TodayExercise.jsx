@@ -328,11 +328,14 @@ export default function TodayExercise() {
   const completionRatio = completionPercent / 100;
 
   // 운동 변화 추세 계산
-  const daysWithData = weeklyStats.filter((d) => d.total > 0);
-  const fromRate = daysWithData.length >= 2
-    ? Math.round(daysWithData.slice(0, -1).reduce((s, d) => s + d.rate, 0) / (daysWithData.length - 1))
+  const todayStat    = weeklyStats.find((d) => d.is_today);
+  const hasTodayData = (todayStat?.total ?? 0) > 0;
+  const daysWithData = weeklyStats.filter((d) => d.total > 0 && !d.is_today);
+  const fromRate = daysWithData.length >= 1
+    ? Math.round(daysWithData.reduce((s, d) => s + d.rate, 0) / daysWithData.length)
     : null;
-  const toRate   = daysWithData.length >= 1 ? daysWithData[daysWithData.length - 1].rate : null;
+  // 오늘 일정이 있으면 실시간 completionPercent를 현재값으로 사용
+  const toRate   = hasTodayData ? completionPercent : (daysWithData.length >= 1 ? daysWithData[daysWithData.length - 1].rate : null);
   const delta    = fromRate !== null && toRate !== null ? toRate - fromRate : null;
   const hasTrend = delta !== null;
   const isUp     = hasTrend && delta >= 0;
