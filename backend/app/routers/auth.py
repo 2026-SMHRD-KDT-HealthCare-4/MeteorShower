@@ -342,7 +342,7 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
     if social_account:
         patient = social_account.patient
         token = create_token(str(patient.patient_id), "patient")
-        return {"token": token, "name": patient.name, "role": "patient"}
+        return {"token": token, "name": patient.name, "role": "patient", "approval_status": patient.approval_status}
 
     signup_payload = {
         "type": "social_signup",
@@ -418,4 +418,4 @@ async def social_signup(request: Request, db: Session = Depends(get_db)) -> dict
     db.refresh(patient)
 
     token = create_token(str(patient.patient_id), "patient")
-    return {"token": token, "name": patient.name, "role": "patient"}
+    return {"token": token, "name": patient.name, "role": "patient", "approval_status": patient.approval_status}
