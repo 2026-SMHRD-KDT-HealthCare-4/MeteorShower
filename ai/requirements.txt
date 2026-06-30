@@ -5,6 +5,7 @@ mediapipe==0.10.35
 numpy==2.4.6
 openai==2.43.0
 opencv-python==4.13.0.92
+pillow
 python-dotenv==1.2.2
 uvicorn==0.49.0
 websockets==16.0
