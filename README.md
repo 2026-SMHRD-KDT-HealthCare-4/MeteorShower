@@ -322,7 +322,7 @@ AI 서버의 `notification_trigger.send_notification_to_backend()`는 운동 차
 
 WebSocket 연결 시 `patient_id`는 JWT에서 추출하지만, `doctor_id`는 클라이언트가 `start` 메시지에 넣어 보낸 값을 그대로 신뢰합니다. 서버 측에서 그 의사가 실제로 해당 환자의 담당의인지 검증하지 않습니다.
 
-`ai/hand_tracking.py`가 과부하 감지 시 저장하는 GIF 캡처는 `ai/captures/` 디렉토리에 로컬 파일로만 남습니다. 백엔드가 Firebase Storage로 업로드하는 캡처 사진 기능(`firebase_storage.py`, `patients.py`)은 별도 HTTP 엔드포인트를 통해 동작하며, AI 서버가 자동으로 그 엔드포인트를 호출하는 연결이 현재 없습니다. 즉 AI 서버 캡처(자동, 로컬)와 백엔드 Firebase 업로드(수동 엔드포인트)는 아직 직접 연결되어 있지 않습니다.
+`ai/hand_tracking.py`가 생성한 GIF 캡처는 `ExerciseSession.jsx`의 `uploadCaptureGifs()`가 받아 `POST /patients/me/exercise-sessions/{rehab_session_id}/captures`로 백엔드에 업로드하고, 백엔드는 Firebase Storage에 올린 뒤 URL을 `rehab_exercise_capture`에 저장합니다. 의사 화면(`DailyReport.jsx`)은 이 데이터를 `capture_gifs`로 조회합니다. 파이프라인은 끝까지 연결되어 있습니다 — `firebase-admin`이 `backend/requirements.txt`에는 있는데 `backend/venv`에 설치되어 있지 않아 캡처 업로드 시 500 에러가 나는 상태였으나, 직접 설치해 확인한 결과 정상 동작합니다(`firebase-admin==7.4.0`). `backend/requirements.txt`의 나머지 18개 패키지는 모두 venv에 정상 설치돼 있었고, `ai/requirements.txt`도 누락 없이 전부 설치돼 있었습니다 — 이번에 빠져 있던 건 `firebase-admin` 하나뿐이었습니다.
 
 `ai/docker-compose.yml`에는 웹캠 디바이스 마운트가 없어 컨테이너 안에서 호스트 웹캠에 접근할 수 없고, `frontend/Dockerfile`은 로컬 개발이 아니라 배포 도메인을 가정한 프로덕션 빌드(`nginx` 서빙)이므로 로컬에서 `docker-compose up`만으로 전체 스택을 띄우기는 어렵습니다 — 자세한 내용은 [Docker로 실행하기](#docker로-실행하기) 참고.
 
