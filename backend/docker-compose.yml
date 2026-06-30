@@ -5,5 +5,9 @@ services:
       - "8001:8000"
     env_file:
       - .env
+    environment:
+      - PROJECT_ROOT=/project
     volumes:
       - ./app:/app
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
+      - ../ai:/project/ai:ro
