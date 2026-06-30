@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
 import { patientApi } from '../../api';
@@ -236,6 +236,8 @@ export default function PatientInfo() {
   const [medEdit, setMedEdit] = useState({ surgery_name: '', surgery_area: '', surgery_date: '', rehab_start_date: '', current_rehab_phase: '', appointment_date: '' });
 
   const [prescription, setPrescription] = useState(defaultPrescription);
+  const serverPrescription = useRef(defaultPrescription);
+  const serverSchedule = useRef({});
   const [aiAdjust, setAiAdjust] = useState(true);
   const [aiJustSaved, setAiJustSaved] = useState(false);
   const [schedule, setSchedule] = useState({});
@@ -243,6 +245,7 @@ export default function PatientInfo() {
   const [isSaving,   setIsSaving]   = useState(false);
   const [selectedSession, setSelectedSession] = useState(0);
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
+  const [showGalleryModal, setShowGalleryModal] = useState(false);
   const [isEditing, setIsEditing] = useState(true);
   const [isEditingRom, setIsEditingRom] = useState(false);
   const [rom, setRom]                   = useState({});
@@ -277,6 +280,8 @@ export default function PatientInfo() {
             merged.push({ name: api.name, sets: api.sets, reps: api.reps, enabled: true });
           }
         });
+        serverPrescription.current = merged;
+        serverSchedule.current = data.schedule ?? {};
         setPrescription(merged);
         setSchedule(data.schedule ?? {});
         setIsEditing(false);
@@ -357,6 +362,8 @@ export default function PatientInfo() {
       rom,
     })
       .then(() => {
+        serverPrescription.current = prescription;
+        serverSchedule.current = schedule;
         setJustSaved(true);
         setIsEditing(false);
         setTimeout(() => setJustSaved(false), 2000);
@@ -370,8 +377,8 @@ export default function PatientInfo() {
   };
 
   const handleEditCancel = () => {
-    setPrescription(defaultPrescription);
-    setSchedule({});
+    setPrescription(serverPrescription.current);
+    setSchedule(serverSchedule.current);
     setIsEditing(false);
   };
 
@@ -400,6 +407,45 @@ export default function PatientInfo() {
   return (
     <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
+
+      {/* 갤러리 전체보기 모달 */}
+      {showGalleryModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setShowGalleryModal(false)}
+        >
+          <div
+            className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
+              <h3 className="text-title-sm font-bold text-on-surface flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>photo_library</span>
+                {sessionGallery[selectedSession]?.label} · 전체 {currentPhotos.length}장
+              </h3>
+              <button onClick={() => setShowGalleryModal(false)} className="p-1 rounded-lg hover:bg-surface-container transition-colors">
+                <span className="material-symbols-outlined text-on-surface-variant">close</span>
+              </button>
+            </div>
+            <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[70vh] overflow-y-auto">
+              {currentPhotos.map((photo) => (
+                <button
+                  key={photo.id}
+                  onClick={() => { setShowGalleryModal(false); setLightboxPhoto(photo); }}
+                  className="relative aspect-square rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95"
+                >
+                  <img src={photo.url} alt={photo.exercise_name} className="absolute inset-0 w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2 py-1.5 flex items-center justify-between">
+                    <span className="text-white text-[11px] font-semibold truncate">{photo.exercise_name}</span>
+                    <span className="text-white/80 text-[10px] flex-shrink-0 ml-1">{photo.type}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 라이트박스 */}
       {lightboxPhoto && (
@@ -590,7 +636,18 @@ export default function PatientInfo() {
               <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>photo_library</span>
               치료 사진 기록
             </h2>
-            <span className="text-label-sm text-on-surface-variant">총 {sessionGallery.reduce((s, g) => s + g.photos.length, 0)}장</span>
+            <div className="flex items-center gap-3">
+              <span className="text-label-sm text-on-surface-variant">총 {sessionGallery.reduce((s, g) => s + g.photos.length, 0)}장</span>
+              {currentPhotos.length > 2 && (
+                <button
+                  onClick={() => setShowGalleryModal(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-label-sm font-semibold text-doctor-primary border border-doctor-primary hover:bg-doctor-primary/10 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">grid_view</span>
+                  전체보기
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 세션 탭 */}
@@ -614,14 +671,14 @@ export default function PatientInfo() {
             ))}
           </div>
 
-          {/* 사진 그리드 */}
+          {/* 사진 그리드 - 최대 2장 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {currentPhotos.length === 0 && (
               <div className="sm:col-span-2 aspect-video rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex items-center justify-center text-label-md text-on-surface-variant">
                 촬영된 GIF가 없습니다
               </div>
             )}
-            {currentPhotos.map((photo) => (
+            {currentPhotos.slice(0, 2).map((photo, idx) => (
               <button
                 key={photo.id}
                 onClick={() => setLightboxPhoto(photo)}
@@ -629,6 +686,16 @@ export default function PatientInfo() {
               >
                 <img src={photo.url} alt={photo.exercise_name} className="absolute inset-0 w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                {/* 마지막 슬롯에 더보기 오버레이 */}
+                {idx === 1 && currentPhotos.length > 2 && (
+                  <div
+                    className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-1 cursor-pointer"
+                    onClick={(e) => { e.stopPropagation(); setShowGalleryModal(true); }}
+                  >
+                    <span className="material-symbols-outlined text-white text-3xl">photo_library</span>
+                    <span className="text-white text-label-md font-bold">+{currentPhotos.length - 2}장 더보기</span>
+                  </div>
+                )}
                 <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2 py-1.5 flex items-center justify-between">
                   <span className="text-white text-[11px] font-semibold truncate">{photo.exercise_name}</span>
                   <span className="text-white/80 text-[10px] flex-shrink-0 ml-1">{photo.type}</span>
