@@ -1,3 +1,4 @@
+"""MediaPipe 기반 손 재활 트래킹 루프와 보조 함수 모음. run_tracking()이 메인 진입점이다."""
 import base64
 import json
 import math
@@ -150,6 +151,11 @@ TAP_FINGER_ROM_TARGETS = {
 
 # ★ 수정됨: 새 데이터 구조에 맞춰 각 관절의 '랜드마크 번호'를 키로 하는 딕셔너리 반환
 def _finger_angle_signals(angles_dict, target_angles_dict) -> dict[int, str]:
+    """관절 각도와 타겟 각도를 비교해 랜드마크 인덱스→신호등 색 dict를 반환한다.
+
+    angles_dict: compute_finger_angles() 반환값, target_angles_dict: 현재 운동의 ROM 타겟.
+    각 관절의 pivot 랜드마크 인덱스를 키로 "green"/"yellow"/"red"를 값으로 갖는다.
+    """
     signals = {i: "green" for i in range(1, 21)}  # 손목(0)은 방향 신호등 전용이라 제외
     for finger_name, joints in angles_dict.items():
         if finger_name not in target_angles_dict: continue
@@ -170,6 +176,11 @@ def _finger_angle_signals(angles_dict, target_angles_dict) -> dict[int, str]:
 
 
 def build_finger_accuracy_summary(exercise_name, angle_stats) -> list[dict]:
+    """누적 angle_stats에서 DB에 저장 가능한 손가락별 정확도 요약 리스트를 만들어 반환한다.
+
+    exercise_name에 해당하는 통계만 사용하며, SUPPORTED_DB_JOINTS에 속하고
+    샘플이 1개 이상인 관절만 포함한다.
+    """
     summary = []
     for key, stat in angle_stats.get(exercise_name, {}).items():
         finger_name, joint_type = key.split("_", 1)
@@ -187,6 +198,10 @@ def build_finger_accuracy_summary(exercise_name, angle_stats) -> list[dict]:
 
 
 def _compute_rom_score(angles_dict, targets) -> float:
+    """현재 관절 각도와 타겟 각도를 비교해 0~100점 ROM 달성 점수를 반환한다.
+
+    각 관절의 (180-angle)/(180-target) 비율을 평균 내며, 관절이 없으면 0을 반환한다.
+    """
     total_score = 0
     joint_count = 0
     for finger, joints in angles_dict.items():
@@ -225,6 +240,7 @@ EXERCISES = [
 
 
 def _load_guide(guide_path: str) -> np.ndarray | None:
+    """JSON 가이드 파일을 읽어 (N, 21, 3) float32 배열로 반환한다. 파일 없으면 None."""
     if not os.path.exists(guide_path):
         print(f"[WARN] guide not found: {guide_path}")
         return None
@@ -235,16 +251,19 @@ def _load_guide(guide_path: str) -> np.ndarray | None:
 
 
 def _load_guide_features(guide_path, feature_fn) -> np.ndarray | None:
+    """가이드 JSON을 로드해 feature_fn으로 변환한 (N, D) 특징 배열을 반환한다. 파일 없으면 None."""
     arr = _load_guide(guide_path)
     if arr is None: return None
     return np.array([feature_fn(frame) for frame in arr], dtype=np.float32)
 
 
 def dist2(a, b) -> float:
+    """두 랜드마크 a·b의 2D(x,y) 유클리드 거리의 제곱을 반환한다."""
     return (a.x - b.x) ** 2 + (a.y - b.y) ** 2
 
 
 def get_hand_state(landmarks) -> tuple[str, list[bool]]:
+    """21개 랜드마크를 보고 ("grip"|"open"|"partial", 손가락 펴짐 여부 리스트)를 반환한다."""
     wrist = landmarks[0]
     pairs = [(4, 3), (8, 6), (12, 10), (16, 14), (20, 18)]
     fingers = [
@@ -258,6 +277,7 @@ def get_hand_state(landmarks) -> tuple[str, list[bool]]:
 
 
 def get_guide_tap_finger(guide_frame) -> int | None:
+    """가이드 프레임에서 엄지와 임계값 이내로 가까운 손가락 끝 랜드마크 인덱스를 반환한다."""
     thumb      = guide_frame[4]
     min_dist   = float("inf")
     tap_finger = None
@@ -271,6 +291,7 @@ def get_guide_tap_finger(guide_frame) -> int | None:
 
 
 def get_tap_state(landmarks) -> tuple[str, int | None]:
+    """탭핑 운동 상태("tap"|"open"|"wrong_motion")와 활성 손가락 인덱스(또는 None)를 반환한다."""
     thumb = landmarks[4]
     wrist = landmarks[0]
     mcp   = landmarks[5] 
@@ -307,6 +328,7 @@ def get_tap_state(landmarks) -> tuple[str, int | None]:
 
 
 def compute_overload_rom(landmarks) -> float:
+    """손목 기준 4개 손가락 끝(검지~소지)의 평균 2D 거리를 반환한다. 과부하 판정에 사용한다."""
     wrist = landmarks[0]
     tips = [landmarks[i] for i in [8, 12, 16, 20]]
     return float(np.mean([
@@ -357,13 +379,28 @@ def save_capture(frame_records, label, patient_id=None, exercise=None) -> str | 
 
 
 def encode_capture_gif(path: str | None) -> str | None:
+    """GIF 파일을 읽어 base64 문자열로 인코딩해 반환한다. 경로가 None이거나 파일 없으면 None."""
     if not path or not os.path.exists(path):
         return None
     with open(path, "rb") as fp:
         return base64.b64encode(fp.read()).decode("utf-8")
 
 
+def _save_capture_async(frame_records, label, patient_id, exercise_name, capture_paths) -> None:
+    """save_capture를 백그라운드 스레드에서 실행해 capture_paths[label]에 결과 경로를 채운다.
+
+    GIF 인코딩(색공간 변환+양자화+디스크 쓰기)은 수십~수백 ms가 걸리므로, 메인
+    트래킹 루프를 막지 않도록 별도 스레드에서 수행한다.
+    """
+    capture_paths[label] = save_capture(frame_records, label, patient_id, exercise_name)
+
+
 def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST) -> float | None:
+    """환자 시퀀스와 가이드 시퀀스 간 open-begin DTW 거리를 0~100 유사도 점수로 변환해 반환한다.
+
+    patient_buf: 최근 프레임 특징 벡터 리스트, guide_np: 가이드 특징 배열(N,D).
+    프레임 수가 2 미만이거나 가이드가 없으면 None을 반환한다.
+    """
     if guide_np is None or len(patient_buf) < 2: return None
     seq1 = np.array(patient_buf, dtype=np.float32) 
     m = len(seq1)
@@ -389,6 +426,7 @@ def compute_dtw_similarity(patient_buf, guide_np, max_dtw_dist=MAX_DTW_DIST) -> 
 
 
 def draw_hand(frame, landmarks, handedness, joint_signals=None) -> None:
+    """frame 위에 환자 손 스켈레톤을 joint_signals 신호등 색으로 그린다(인플레이스)."""
     h, w = frame.shape[:2]
     DEFAULT_COLOR = (0, 255, 0)
     DEFAULT_SEG_COLOR = (0, 200, 0)
@@ -480,6 +518,11 @@ def _resolve_prescribed_target(raw_value, exercise_default, label) -> int:
 
 
 def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None) -> None:
+    """웹캠을 열어 MediaPipe로 손 트래킹을 실행하고, 매 프레임 결과를 q(Queue)에 넣는다.
+
+    stop_event가 set되거나 세션이 완료/과부하 종료될 때까지 루프를 계속 돈다.
+    show_window=True이면 cv2 창을 띄우고 q=None이면 페이로드를 전송하지 않는다.
+    """
     # exercise_name이 지정되면 해당 운동 하나만 실행 (다른 운동으로 자동 전환되지 않음).
     # 지정이 없거나 매칭되는 운동이 없으면 기존처럼 EXERCISES 전체를 순서대로 실행.
     if exercise_name is not None:
@@ -602,6 +645,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         first_capture_last_sample_at = 0.0
         capture_paths = {}
         capture_set_number = 1
+        capture_gifs_payload = None
+        capture_gifs_wait_started_at = None
 
         while cap.isOpened():
             pending_last_capture     = False
@@ -1032,9 +1077,19 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 print(f"[SessionEnd] reason=overload, cause={overload_cause}, count={count}, target_count={ex['target_count']}, current_set={current_set}, target_set={ex['target_set']}")
 
             if pending_last_capture and "last" not in capture_paths:
-                capture_paths["last"] = save_capture(list(recent_frames), "last", patient_id, ex["name"])
+                capture_paths["last"] = None
+                threading.Thread(
+                    target=_save_capture_async,
+                    args=(list(recent_frames), "last", patient_id, ex["name"], capture_paths),
+                    daemon=True,
+                ).start()
             if pending_overload_capture and "overload" not in capture_paths:
-                capture_paths["overload"] = save_capture(list(recent_frames), "overload", patient_id, ex["name"])
+                capture_paths["overload"] = None
+                threading.Thread(
+                    target=_save_capture_async,
+                    args=(list(recent_frames), "overload", patient_id, ex["name"], capture_paths),
+                    daemon=True,
+                ).start()
 
             if overload_stage == 2:
                 if session_end_at is None:
@@ -1077,15 +1132,25 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     "finger_accuracy": build_finger_accuracy_summary(ex_now["name"], angle_stats),
                     }
                 if payload["session_end"]:
-                    capture_gifs = {
-                        "set_number": capture_set_number,
-                        "first": encode_capture_gif(capture_paths.get("first")),
-                        "last": encode_capture_gif(capture_paths.get("last")),
-                        "overload": encode_capture_gif(capture_paths.get("overload")),
-                    }
-                    capture_gifs = {key: value for key, value in capture_gifs.items() if value is not None}
-                    if len(capture_gifs) > 1:
-                        payload["capture_gifs"] = capture_gifs
+                    if capture_gifs_payload is None:
+                        if capture_gifs_wait_started_at is None:
+                            capture_gifs_wait_started_at = time.time()
+                        # capture_paths의 모든 항목(first/last/overload 중 트리거된 것)이
+                        # 백그라운드 스레드에서 다 채워질 때까지 기다리되, 2초가 지나면
+                        # 그때까지 준비된 것만으로 확정한다(세션 종료 처리는 최대 3초).
+                        all_ready = all(v is not None for v in capture_paths.values())
+                        timed_out = time.time() - capture_gifs_wait_started_at > 2.0
+                        if all_ready or timed_out:
+                            capture_gifs = {
+                                "set_number": capture_set_number,
+                                "first": encode_capture_gif(capture_paths.get("first")),
+                                "last": encode_capture_gif(capture_paths.get("last")),
+                                "overload": encode_capture_gif(capture_paths.get("overload")),
+                            }
+                            capture_gifs = {key: value for key, value in capture_gifs.items() if value is not None}
+                            capture_gifs_payload = capture_gifs if len(capture_gifs) > 1 else {}
+                    if capture_gifs_payload:
+                        payload["capture_gifs"] = capture_gifs_payload
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
                 payload["frame"] = base64.b64encode(buf).decode('utf-8')
                 try: q.put_nowait(payload)
@@ -1164,7 +1229,12 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     first_capture_frames.append((_now_gif, frame.copy()))
                     first_capture_last_sample_at = _now_gif
                 if _now_gif - first_capture_started_at >= CAPTURE_GIF_DURATION_SEC:
-                    capture_paths["first"] = save_capture(first_capture_frames, "first", patient_id, ex["name"])
+                    capture_paths["first"] = None
+                    threading.Thread(
+                        target=_save_capture_async,
+                        args=(first_capture_frames, "first", patient_id, ex["name"], capture_paths),
+                        daemon=True,
+                    ).start()
                     first_capture_collecting = False
 
             # GIF 인코딩(색공간 변환 + 양자화 + 디스크 쓰기)은 수십~수백 ms가 걸려

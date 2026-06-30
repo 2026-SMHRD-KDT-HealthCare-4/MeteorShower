@@ -1,3 +1,4 @@
+"""운동 과부하/세션 차단 이벤트를 구조화해 백엔드 doctor_notification API로 전송하는 모듈."""
 import os
 
 import httpx
