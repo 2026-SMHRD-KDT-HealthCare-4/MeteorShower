@@ -51,7 +51,55 @@ export default function ExerciseSession() {
   const rehabSessionIdRef = useRef(null); // saveExerciseSession 완료 후 채워짐(GIF 업로드용)
   const gifsUploadedRef   = useRef(false); // capture_gifs 업로드 중복 방지
 
+  const videoRef      = useRef(null);
+  const canvasRef     = useRef(null);
+  const cameraStreamRef = useRef(null);
+  const frameTimerRef = useRef(null);
+
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
+
+  const stopClientFrameStream = useCallback(() => {
+    if (frameTimerRef.current) {
+      clearInterval(frameTimerRef.current);
+      frameTimerRef.current = null;
+    }
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
+  const startClientFrameStream = useCallback(async (ws) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('브라우저에서 카메라를 사용할 수 없습니다.');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480 },
+      audio: false,
+    });
+    cameraStreamRef.current = stream;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    video.srcObject = stream;
+    await video.play();
+
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    frameTimerRef.current = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN || video.readyState < 2) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ws.send(JSON.stringify({
+        action: 'frame',
+        image: canvas.toDataURL('image/jpeg', 0.65),
+      }));
+    }, 100);
+  }, []);
 
   const gifToFile = (value, fileName) => {
     if (!value || typeof value !== 'string') return null;
@@ -139,6 +187,7 @@ export default function ExerciseSession() {
 
   /* ── WebSocket 연결 ─────────────────────────────────────────────── */
   const stopSession = useCallback(() => {
+    stopClientFrameStream();
     if (wsRef.current) {
       try { wsRef.current.send(JSON.stringify({ action: 'stop' })); } catch {}
       wsRef.current.close();
@@ -147,7 +196,7 @@ export default function ExerciseSession() {
     updatePhase('idle');
     setFrame(null);
     setWsData(null);
-  }, []);
+  }, [stopClientFrameStream]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -159,13 +208,24 @@ export default function ExerciseSession() {
     ws.onopen = () => {
       const { hand, exerciseName } = parseExerciseName(exerciseInfo?.name);
       setSelectedHand(hand);
-      ws.send(JSON.stringify({
-        action: 'start',
-        hand,
-        exercise_name: exerciseName,
-        target_count: exerciseInfo?.reps,
-        target_set: exerciseInfo?.sets,
-      }));
+      startClientFrameStream(ws).then(() => {
+        ws.send(JSON.stringify({
+          action: 'start',
+          hand,
+          exercise_name: exerciseName,
+          target_count: exerciseInfo?.reps,
+          target_set: exerciseInfo?.sets,
+          use_client_frames: true,
+        }));
+      }).catch((err) => {
+        const message = err?.name === 'NotReadableError'
+          ? '카메라가 다른 프로그램에서 사용 중입니다. AI 서버/카메라 앱/다른 브라우저 탭을 종료한 뒤 다시 시도하세요.'
+          : err.message;
+        setConnectError(message);
+        stopClientFrameStream();
+        try { ws.close(); } catch {}
+        updatePhase('idle');
+      });
     };
 
     ws.onmessage = (e) => {
@@ -200,6 +260,7 @@ export default function ExerciseSession() {
       updatePhase('idle');
     };
     ws.onclose  = (e) => {
+      stopClientFrameStream();
       if (phaseRef.current === 'ended') return;
       if (e.code === 4001) {
         setConnectError('인증 오류: 로그인 상태를 확인하고 다시 시도하세요.');
@@ -208,13 +269,17 @@ export default function ExerciseSession() {
       }
       updatePhase('idle');
     };
-  }, [saveExerciseResult, exerciseInfo]);
+  }, [saveExerciseResult, exerciseInfo, startClientFrameStream, stopClientFrameStream]);
 
-  useEffect(() => () => wsRef.current?.close(), []);
+  useEffect(() => () => {
+    stopClientFrameStream();
+    wsRef.current?.close();
+  }, [stopClientFrameStream]);
 
   /* ── 다음 운동으로 이동 시 상태 리셋 ─────────────────────────────── */
   useLayoutEffect(() => {
     sessionIdRef.current += 1;    // 이전 session_end .finally 콜백 무효화
+    stopClientFrameStream();
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     savedRef.current      = false;
     latestDataRef.current = null;
@@ -230,7 +295,7 @@ export default function ExerciseSession() {
     setConnectError('');
     setSelectedHand(null);
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-  }, [location.key]);
+  }, [location.key, stopClientFrameStream]);
 
   /* ── 파생 표시 값 ───────────────────────────────────────────────── */
   const similarity    = wsData?.similarity ?? null;
@@ -272,6 +337,8 @@ export default function ExerciseSession() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0c1a1a]">
+      <video ref={videoRef} playsInline muted className="hidden" />
+      <canvas ref={canvasRef} className="hidden" />
 
       {/* 카메라 프레임 */}
       {frame ? (
