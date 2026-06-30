@@ -586,6 +586,8 @@ def get_my_schedule(
                 ex_date = schedule.exercise_date
                 if ex_date < today:
                     status = "done" if schedule.sessions else "missed"
+                elif ex_date == today:
+                    status = "done" if schedule.sessions else "upcoming"
                 else:
                     status = "upcoming"
                 result.append({
