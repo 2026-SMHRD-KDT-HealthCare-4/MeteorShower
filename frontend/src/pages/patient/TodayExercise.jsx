@@ -12,22 +12,28 @@ const INITIAL_EXERCISES = [
   { id: 4, name: '왼손 쥐었다펴기',  sets: 2, reps: 10, duration: '5분', status: 'waiting',     videoTime: '01:45' },
 ];
 
-// in_progress → partial → waiting → done 순서로 정렬
-const STATUS_ORDER = { in_progress: 0, partial: 1, waiting: 2, done: 3 };
+const STATUS_ORDER = { in_progress: 0, waiting: 1, done: 2 };
 
 
 function TrendChart({ fromVal, toVal, delta, isUp }) {
+  if (toVal === null) {
+    return (
+      <div className="flex items-center flex-1 min-w-0 opacity-60">
+        <p className="text-[11px] md:text-label-lg font-bold">아직 데이터가 없어요</p>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2 md:gap-5 flex-1 min-w-0">
       {/* 바 그래프 영역 */}
       <div className="flex items-end gap-1.5 md:gap-3 h-20 md:h-28 shrink-0">
         {/* 이전 바 */}
         <div className="flex flex-col items-center gap-0.5 h-full w-8 md:w-12">
-          <span className="text-[10px] md:text-xs font-bold opacity-75">{fromVal}%</span>
+          <span className="text-[10px] md:text-xs font-bold opacity-75">{fromVal ?? '-'}%</span>
           <div className="w-full flex-1 rounded-t-md bg-white/20 relative overflow-hidden">
             <div
               className="absolute bottom-0 w-full rounded-t-md bg-white/50 transition-all duration-700"
-              style={{ height: `${fromVal}%` }}
+              style={{ height: `${fromVal ?? 0}%` }}
             />
           </div>
           <span className="text-[9px] md:text-[10px] opacity-55 tracking-wide">이전</span>
@@ -53,12 +59,18 @@ function TrendChart({ fromVal, toVal, delta, isUp }) {
 
       {/* 우측 텍스트 */}
       <div className="flex flex-col gap-0.5 min-w-0 pl-3 md:pl-5">
-        <p className="text-lg md:text-2xl font-display font-bold leading-none">
-          {isUp ? `+${delta}%` : `${delta}%`}
-        </p>
-        <p className="text-[11px] md:text-label-lg font-bold leading-tight">
-          {isUp ? '상승했어요!' : '감소했어요'}
-        </p>
+        {delta !== null ? (
+          <>
+            <p className="text-lg md:text-2xl font-display font-bold leading-none">
+              {isUp ? `+${delta}%` : `${delta}%`}
+            </p>
+            <p className="text-[11px] md:text-label-lg font-bold leading-tight">
+              {isUp ? '상승했어요!' : '감소했어요'}
+            </p>
+          </>
+        ) : (
+          <p className="text-[11px] md:text-label-lg font-bold leading-tight opacity-60">첫 번째 기록이에요!</p>
+        )}
       </div>
     </div>
   );
@@ -170,7 +182,6 @@ function BlockedBanner() {
 function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) {
   const navigate = useNavigate();
   const isInProgress = ex.status === 'in_progress';
-  const isPartial = ex.status === 'partial';
   const isDone = ex.status === 'done';
 
   const [showModal, setShowModal] = useState(false);
@@ -185,11 +196,11 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
   return (
     <div
       className={`bg-surface-container-lowest rounded-xl p-4 flex flex-col md:flex-row gap-gutter items-center transition-all duration-300 relative
-        ${isInProgress || isPartial ? 'border-2 border-primary/30 shadow-md overflow-hidden' : 'border border-outline-variant hover:shadow-md'}
+        ${isInProgress ? 'border-2 border-primary/30 shadow-md overflow-hidden' : 'border border-outline-variant hover:shadow-md'}
         ${isDone ? 'opacity-60' : ''}
       `}
     >
-      {(isInProgress || isPartial) && <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-xl" />}
+      {isInProgress && <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-xl" />}
 
       {/* 비디오 썸네일 */}
       <div className="relative w-full md:w-48 aspect-video rounded-lg overflow-hidden flex-shrink-0 bg-surface-container-high flex items-center justify-center">
@@ -220,10 +231,6 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
               <span className="flex items-center gap-1 text-secondary text-label-sm animate-pulse">
                 <span className="material-symbols-outlined text-sm">pending</span>진행 중
               </span>
-            ) : isPartial ? (
-              <span className="flex items-center gap-1 text-tertiary text-label-sm">
-                <span className="material-symbols-outlined text-sm">warning</span>미완료
-              </span>
             ) : (
               <span className="flex items-center gap-1 text-on-surface-variant text-label-sm">
                 <span className="material-symbols-outlined text-sm">schedule</span>대기
@@ -237,7 +244,7 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
         <div className="w-full bg-surface-container h-1.5 rounded-full mb-4">
           <div
             className={`h-full rounded-full transition-all duration-700 ${
-              isDone ? 'bg-primary' : isInProgress ? 'bg-secondary' : isPartial ? 'bg-tertiary' : 'bg-outline-variant'
+              isDone ? 'bg-primary' : isInProgress ? 'bg-secondary' : 'bg-outline-variant'
             }`}
             style={{ width: `${progress}%` }}
           />
@@ -264,8 +271,8 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
             onClick={() => setShowModal(true)}
             className="w-full md:w-32 h-12 bg-primary text-white text-label-md rounded-lg shadow-sm hover:bg-primary-container transition-all active:scale-95 flex items-center justify-center gap-1"
           >
-            <span className="material-symbols-outlined text-base">{isPartial ? 'replay' : 'play_arrow'}</span>
-            {isPartial ? '다시 시작' : '운동 시작'}
+            <span className="material-symbols-outlined text-base">play_arrow</span>
+            운동 시작
           </button>
         )}
       </div>
@@ -330,11 +337,13 @@ export default function TodayExercise() {
   const hasTrend = delta !== null;
   const isUp     = hasTrend && delta >= 0;
 
-  // 정확도 더미 데이터 (추후 누적 리포트 API 연동 예정)
-  const accFrom  = 68;
-  const accTo    = 83;
-  const accDelta = accTo - accFrom;
-  const isAccUp  = accDelta >= 0;
+  const daysWithAccuracy = weeklyStats.filter((d) => d.accuracy !== null && d.accuracy !== undefined);
+  const accFrom  = daysWithAccuracy.length >= 2
+    ? Math.round(daysWithAccuracy.slice(0, -1).reduce((s, d) => s + d.accuracy, 0) / (daysWithAccuracy.length - 1))
+    : null;
+  const accTo    = daysWithAccuracy.length >= 1 ? Math.round(daysWithAccuracy[daysWithAccuracy.length - 1].accuracy) : null;
+  const accDelta = accFrom !== null && accTo !== null ? accTo - accFrom : null;
+  const isAccUp  = accDelta !== null && accDelta >= 0;
 
   const handleStart = (id) => {
     setExercises((prev) =>

@@ -16,7 +16,6 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'), override=True)
 
 SECRET_KEY = os.environ["SECRET_KEY"]
 ALGORITHM = "HS256"
-print(f"[Server] SECRET_KEY 앞 10자리: {SECRET_KEY[:10]}")
 
 sys.path.insert(0, os.path.dirname(__file__))
 from hand_tracking import run_tracking
@@ -151,22 +150,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)) -> N
             return
         patient_id = int(payload["sub"])
         print(f"[WS Auth] 인증 성공 patient_id={patient_id}")
-    except Exception as e:
-        try:
-            unverified = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_signature": False, "verify_exp": False})
-            print(f"[WS Auth] 서명 없이 디코드 성공: {unverified}")
-            import hmac, hashlib, base64
-            header_payload = '.'.join(token.split('.')[:2]).encode()
-            expected_sig = base64.urlsafe_b64encode(
-                hmac.new(SECRET_KEY.encode(), header_payload, hashlib.sha256).digest()
-            ).rstrip(b'=')
-            actual_sig = token.split('.')[2].encode()
-            print(f"[WS Auth] 예상 서명 앞10: {expected_sig[:10]}")
-            print(f"[WS Auth] 실제 서명 앞10: {actual_sig[:10]}")
-            print(f"[WS Auth] 서명 일치: {expected_sig == actual_sig}")
-        except Exception as e2:
-            print(f"[WS Auth] 디버그 실패: {e2}")
-        print(f"[WS Auth] 인증 실패: {type(e).__name__}: {e}  token_len={len(token)}")
+    except Exception:
         await websocket.close(code=4001, reason="invalid token")
         return
 
