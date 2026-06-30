@@ -48,6 +48,8 @@ export default function ExerciseSession() {
   const latestDataRef = useRef(null);
   const audioRef      = useRef(null);
   const sessionIdRef  = useRef(0);    // 다음 운동 이동 시 증가 → stale callback 무시용
+  const rehabSessionIdRef = useRef(null); // saveExerciseSession 완료 후 채워짐(GIF 업로드용)
+  const gifsUploadedRef   = useRef(false); // capture_gifs 업로드 중복 방지
 
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
 
@@ -114,9 +116,17 @@ export default function ExerciseSession() {
     };
     return patientApi.saveExerciseSession(payload)
       .then((result) => {
-        uploadCaptureGifs(result?.rehab_session_id, latest).catch((err) => {
-          console.error('[Capture GIF upload failed]', err);
-        });
+        rehabSessionIdRef.current = result?.rehab_session_id ?? null;
+        // GIF 인코딩은 AI 서버에서 백그라운드로 진행되어 session_end 시점에
+        // 아직 준비 안 됐을 수 있다. 이 시점에 이미 도착해 있으면 바로 업로드하고,
+        // 아니면 ws.onmessage가 capture_gifs 도착 시점에 한 번만 업로드한다.
+        const latestNow = latestDataRef.current;
+        if (latestNow?.capture_gifs && rehabSessionIdRef.current && !gifsUploadedRef.current) {
+          gifsUploadedRef.current = true;
+          uploadCaptureGifs(rehabSessionIdRef.current, latestNow).catch((err) => {
+            console.error('[Capture GIF upload failed]', err);
+          });
+        }
         return result;
       })
       .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
@@ -165,6 +175,16 @@ export default function ExerciseSession() {
       if (msg.frame)   setFrame(msg.frame);
       setWsData(msg);
       latestDataRef.current = msg;
+
+      // capture_gifs는 AI 서버에서 백그라운드로 인코딩되어 session_end 첫 메시지
+      // 이후에 도착할 수 있다 — 그 시점에 한 번만 업로드를 시도한다.
+      if (msg.capture_gifs && rehabSessionIdRef.current && !gifsUploadedRef.current) {
+        gifsUploadedRef.current = true;
+        uploadCaptureGifs(rehabSessionIdRef.current, msg).catch((err) => {
+          console.error('[Capture GIF upload failed]', err);
+        });
+      }
+
       if (msg.session_end) {
         const sid = sessionIdRef.current;
         saveExerciseResult('완료').finally(() => {
@@ -198,6 +218,8 @@ export default function ExerciseSession() {
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     savedRef.current      = false;
     latestDataRef.current = null;
+    rehabSessionIdRef.current = null;
+    gifsUploadedRef.current   = false;
     updatePhase('idle');
     setShowModal(false);
     setModalError('');

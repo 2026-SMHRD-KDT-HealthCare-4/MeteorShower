@@ -349,6 +349,7 @@ def save_capture(frame_records, label, patient_id=None, exercise=None) -> str | 
     """
     if not frame_records:
         return None
+    _t0 = time.time()
     os.makedirs(CAPTURE_DIR, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
     pid = patient_id if patient_id is not None else "na"
@@ -356,7 +357,17 @@ def save_capture(frame_records, label, patient_id=None, exercise=None) -> str | 
     path = os.path.join(CAPTURE_DIR, f"capture_{label}_{pid}_{ex_name}_{ts}.gif")
 
     timestamps = [t for t, _ in frame_records]
-    pil_frames = [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for _, f in frame_records]
+    h, w = frame_records[0][1].shape[:2]
+    rgb_frames = [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for _, f in frame_records]
+    # Pillow는 프레임마다 256색 팔레트를 새로 계산(adaptive quantize)하는데, 이게
+    # 프레임당 ~100ms+ 걸려 멀티프레임 GIF에서 압도적인 병목이 된다(30프레임=3초+).
+    # 첫 프레임으로 팔레트를 한 번만 만들고 나머지는 그 팔레트로 매핑만 하면
+    # 동일한 결과를 ~10배 이상 빠르게 얻을 수 있다.
+    base_frame = rgb_frames[0].convert("P", palette=Image.ADAPTIVE, colors=256)
+    pil_frames = [base_frame] + [
+        f.quantize(palette=base_frame, dither=Image.Dither.NONE) for f in rgb_frames[1:]
+    ]
+    _t1 = time.time()
 
     if len(timestamps) >= 2:
         durations = [
@@ -374,7 +385,11 @@ def save_capture(frame_records, label, patient_id=None, exercise=None) -> str | 
         duration=durations,
         loop=0,
     )
-    print(f"capture saved: {path}")
+    _t2 = time.time()
+    print(
+        f"capture saved: {path}  frames={len(pil_frames)} size={w}x{h}  "
+        f"convert={_t1 - _t0:.3f}s  encode={_t2 - _t1:.3f}s  total={_t2 - _t0:.3f}s"
+    )
     return path
 
 
@@ -1138,11 +1153,12 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                     if capture_gifs_payload is None:
                         if capture_gifs_wait_started_at is None:
                             capture_gifs_wait_started_at = time.time()
+                            print(f"[CaptureGif] 대기 시작, capture_paths keys={list(capture_paths.keys())}")
                         # capture_paths의 모든 항목(first/last/overload 중 트리거된 것)이
-                        # 백그라운드 스레드에서 다 채워질 때까지 기다리되, 2초가 지나면
+                        # 백그라운드 스레드에서 다 채워질 때까지 기다리되, 2.5초가 지나면
                         # 그때까지 준비된 것만으로 확정한다(세션 종료 처리는 최대 3초).
                         all_ready = all(v is not None for v in capture_paths.values())
-                        timed_out = time.time() - capture_gifs_wait_started_at > 2.0
+                        timed_out = time.time() - capture_gifs_wait_started_at > 2.5
                         if all_ready or timed_out:
                             capture_gifs = {
                                 "set_number": capture_set_number,
@@ -1152,6 +1168,10 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                             }
                             capture_gifs = {key: value for key, value in capture_gifs.items() if value is not None}
                             capture_gifs_payload = capture_gifs if len(capture_gifs) > 1 else {}
+                            print(
+                                f"[CaptureGif] 확정: all_ready={all_ready} timed_out={timed_out} "
+                                f"capture_paths={capture_paths} → keys={list(capture_gifs_payload.keys())}"
+                            )
                     if capture_gifs_payload:
                         payload["capture_gifs"] = capture_gifs_payload
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
