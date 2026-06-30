@@ -1,3 +1,4 @@
+"""OpenAI API를 호출해 일일/월간 리포트와 처방 조정안을 생성하고 백엔드로 전송하는 클라이언트."""
 import json
 import os
 
@@ -25,6 +26,7 @@ _client = None
 
 
 def _get_client() -> OpenAI:
+    """OpenAI 클라이언트를 지연 생성해 반환(이미 생성됐으면 캐시된 인스턴스 재사용)."""
     global _client
     if _client is None:
         _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))

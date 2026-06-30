@@ -1,3 +1,4 @@
+"""손 랜드마크 좌표 정규화·특징 추출·관절 각도 계산·손바닥 방향 감지 유틸리티."""
 import numpy as np
 
 # index/middle/ring/pinky MCP joints: rigid base of the palm. Their distance
@@ -123,6 +124,11 @@ _FINGER_JOINT_INDICES = {
 
 
 def compute_finger_angles(coords) -> dict[str, dict[str, float]]:
+    """(21, 3) coords(wrist-relative) → 손가락별 관절 각도 dict.
+
+    반환 구조: {"thumb": {"MCP": float, "IP": float}, "index": {"MCP": float, ...}, ...}.
+    각 값은 0~180도이며, 180°에 가까울수록 곧게 펴진 상태를 의미한다.
+    """
     # 이 구조로 반환되는지 확인하세요
     return {
         finger: {
