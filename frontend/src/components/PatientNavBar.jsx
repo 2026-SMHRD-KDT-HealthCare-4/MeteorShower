@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import logo from '../assets/logo.png';
 import { useAuth } from '../context/AuthContext';
 import { patientApi } from '../api';
 
@@ -45,6 +44,14 @@ const TYPE_CONFIG = {
     bg: 'bg-[#f3e5f5]',
     border: 'border-[#ce93d8]',
     dot: 'bg-[#6200ea]',
+  },
+  운동미수행: {
+    icon: 'event_busy',
+    label: '운동 미수행',
+    color: 'text-[#e37400]',
+    bg: 'bg-[#fff3e0]',
+    border: 'border-[#ffcc80]',
+    dot: 'bg-[#e37400]',
   },
 };
 
@@ -95,6 +102,7 @@ export default function PatientNavBar() {
     처방등록: '/patient/exercise',
     appointment: '/patient/records',
     report: '/patient/records',
+    운동미수행: '/patient/exercise',
   };
 
   return (
@@ -103,7 +111,7 @@ export default function PatientNavBar() {
       <header className="bg-surface shadow-sm sticky top-0 z-50 border-b border-outline-variant">
         <div className="flex justify-between items-center w-full px-container-padding-mobile md:px-container-padding-desktop py-2 max-w-7xl mx-auto">
           <Link to="/patient/exercise">
-            <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" />
           </Link>
           <nav className="hidden md:flex items-center space-x-8">
             <Link

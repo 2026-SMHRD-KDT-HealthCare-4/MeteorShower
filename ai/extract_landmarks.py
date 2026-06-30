@@ -1,3 +1,4 @@
+"""가이드 영상(mp4)에서 MediaPipe로 손 랜드마크를 추출해 guide_data/*.json으로 저장하는 오프라인 도구."""
 import json
 import os
 import urllib.request

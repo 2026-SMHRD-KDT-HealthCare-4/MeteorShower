@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DoctorNavBar from '../../components/DoctorNavBar';
 import { patientApi, reportApi } from '../../api';
@@ -25,37 +25,53 @@ function toKey(date) {
 }
 
 /* ── 처방 일정 컴포넌트 ── */
-function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
+function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = false, minEditableDate = null }) {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
 
   const enabled = prescription.filter((ex) => ex.enabled);
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const toggle = (name, dateStr) =>
+  const canEditDate = (dateStr) => !readOnly && (!minEditableDate || dateStr > minEditableDate);
+
+  const toggle = (name, dateStr) => {
+    if (!canEditDate(dateStr)) return;
     setSchedule((prev) => ({ ...prev, [`${name}|${dateStr}`]: !prev[`${name}|${dateStr}`] }));
+  };
 
   const isOn = (name, dateStr) => !!schedule[`${name}|${dateStr}`];
 
   const assignWeekdays = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.slice(0, 5).forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.slice(0, 5).forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const assignAll = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const clearWeek = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { delete next[`${name}|${toKey(d)}`]; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) delete next[`${name}|${dateStr}`];
+      })
     );
     setSchedule(next);
   };
@@ -124,15 +140,17 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
                 {weekDates.map((d, j) => {
                   const dateStr = toKey(d);
                   const on = isOn(ex.name, dateStr);
+                  const disabled = !canEditDate(dateStr);
                   return (
                     <td key={j} className="text-center px-2 py-3">
                       <button
                         onClick={() => toggle(ex.name, dateStr)}
+                        disabled={disabled}
                         className={`w-8 h-8 rounded-full text-label-sm font-bold transition-all active:scale-90
                           ${on
                             ? 'bg-doctor-primary text-white shadow-sm'
                             : 'bg-surface-container text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
-                          }`}
+                          } ${disabled ? 'cursor-not-allowed opacity-50 active:scale-100' : ''}`}
                       >
                         {on
                           ? <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1, 'wght' 700" }}>check</span>
@@ -153,19 +171,22 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
         <span className="text-label-sm text-on-surface-variant mr-1">빠른 설정:</span>
         <button
           onClick={assignWeekdays}
-          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors"
+          disabled={readOnly}
+          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           평일만
         </button>
         <button
           onClick={assignAll}
-          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors"
+          disabled={readOnly}
+          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           전체 선택
         </button>
         <button
           onClick={clearWeek}
-          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors"
+          disabled={readOnly}
+          className="px-3 py-1.5 rounded-lg text-label-sm font-semibold border border-outline-variant text-on-surface-variant hover:bg-surface-container transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           이번 주 초기화
         </button>
@@ -173,18 +194,6 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule }) {
     </div>
   );
 }
-
-/* ── 더미 데이터 ── */
-const patientInfo = [
-  { label: '성명 (Name)',       value: '김망나뇽' },
-  { label: '환자번호 (Code)',   value: 'F310957194583' },
-  { label: '성별 (Gender)',     value: '남자' },
-  { label: '생년월일 (Birth)', value: '1960.01.02' },
-  { label: '수술명 (Surgery)', value: '손가락 골절 수술' },
-  { label: '수술일 (Date)',     value: '2026.01.01' },
-  { label: '진행 단계 (Stage)', value: '손가락 굽히기 운동' },
-  { label: '재활 시작일',       value: '2026.01.25' },
-];
 
 const exerciseResults = [
   { name: '엄지 (Thumb)',  value: 75, warn: false },
@@ -333,7 +342,6 @@ export default function DailyReport() {
   const [schedule, setSchedule]             = useState({});
   const [allExercises, setAllExercises]     = useState([]);
   const [showAddExercise, setShowAddExercise] = useState(false);
-  const [justSaved, setJustSaved]           = useState(false);
   const [patients, setPatients]             = useState([]);
   const [selectedPatientId, setSelectedPatientId] = useState(location.state?.patientId ?? '');
   const [reports, setReports]               = useState([]);
@@ -341,9 +349,20 @@ export default function DailyReport() {
   const [reportMessage, setReportMessage]   = useState('');
   const [reportBusy, setReportBusy]         = useState(false);
   const [dailyResult, setDailyResult]       = useState(null);
-  const autoCreatingReportKey = useRef(null);
+  const prescriptionReadOnly = false;
+  const prescriptionMinEditableDate = toKey(new Date());
 
   const selectedPatient = patients.find((p) => String(p.patient_id) === String(selectedPatientId));
+  const patientInfo = [
+    { label: '성명 (Name)',       value: selectedPatient?.name },
+    { label: '환자번호 (Code)',   value: selectedPatient?.patient_code },
+    { label: '성별 (Gender)',     value: selectedPatient?.gender },
+    { label: '생년월일 (Birth)', value: selectedPatient?.birth_date },
+    { label: '수술명 (Surgery)', value: selectedPatient?.surgery_name },
+    { label: '수술일 (Date)',     value: selectedPatient?.surgery_date },
+    { label: '진행 단계 (Stage)', value: selectedPatient?.current_rehab_phase },
+    { label: '재활 시작일',       value: selectedPatient?.rehab_start_date },
+  ];
   const romByExercise = buildRomExercises(dailyResult?.exercises ?? []);
   const detailExerciseResults = (dailyResult?.exercises ?? [])
     .filter((exercise) => exercise.is_done)
@@ -363,6 +382,10 @@ export default function DailyReport() {
 
   const overallCompliance = dailyResult?.overall_compliance ?? 0;
   const accuracyAvg = dailyResult?.accuracy_average ?? 0;
+  const captureGifs = dailyResult?.capture_gifs ?? [];
+  const latestCaptureGif = captureGifs[0] ?? null;
+  const startCaptureGif = captureGifs.find((gif) => gif.type === '시작 동작') ?? null;
+  const otherCaptureGif = captureGifs.find((gif) => gif.type !== '시작 동작') ?? null;
 
   const loadReports = () =>
     reportApi.getDoctorReports()
@@ -378,7 +401,7 @@ export default function DailyReport() {
       .then((data) => {
         setSelectedReport(data);
         setSelectedPatientId(data.patient_id);
-        setOpinion(data.edited_content || data.draft_content || data.content || '');
+        setOpinion(data.draft_content || data.content || '');
         setEditingOpinion(false);
       })
       .catch(() => setReportMessage('리포트를 불러오지 못했습니다.'));
@@ -396,38 +419,16 @@ export default function DailyReport() {
 
   useEffect(() => {
     if (!selectedPatientId) return;
-    const report = reports.find((r) => String(r.patient_id) === String(selectedPatientId));
-    if (report) {
-      autoCreatingReportKey.current = null;
-      openReport(report.report_id);
-      return;
-    }
-
     const today = toKey(new Date());
-    const autoKey = `${selectedPatientId}|${today}`;
-    if (autoCreatingReportKey.current === autoKey) return;
-
-    autoCreatingReportKey.current = autoKey;
-    setReportBusy(true);
-    reportApi.createLlmReport({
-      patient_id: Number(selectedPatientId),
-      report_date: today,
-      exercise_blocked: false,
-    })
-      .then((data) => {
-        setSelectedReport(data);
-        setOpinion(data.draft_content || data.content || '');
-        setEditingOpinion(false);
-        setReportMessage('');
-        return loadReports();
-      })
-      .catch((err) => {
-        setSelectedReport(null);
-        setOpinion(defaultOpinion);
-        setReportMessage(err.message);
-        autoCreatingReportKey.current = null;
-      })
-      .finally(() => setReportBusy(false));
+    const report = reports.find(
+      (r) => String(r.patient_id) === String(selectedPatientId) && r.report_date === today
+    );
+    if (report) {
+      openReport(report.report_id);
+    } else {
+      setSelectedReport(null);
+      setOpinion(defaultOpinion);
+    }
   }, [selectedPatientId, reports]);
 
   useEffect(() => {
@@ -495,22 +496,6 @@ export default function DailyReport() {
     return created;
   };
 
-  const handleSave = () => {
-    if (!selectedPatientId) { setReportMessage('환자를 먼저 선택해 주세요.'); return; }
-    setReportBusy(true);
-    ensureReport()
-      .then((report) => reportApi.updateDoctorReport(report.report_id, { edited_content: opinion }))
-      .then((data) => {
-        setSelectedReport(data);
-        setJustSaved(true);
-        setReportMessage('수정 내용이 DB에 저장되었습니다.');
-        setTimeout(() => setJustSaved(false), 2000);
-        return loadReports();
-      })
-      .catch((err) => setReportMessage(err.message))
-      .finally(() => setReportBusy(false));
-  };
-
   const handleSend = () => {
     if (!selectedPatientId) { setReportMessage('환자를 먼저 선택해 주세요.'); return; }
     setReportBusy(true);
@@ -522,14 +507,10 @@ export default function DailyReport() {
         schedule,
         prescription_date: new Date().toISOString().slice(0, 10),
       }))
-      .then((data) => {
-        setSelectedReport(data);
-        setOpinion(data.edited_content || data.draft_content || data.content || '');
-        setReportMessage('승인 완료: 환자 진료기록 화면에 표시됩니다.');
-        return loadReports();
+      .then(() => {
+        navigate('/doctor/patients');
       })
-      .catch((err) => setReportMessage(err.message))
-      .finally(() => setReportBusy(false));
+      .catch((err) => { setReportMessage(err.message); setReportBusy(false); });
   };
 
   /* 환자 정보 셀 border 헬퍼 */
@@ -547,7 +528,7 @@ export default function DailyReport() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       {/* 라이트박스 */}
@@ -557,19 +538,20 @@ export default function DailyReport() {
           onClick={() => setLightboxPhoto(null)}
         >
           <div
-            className="relative max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
+            className="relative max-w-4xl w-full rounded-2xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`w-full aspect-[4/3] bg-gradient-to-br ${lightboxPhoto.gradient} flex items-center justify-center`}>
-              <span className="material-symbols-outlined text-white/40 text-[120px]" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
+            <div className="w-full aspect-video max-h-[72vh] bg-black flex items-center justify-center">
+              <img src={lightboxPhoto.url} alt={lightboxPhoto.exercise_name} className="w-full h-full object-cover" />
             </div>
             <div className="bg-white px-5 py-4 flex items-center justify-between">
               <div>
-                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.label}</p>
+                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.exercise_name}</p>
+                <p className="text-label-sm text-on-surface-variant mt-0.5">{lightboxPhoto.type} · {lightboxPhoto.set_number}세트</p>
                 <p className="text-label-sm text-on-surface-variant mt-0.5">촬영 시각: {lightboxPhoto.time} · 2026년 2월 15일 세션</p>
               </div>
               <div className="flex items-center gap-2">
-                {sessionPhotos.map((p) => (
+                {captureGifs.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => setLightboxPhoto(p)}
@@ -586,8 +568,8 @@ export default function DailyReport() {
             </button>
             <button
               onClick={() => {
-                const idx = sessionPhotos.findIndex((p) => p.id === lightboxPhoto.id);
-                setLightboxPhoto(sessionPhotos[(idx - 1 + sessionPhotos.length) % sessionPhotos.length]);
+                const idx = captureGifs.findIndex((p) => p.id === lightboxPhoto.id);
+                setLightboxPhoto(captureGifs[(idx - 1 + captureGifs.length) % captureGifs.length]);
               }}
               className="absolute left-3 top-1/3 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
             >
@@ -595,8 +577,8 @@ export default function DailyReport() {
             </button>
             <button
               onClick={() => {
-                const idx = sessionPhotos.findIndex((p) => p.id === lightboxPhoto.id);
-                setLightboxPhoto(sessionPhotos[(idx + 1) % sessionPhotos.length]);
+                const idx = captureGifs.findIndex((p) => p.id === lightboxPhoto.id);
+                setLightboxPhoto(captureGifs[(idx + 1) % captureGifs.length]);
               }}
               className="absolute right-3 top-1/3 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
             >
@@ -654,7 +636,7 @@ export default function DailyReport() {
                   {item.label}
                 </div>
                 <div className="flex-1 min-w-0 px-3 sm:px-4 py-3 text-label-md sm:text-body-md text-on-surface truncate">
-                  {item.value}
+                  {item.value ?? '-'}
                 </div>
               </div>
             ))}
@@ -662,10 +644,10 @@ export default function DailyReport() {
         </section>
 
         {/* ── AI 분석 + 관찰 기록 ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="space-y-6">
 
           {/* AI 상세 평가 */}
-          <section className="lg:col-span-7 bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-5">
+          <section className="bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-title-md font-bold text-doctor-primary flex items-center gap-2">
                 <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>analytics</span>
@@ -673,7 +655,7 @@ export default function DailyReport() {
               </h2>
               <button
                 onClick={() => setShowRomDetail((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-label-sm font-semibold border transition-colors
+                className={`hidden items-center gap-1.5 px-3 py-1.5 rounded-lg text-label-sm font-semibold border transition-colors
                   ${showRomDetail
                     ? 'bg-doctor-primary text-white border-doctor-primary'
                     : 'border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe]'
@@ -697,12 +679,13 @@ export default function DailyReport() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             {/* Exercise breakdown */}
-            <div className="space-y-3">
+            <div className="space-y-5 py-2">
               {detailExerciseResults.length > 0 ? detailExerciseResults.map((ex) => (
-                <div key={ex.name} className="flex items-center gap-2 sm:gap-3">
+                <div key={ex.name} className="flex items-center gap-3 sm:gap-4 py-2">
                   <span className="w-24 sm:w-28 text-label-md text-on-surface-variant flex-shrink-0">{ex.name}</span>
-                  <div className="flex-1 bg-surface-container h-3 rounded-full overflow-hidden">
+                  <div className="flex-1 bg-surface-container h-4 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-700"
                       style={{ width: `${ex.value}%`, background: ex.warn ? '#ba1a1a' : '#1a73e8' }}
@@ -724,7 +707,7 @@ export default function DailyReport() {
             </div>
 
             {/* ROM 상세 패널 */}
-            {showRomDetail && romByExercise.length > 0 && (
+            {romByExercise.length > 0 && (
               <div className="border border-outline-variant rounded-xl overflow-hidden">
                 {/* 운동 카테고리 탭 */}
                 <div className="flex overflow-x-auto border-b border-outline-variant">
@@ -801,9 +784,10 @@ export default function DailyReport() {
                 </div>
               </div>
             )}
+            </div>
 
             {/* 운동 시간 + 통증 */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
+            <div className="hidden grid-cols-2 gap-3 pt-1">
               <div className="flex items-start gap-2 sm:gap-3 p-3 bg-surface-container-low rounded-xl">
                 <span className="material-symbols-outlined text-doctor-primary text-xl flex-shrink-0">schedule</span>
                 <div>
@@ -829,29 +813,39 @@ export default function DailyReport() {
                 <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>photo_camera</span>
                 치료 중 촬영 사진
               </h2>
-              <span className="text-label-sm text-on-surface-variant">{sessionPhotos.length}장</span>
+              <span className="text-label-sm text-on-surface-variant">{captureGifs.length}개</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 flex-1">
-              {sessionPhotos.map((photo) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
+              {false && !latestCaptureGif && (
+                <div className="col-span-2 aspect-video rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex items-center justify-center text-label-md text-on-surface-variant">
+                  촬영된 GIF가 없습니다
+                </div>
+              )}
+              {[
+                { title: '시작 동작', photo: startCaptureGif },
+                { title: '운동 완료 / 과부하 직전', photo: otherCaptureGif },
+              ].map(({ title, photo }) => photo ? (
                 <button
-                  key={photo.id}
+                  key={title}
                   onClick={() => setLightboxPhoto(photo)}
-                  className="relative aspect-square rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95"
+                  className="relative aspect-video rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95 bg-black"
                 >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${photo.gradient}`} />
-                  <div className="absolute inset-0 flex items-center justify-center opacity-30 group-hover:opacity-20 transition-opacity">
-                    <span className="material-symbols-outlined text-white text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
-                  </div>
+                  <img src={photo.url} alt={photo.exercise_name} className="absolute inset-0 w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                   <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2.5 py-1.5 flex items-center justify-between">
-                    <span className="text-white text-[11px] font-semibold">{photo.label}</span>
-                    <span className="text-white/80 text-[10px]">{photo.time}</span>
+                    <span className="text-white text-[11px] font-semibold">{photo.exercise_name}</span>
+                    <span className="text-white/80 text-[10px]">{photo.type} · {photo.time}</span>
                   </div>
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <span className="material-symbols-outlined text-white text-base drop-shadow">open_in_full</span>
                   </div>
                 </button>
+              ) : (
+                <div key={title} className="aspect-video rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex flex-col items-center justify-center text-label-md text-on-surface-variant">
+                  <span className="font-semibold">{title}</span>
+                  <span className="mt-1">촬영된 GIF가 없습니다</span>
+                </div>
               ))}
             </div>
 
@@ -897,7 +891,7 @@ export default function DailyReport() {
 
           <div className="flex items-center gap-2 pt-1 text-label-sm text-on-surface-variant">
             <span className="material-symbols-outlined text-[#1a73e8] text-base" style={{ fontVariationSettings: "'FILL' 1" }}>smart_toy</span>
-            LLM이 생성한 소견입니다. 수정 버튼으로 직접 편집할 수 있습니다.
+            LLM이 생성한 최신 초안입니다. 수정 후 승인하면 환자 진료기록에 표시됩니다.
           </div>
         </section>
 
@@ -912,8 +906,9 @@ export default function DailyReport() {
               <span className="material-symbols-outlined text-base text-[#1a73e8]">auto_awesome</span>
               <span className="text-label-md text-on-surface font-medium">AI 난이도 조절</span>
               <button
+                disabled={prescriptionReadOnly}
                 onClick={() => setAiAdjust((v) => !v)}
-                className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${aiAdjust ? 'bg-doctor-primary' : 'bg-outline-variant'}`}
+                className={`relative w-11 h-6 rounded-full transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${aiAdjust ? 'bg-doctor-primary' : 'bg-outline-variant'}`}
               >
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${aiAdjust ? 'translate-x-[22px]' : 'translate-x-0'}`} />
               </button>
@@ -945,7 +940,8 @@ export default function DailyReport() {
                     <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => toggleEnabled(i)}
-                        className="flex items-center justify-center mx-auto w-5 h-5"
+                        disabled={prescriptionReadOnly}
+                        className="flex items-center justify-center mx-auto w-5 h-5 disabled:cursor-not-allowed"
                       >
                         <span
                           className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
@@ -972,7 +968,7 @@ export default function DailyReport() {
                         type="number"
                         min={1} max={10}
                         value={row.sets}
-                        disabled={!row.enabled}
+                        disabled={!row.enabled || prescriptionReadOnly}
                         onChange={(e) => updatePrescription(i, 'sets', Number(e.target.value))}
                         className="w-16 text-center border border-outline-variant rounded-lg py-1.5 text-label-md font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary disabled:opacity-40 disabled:cursor-not-allowed"
                       />
@@ -984,7 +980,7 @@ export default function DailyReport() {
                         type="number"
                         min={1} max={30}
                         value={row.reps}
-                        disabled={!row.enabled}
+                        disabled={!row.enabled || prescriptionReadOnly}
                         onChange={(e) => updatePrescription(i, 'reps', Number(e.target.value))}
                         className="w-16 text-center border border-outline-variant rounded-lg py-1.5 text-label-md font-semibold text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary disabled:opacity-40 disabled:cursor-not-allowed"
                       />
@@ -999,7 +995,8 @@ export default function DailyReport() {
                     <td className="px-2 py-3 text-center">
                       <button
                         onClick={() => removePrescription(i)}
-                        className="text-on-surface-variant hover:text-error transition-colors"
+                        disabled={prescriptionReadOnly}
+                        className="text-on-surface-variant hover:text-error transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-on-surface-variant"
                         title="운동 삭제"
                       >
                         <span className="material-symbols-outlined text-base">close</span>
@@ -1015,7 +1012,7 @@ export default function DailyReport() {
           <div className="relative">
             <button
               onClick={() => setShowAddExercise((v) => !v)}
-              disabled={!selectedPatientId}
+              disabled={!selectedPatientId || prescriptionReadOnly}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-2 border-dashed border-doctor-primary text-doctor-primary font-semibold text-label-sm hover:bg-[#e8f0fe] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined text-base">add</span>
@@ -1047,7 +1044,7 @@ export default function DailyReport() {
 
           <p className="text-label-sm text-on-surface-variant flex items-center gap-1.5 pt-1">
             <span className="material-symbols-outlined text-sm">info</span>
-            운동을 선택하고 아래 달력에서 날짜를 지정해야 저장할 수 있습니다.
+            오늘 이후 날짜의 처방 일정만 수정할 수 있습니다.
           </p>
 
           {/* 처방 일정 설정 */}
@@ -1057,32 +1054,17 @@ export default function DailyReport() {
               처방 일정 설정
             </h3>
           </div>
-          <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} />
+          <PrescriptionSchedule
+            prescription={prescription}
+            schedule={schedule}
+            setSchedule={setSchedule}
+            readOnly={prescriptionReadOnly}
+            minEditableDate={prescriptionMinEditableDate}
+          />
         </section>
 
-        {/* ── 저장 / 발송 ── */}
+        {/* ── 승인 ── */}
         <div className="flex justify-end gap-3 pb-4">
-          <button
-            onClick={handleSave}
-            disabled={!selectedPatientId || reportBusy}
-            className={`flex items-center gap-2 px-6 sm:px-8 py-3 border-2 font-semibold rounded-xl transition-all text-label-md
-              ${selectedPatientId && !reportBusy
-                ? 'border-doctor-primary text-doctor-primary hover:bg-[#e8f0fe] active:scale-95'
-                : 'border-outline-variant text-on-surface-variant cursor-not-allowed opacity-50'
-              }`}
-          >
-            {justSaved ? (
-              <>
-                <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                DB 저장 완료
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-base">save</span>
-                수정 저장
-              </>
-            )}
-          </button>
           <button
             onClick={handleSend}
             disabled={!selectedPatientId || reportBusy}

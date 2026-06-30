@@ -125,6 +125,7 @@ celerybeat.pid
 
 # Environments
 .env
+backend/firebase-service-account.json
 .venv
 env/
 venv/
@@ -190,3 +191,4 @@ log.txt
 
 start_all.bat
 
+.claude

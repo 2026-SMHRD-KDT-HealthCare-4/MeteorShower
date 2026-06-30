@@ -32,15 +32,15 @@ export default function SocialCallback() {
           sessionStorage.setItem('socialSignup', JSON.stringify(data));
           navigate('/patient/auth/social-signup', { replace: true });
         } else {
-          login({ name: data.name, role: 'patient' }, data.token, false);
-          navigate('/patient/exercise', { replace: true });
+          login({ name: data.name, role: 'patient', approval_status: data.approval_status }, data.token, true);
+          navigate(data.approval_status === '대기' ? '/patient/approval' : '/patient/exercise', { replace: true });
         }
       })
       .catch(() => navigate('/patient/login', { replace: true }));
   }, []);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-screen flex items-center justify-center bg-background" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <div className="text-center">
         <span className="material-symbols-outlined animate-spin text-primary-container text-4xl">
           progress_activity

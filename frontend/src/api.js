@@ -14,11 +14,33 @@ async function request(method, path, body = null) {
     method,
     headers,
     body: body !== null ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail ?? '서버 오류가 발생했습니다.');
+  }
+
+  return res.json();
+}
+
+async function requestForm(method, path, formData) {
+  const headers = {};
+
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: formData,
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? '?쒕쾭 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
   }
 
   return res.json();
@@ -33,8 +55,9 @@ export const api = {
 };
 
 export const patientApi = {
-  getMyProfile:    ()         => api.get('/patients/me'),
-  updateMyProfile: (body)     => api.patch('/patients/me', body),
+  getMyProfile:         ()     => api.get('/patients/me'),
+  updateMyProfile:      (body) => api.patch('/patients/me', body),
+  approveMyRegistration: ()   => api.patch('/patients/me/approve'),
   listPatients:    ()         => api.get('/patients'),
   getPatient:      (id)       => api.get(`/patients/${id}`),
   searchPatients:       (q)        => api.get(`/patients/search?q=${encodeURIComponent(q)}`),
@@ -43,8 +66,10 @@ export const patientApi = {
   savePatientPrescription: (id, body) => api.post(`/patients/${id}/prescriptions`, body),
   updatePatientMedical:   (id, body) => api.patch(`/patients/${id}/medical`, body),
   getPatientRom:          (id, exerciseType = 'grip') => api.get(`/patients/${id}/rom?exercise_type=${exerciseType}`),
-  getPatientWeeklyProgress: (id) => api.get(`/patients/${id}/weekly-progress`),
+  getPatientWeeklyProgress:   (id)       => api.get(`/patients/${id}/weekly-progress`),
+  saveOverallEvaluation:      (id, body) => api.patch(`/patients/${id}/overall-evaluation`, body),
   getPatientDailyExerciseResult: (id, date) => api.get(`/patients/${id}/daily-exercise-result?date=${encodeURIComponent(date)}`),
+  getPatientExerciseCaptures: (id) => api.get(`/patients/${id}/exercise-captures`),
   getExercises: () => api.get('/patients/exercises'),
   updatePatientRom:       (id, body) => api.patch(`/patients/${id}/rom`, body),
   getTodayExercises:      ()         => api.get('/patients/me/today-exercises'),
@@ -56,6 +81,7 @@ export const patientApi = {
   reportExerciseBlocked:    ()   => api.post('/patients/me/exercise-blocked'),
   getNearbyHospitals:       (lat, lng, radius = 2000) => api.get(`/patients/me/nearby-hospitals?lat=${lat}&lng=${lng}&radius=${radius}`),
   saveExerciseSession:      (body) => api.post('/patients/me/exercise-sessions', body),
+  uploadExerciseCapture:    (rehabSessionId, formData) => requestForm('POST', `/patients/me/exercise-sessions/${rehabSessionId}/captures`, formData),
 };
 
 export const doctorApi = {
@@ -73,7 +99,6 @@ export const chatApi = {
 
 export const reportApi = {
   createLlmReport:     (body)     => api.post('/reports/llm', body),
-  createMockReport:    (body)     => api.post('/reports/llm', body),
   getDoctorReports:    ()         => api.get('/doctor/me/reports'),
   getDoctorReport:     (id)       => api.get(`/doctor/me/reports/${id}`),
   updateDoctorReport:  (id, body) => api.patch(`/doctor/me/reports/${id}`, body),

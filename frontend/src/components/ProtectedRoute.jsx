@@ -12,5 +12,9 @@ export default function ProtectedRoute({ children, role }) {
     return <Navigate to={user.role === 'doctor' ? '/doctor/patients' : '/patient/exercise'} replace />;
   }
 
+  if (role === 'patient' && user.approval_status === '대기') {
+    return <Navigate to="/patient/approval" replace />;
+  }
+
   return children;
 }

@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import logo from '../assets/logo.png';
 import { useAuth } from '../context/AuthContext';
 import { doctorApi, patientApi } from '../api';
 
@@ -113,7 +112,7 @@ export default function DoctorNavBar() {
     <header className="bg-surface shadow-sm sticky top-0 z-50 border-b border-outline-variant">
       <nav className="flex justify-between items-center w-full px-container-padding-mobile md:px-container-padding-desktop py-2 max-w-7xl mx-auto">
         <Link to="/doctor/patients">
-          <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
+          <img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" />
         </Link>
 
         <div className="flex items-center gap-3">

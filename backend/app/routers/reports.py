@@ -22,7 +22,7 @@ from services.llm_report_generator import generate_daily_report_content
 router = APIRouter(tags=["reports"])
 
 
-def _require_role(payload: dict, role: str):
+def _require_role(payload: dict, role: str) -> None:
     if payload["role"] != role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -30,7 +30,7 @@ def _require_role(payload: dict, role: str):
         )
 
 
-def _require_doctor_report_access(report: LlmReport, doctor_id: int):
+def _require_doctor_report_access(report: LlmReport, doctor_id: int) -> None:
     if report.doctor_id != doctor_id:
         raise HTTPException(status_code=403, detail="Cannot access this report")
 
@@ -90,14 +90,48 @@ def _get_date_achievements(db: Session, patient_id: int, report_date) -> dict:
     return achievements
 
 
+def _collect_active_schedule_maps(db: Session, patient_id: int) -> tuple[dict, dict]:
+    # 적용중인 처방의 스케줄을 완료(세션 있음)와 미완료(재사용 가능)로 분류하여 반환
+    reusable_schedules = {}
+    completed_schedules = {}
+    active_prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .all()
+    )
+    for prescription in active_prescriptions:
+        for prescription_exercise in prescription.prescription_exercises:
+            exercise_name = prescription_exercise.exercise.exercise_name if prescription_exercise.exercise else None
+            if not exercise_name:
+                continue
+            for schedule in prescription_exercise.schedules:
+                key = (exercise_name, schedule.exercise_date)
+                target = completed_schedules if schedule.sessions else reusable_schedules
+                target.setdefault(key, []).append(schedule)
+    return reusable_schedules, completed_schedules
+
+
+def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date) -> ExerciseSchedule | None:
+    schedules = schedule_map.get((exercise_name, exercise_date))
+    if not schedules:
+        return None
+    schedule = schedules.pop(0)
+    if not schedules:
+        schedule_map.pop((exercise_name, exercise_date), None)
+    return schedule
+
+
 def _save_prescription_from_report(
     db: Session,
     report: LlmReport,
     body: ReportApproveRequest,
 ) -> Optional[Prescription]:
+    # 리포트 승인 시 body의 운동 목록으로 신규 처방을 생성, 활성화 운동이 없으면 None 반환
     enabled_exercises = [exercise for exercise in body.exercises if exercise.enabled]
     if not enabled_exercises:
         return None
+
+    reusable_schedules, completed_schedules = _collect_active_schedule_maps(db, report.patient_id)
 
     db.query(Prescription).filter(
         Prescription.patient_id == report.patient_id,
@@ -113,6 +147,8 @@ def _save_prescription_from_report(
     )
     db.add(prescription)
     db.flush()
+
+    base_schedule_date = report.report_date or date.today()
 
     for order, item in enumerate(enabled_exercises, start=1):
         exercise = db.query(Exercise).filter(Exercise.exercise_name == item.name).first()
@@ -141,12 +177,21 @@ def _save_prescription_from_report(
             name, _, date_text = key.partition("|")
             if name != item.name or not date_text:
                 continue
-            db.add(
-                ExerciseSchedule(
-                    prescription_exercise_id=prescription_exercise.prescription_exercise_id,
-                    exercise_date=date.fromisoformat(date_text),
+            schedule_date = date.fromisoformat(date_text)
+            if schedule_date < base_schedule_date:
+                continue
+            if completed_schedules.get((item.name, schedule_date)):
+                continue
+            existing_schedule = _pop_reusable_schedule(reusable_schedules, item.name, schedule_date)
+            if existing_schedule:
+                existing_schedule.prescription_exercise_id = prescription_exercise.prescription_exercise_id
+            else:
+                db.add(
+                    ExerciseSchedule(
+                        prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                        exercise_date=schedule_date,
+                    )
                 )
-            )
 
     return prescription
 
@@ -182,7 +227,8 @@ def _report_summary(report: LlmReport) -> dict:
 
 
 def _report_detail(report: LlmReport, db: Session, include_draft: bool = True) -> dict:
-    content = report.edited_content or report.draft_content
+    # 리포트 요약 정보에 처방 운동 목록·달성률을 합산하고, include_draft 플래그로 초안 포함 여부를 제어
+    content = report.draft_content
     prescription = _latest_active_prescription(db, report.patient_id)
     exercises = _prescription_exercises_to_dict(prescription)
     achievements = _get_date_achievements(db, report.patient_id, report.report_date)
@@ -200,13 +246,22 @@ def _report_detail(report: LlmReport, db: Session, include_draft: bool = True) -
     return data
 
 
-@router.post("/reports/mock", status_code=201)
+def _patient_report_detail(report: LlmReport, db: Session) -> dict:
+    if not report.edited_content:
+        raise HTTPException(status_code=404, detail="Report not found")
+    data = _report_detail(report, db, include_draft=False)
+    data["content"] = report.edited_content
+    data["edited_content"] = report.edited_content
+    data["approval_status"] = "승인"
+    return data
+
+
 @router.post("/reports/llm", status_code=201)
 def create_llm_report(
     body: LlmReportCreateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     doctor_id = int(payload["sub"])
     patient = patient_crud.get_patient_by_id(db, body.patient_id)
@@ -217,7 +272,7 @@ def create_llm_report(
 
     report_date = body.report_date or date.today()
     draft_content = generate_daily_report_content(db, patient, report_date, body.exercise_blocked)
-    report = report_crud.create_or_update_mock_report(
+    report = report_crud.create_or_update_report(
         db,
         patient_id=patient.patient_id,
         doctor_id=doctor_id,
@@ -232,7 +287,7 @@ def create_llm_report(
 def get_my_doctor_reports(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     reports = report_crud.get_doctor_reports(db, int(payload["sub"]))
     return [_report_summary(report) for report in reports]
@@ -243,7 +298,7 @@ def get_my_doctor_report_detail(
     report_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     report = report_crud.get_report_by_id(db, report_id)
     if not report:
@@ -258,7 +313,7 @@ def update_my_doctor_report(
     body: ReportUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     report = report_crud.get_report_by_id(db, report_id)
     if not report:
@@ -273,19 +328,17 @@ def approve_my_doctor_report(
     body: ReportApproveRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
+    # 이미 승인된 리포트는 처방 재생성 없이 내용만 갱신, 첫 승인 시 처방 저장 및 환자 알림 발송
     _require_role(payload, "doctor")
     report = report_crud.get_report_by_id(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     _require_doctor_report_access(report, int(payload["sub"]))
 
-    if body.edited_content:
-        report.edited_content = body.edited_content
-
     was_approved = report.approval_status == "승인"
-    prescription = _save_prescription_from_report(db, report, body)
-    report = report_crud.approve_report(db, report)
+    prescription = None if was_approved else _save_prescription_from_report(db, report, body)
+    report = report_crud.approve_report(db, report, body.edited_content)
 
     if not was_approved:
         _notify_patient_report_approved(db, report, prescription)
@@ -299,10 +352,10 @@ def approve_my_doctor_report(
 def get_my_patient_reports(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     reports = report_crud.get_patient_approved_reports(db, int(payload["sub"]))
-    return [_report_summary(report) for report in reports]
+    return [{**_report_summary(report), "approval_status": "승인"} for report in reports]
 
 
 @router.get("/patients/me/reports/{report_id}")
@@ -310,10 +363,10 @@ def get_my_patient_report_detail(
     report_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     report = report_crud.get_report_by_id(db, report_id)
-    if not report or report.patient_id != patient_id or report.approval_status != "승인":
+    if not report or report.patient_id != patient_id or not report.edited_content:
         raise HTTPException(status_code=404, detail="Report not found")
-    return _report_detail(report, db, include_draft=False)
+    return _patient_report_detail(report, db)

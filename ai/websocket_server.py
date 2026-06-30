@@ -1,17 +1,18 @@
+"""MediaPipe 손 트래킹 데이터를 WebSocket으로 실시간 스트리밍하는 FastAPI 서버(AI 서버 포트 8000)."""
 import asyncio
 import os
 import queue as stdlib_queue
 import sys
 import threading
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 import uvicorn
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'), override=True)
 
 SECRET_KEY = os.environ["SECRET_KEY"]
 ALGORITHM = "HS256"
@@ -27,20 +28,24 @@ _tracking_lock = threading.Lock()
 
 
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self) -> None:
+        """활성 WebSocket 연결 목록을 빈 상태로 초기화한다."""
         self._connections: List[WebSocket] = []
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket) -> None:
+        """WebSocket 연결을 수락하고 활성 목록에 등록한다."""
         await ws.accept()
         self._connections.append(ws)
         print(f"[WS] connected  (total={len(self._connections)})")
 
-    def disconnect(self, ws: WebSocket):
+    def disconnect(self, ws: WebSocket) -> None:
+        """활성 목록에서 해당 WebSocket을 제거한다(이미 없으면 무시)."""
         if ws in self._connections:
             self._connections.remove(ws)
         print(f"[WS] disconnected (total={len(self._connections)})")
 
-    async def broadcast(self, data: dict):
+    async def broadcast(self, data: dict) -> None:
+        """모든 활성 연결에 data를 JSON으로 전송한다. 전송 실패한 연결은 자동으로 제거한다."""
         dead = []
         for ws in list(self._connections):
             try:
@@ -51,14 +56,16 @@ class ConnectionManager:
             self.disconnect(ws)
 
     @property
-    def count(self):
+    def count(self) -> int:
+        """현재 활성 WebSocket 연결 수를 반환한다."""
         return len(self._connections)
 
 
 manager = ConnectionManager()
 
 
-def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None):
+def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None, target_count=None, target_set=None) -> None:
+    """run_tracking을 백그라운드 스레드로 시작한다. 이미 실행 중이면 중복 실행하지 않는다."""
     global _tracking_thread, _stop_event
     with _tracking_lock:
         if _tracking_thread is not None and _tracking_thread.is_alive():
@@ -75,6 +82,8 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
                 "stop_event": _stop_event,
                 "show_window": False,
                 "exercise_name": exercise_name,
+                "target_count": target_count,
+                "target_set": target_set,
             },
             daemon=True,
             name="hand_tracking",
@@ -83,7 +92,8 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
         print("[Server] hand_tracking thread started")
 
 
-def stop_tracking():
+def stop_tracking() -> None:
+    """실행 중인 트래킹 스레드에 stop 신호를 보내고 내부 참조를 정리한다."""
     global _tracking_thread, _stop_event
     with _tracking_lock:
         if _stop_event is not None:
@@ -95,7 +105,8 @@ def stop_tracking():
 
 _frame_log_counter = 0
 
-async def broadcast_loop():
+async def broadcast_loop() -> None:
+    """data_queue에 쌓인 트래킹 결과를 꺼내 모든 활성 WebSocket에 지속적으로 브로드캐스트한다."""
     global _frame_log_counter
     while True:
         try:
@@ -114,7 +125,8 @@ async def broadcast_loop():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """FastAPI 앱 시작 시 broadcast_loop 태스크를 실행하고, 종료 시 트래킹을 멈춘다."""
     task = asyncio.create_task(broadcast_loop())
     yield
     task.cancel()
@@ -126,18 +138,24 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)) -> None:
+    """JWT 토큰으로 환자 인증 후, start/stop 메시지를 받아 트래킹을 제어하는 WebSocket 핸들러."""
+    await websocket.accept()
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("role") != "patient":
-            await websocket.close(code=4001)
+            print(f"[WS Auth] role 불일치: {payload.get('role')}")
+            await websocket.close(code=4001, reason="unauthorized")
             return
         patient_id = int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
-        await websocket.close(code=4001)
+        print(f"[WS Auth] 인증 성공 patient_id={patient_id}")
+    except Exception:
+        await websocket.close(code=4001, reason="invalid token")
         return
 
-    await manager.connect(websocket)
+    manager._connections.append(websocket)
+    print(f"[WS] connected  (total={len(manager._connections)})")
     try:
         while True:
             msg = await websocket.receive_json()
@@ -149,6 +167,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     hand=msg.get("hand", "left"),
                     finger_rom_targets=msg.get("finger_rom_targets"),
                     exercise_name=msg.get("exercise_name"),
+                    target_count=msg.get("target_count"),
+                    target_set=msg.get("target_set"),
                 )
                 await websocket.send_json({"status": "tracking_started"})
             elif action == "stop":

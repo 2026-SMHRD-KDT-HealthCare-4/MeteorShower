@@ -46,18 +46,23 @@ SAMPLE_PRESCRIPTION = {
 
 
 class _FakeResponse:
-    def raise_for_status(self):
+    """httpx.Response의 최소 mock — raise_for_status()가 항상 성공으로 통과한다."""
+
+    def raise_for_status(self) -> None:
+        """4xx/5xx 에러가 없는 것처럼 동작하는 no-op."""
         pass
 
 
-def test_daily_report_success():
+def test_daily_report_success() -> None:
+    """LLM 응답이 정상일 때 generate_daily_report가 성공 결과를 반환하는지 검증."""
     with patch.object(llm_client, "_call_chat_completion", return_value="- 정상 수행, ROM 양호"):
         result = llm_client.generate_daily_report(SAMPLE_DAILY)
     assert result == {"report_text": "- 정상 수행, ROM 양호", "success": True, "error": None}
     print("[PASS] generate_daily_report (성공 케이스)")
 
 
-def test_daily_report_api_failure():
+def test_daily_report_api_failure() -> None:
+    """OpenAI 호출이 OpenAIError를 던질 때 실패 dict를 반환하는지 검증."""
     with patch.object(llm_client, "_call_chat_completion", side_effect=OpenAIError("rate limit exceeded")):
         result = llm_client.generate_daily_report(SAMPLE_DAILY)
     assert result["success"] is False
@@ -66,7 +71,8 @@ def test_daily_report_api_failure():
     print("[PASS] generate_daily_report (API 실패 케이스)")
 
 
-def test_monthly_report_success():
+def test_monthly_report_success() -> None:
+    """LLM이 올바른 JSON을 반환할 때 summary/keywords가 파싱되는지 검증."""
     mock_json = json.dumps({"summary": "재활 경과가 양호합니다.", "keywords": ["호전", "순응도"]})
     with patch.object(llm_client, "_call_chat_completion", return_value=mock_json):
         result = llm_client.generate_monthly_report(SAMPLE_MONTHLY)
@@ -76,7 +82,8 @@ def test_monthly_report_success():
     print("[PASS] generate_monthly_report (성공 케이스)")
 
 
-def test_monthly_report_json_parse_failure():
+def test_monthly_report_json_parse_failure() -> None:
+    """LLM 응답이 JSON이 아닐 때 파싱 실패 오류를 정상 처리하는지 검증."""
     with patch.object(llm_client, "_call_chat_completion", return_value="이건 JSON이 아닙니다"):
         result = llm_client.generate_monthly_report(SAMPLE_MONTHLY)
     assert result["success"] is False
@@ -84,7 +91,8 @@ def test_monthly_report_json_parse_failure():
     print("[PASS] generate_monthly_report (JSON 파싱 실패 케이스)")
 
 
-def test_prescription_success():
+def test_prescription_success() -> None:
+    """LLM이 처방 JSON을 반환할 때 exercises/reason이 올바르게 파싱되는지 검증."""
     mock_json = json.dumps({
         "exercises": [{"name": "full_fist", "sets": 3, "reps": 8}],
         "reason": "과부하 이력으로 횟수를 소폭 하향 조정했습니다.",
@@ -96,7 +104,8 @@ def test_prescription_success():
     print("[PASS] generate_prescription_adjustment (성공 케이스)")
 
 
-def test_prescription_api_failure():
+def test_prescription_api_failure() -> None:
+    """처방 생성 중 OpenAI 오류 발생 시 실패 dict를 반환하는지 검증."""
     with patch.object(llm_client, "_call_chat_completion", side_effect=OpenAIError("insufficient_quota")):
         result = llm_client.generate_prescription_adjustment(SAMPLE_PRESCRIPTION)
     assert result["success"] is False
@@ -105,7 +114,8 @@ def test_prescription_api_failure():
     print("[PASS] generate_prescription_adjustment (API 실패 케이스)")
 
 
-def test_send_report_to_backend_success():
+def test_send_report_to_backend_success() -> None:
+    """HTTP POST가 성공하면 True를 반환하고 올바른 URL로 전송되는지 검증."""
     with patch.object(llm_client.httpx, "post", return_value=_FakeResponse()) as mock_post:
         ok = llm_client.send_report_to_backend({
             "patient_id": 1,
@@ -119,7 +129,8 @@ def test_send_report_to_backend_success():
     print("[PASS] send_report_to_backend (성공 케이스)")
 
 
-def test_send_report_to_backend_failure():
+def test_send_report_to_backend_failure() -> None:
+    """네트워크 오류 시 예외를 삼키고 False를 반환하는지 검증."""
     import httpx as httpx_module
     with patch.object(llm_client.httpx, "post", side_effect=httpx_module.ConnectError("연결 실패")):
         ok = llm_client.send_report_to_backend({
@@ -132,7 +143,8 @@ def test_send_report_to_backend_failure():
     print("[PASS] send_report_to_backend (실패 케이스)")
 
 
-def test_send_report_to_backend_no_url():
+def test_send_report_to_backend_no_url() -> None:
+    """BACKEND_API_URL이 비어있으면 HTTP 호출 없이 즉시 False를 반환하는지 검증."""
     original = llm_client.BACKEND_API_URL
     llm_client.BACKEND_API_URL = ""
     try:
@@ -143,7 +155,7 @@ def test_send_report_to_backend_no_url():
     print("[PASS] send_report_to_backend (BACKEND_API_URL 미설정 케이스)")
 
 
-def test_full_flow_daily_to_backend():
+def test_full_flow_daily_to_backend() -> None:
     """프롬프트 생성 → LLM 호출 → 응답 파싱 → 백엔드 전송까지 전체 흐름."""
     with patch.object(llm_client, "_call_chat_completion", return_value="- 차단 없이 정상 수행됨\n- ROM 양호"):
         report = llm_client.generate_daily_report(SAMPLE_DAILY)

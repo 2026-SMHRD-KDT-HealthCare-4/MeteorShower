@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { patientApi, chatApi } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import VoiceChatBot from '../../components/VoiceChatBot';
+import NextExamModal from '../../components/NextExamModal';
 
 const WS_BASE_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
 
@@ -20,63 +21,25 @@ function parseExerciseName(name = '') {
 const HAND_LABEL = { left: '왼손', right: '오른손' };
 const TYPE_LABEL = { full_fist: '그립', tapping: '태핑' };
 
-/* ── 피드백 팝업 ─────────────────────────────────────────────────── */
-const LEVEL_STYLE = {
-  yellow: {
-    bg:   'bg-yellow-400/90',
-    icon: 'warning',
-    text: 'text-gray-900',
-  },
-  red: {
-    bg:   'bg-red-500/90',
-    icon: 'emergency',
-    text: 'text-white',
-  },
-};
-
-function FeedbackPopup({ item, onDone }) {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const hide  = setTimeout(() => setVisible(false), 3200);
-    const clean = setTimeout(onDone,                  3700);
-    return () => { clearTimeout(hide); clearTimeout(clean); };
-  }, [onDone]);
-
-  const style = LEVEL_STYLE[item.level] ?? LEVEL_STYLE.yellow;
-
-  return (
-    <div
-      className={`flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-sm
-        ${style.bg} ${style.text}
-        transition-all duration-500
-        ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'}`}
-      style={{ minWidth: 260, maxWidth: 360 }}
-    >
-      <span
-        className="material-symbols-outlined text-2xl shrink-0"
-        style={{ fontVariationSettings: "'FILL' 1" }}
-      >
-        {style.icon}
-      </span>
-      <p className="text-sm font-semibold leading-snug">{item.message}</p>
-    </div>
-  );
-}
-
 /* ── 메인 컴포넌트 ───────────────────────────────────────────────── */
 export default function ExerciseSession() {
   const navigate    = useNavigate();
   const location    = useLocation();
   const { token }   = useAuth();
-  const exerciseInfo = location.state?.exercise;
+  const exerciseInfo    = location.state?.exercise;
+  const queue           = location.state?.queue          ?? [];
+  const queueIndex      = location.state?.queueIndex     ?? 0;
+  const isNextExercise  = location.state?.isNextExercise ?? false;
+  const nextExercise    = queue[queueIndex + 1] ?? null;
 
   const [showModal,    setShowModal]    = useState(false);
+  const [modalError,   setModalError]   = useState('');
+  const [showPreExam,  setShowPreExam]  = useState(false);
   const [phase,        setPhase]        = useState('idle');
+  const [connectError, setConnectError] = useState('');
   const [frame,        setFrame]        = useState(null);
   const [wsData,       setWsData]       = useState(null);
   const [saveMessage,  setSaveMessage]  = useState('');
-  const [feedbackQueue, setFeedbackQueue] = useState([]);
   const [selectedHand, setSelectedHand] = useState(null); // 세션 시작 시 보낸 hand('left'/'right')
 
   const wsRef         = useRef(null);
@@ -84,65 +47,94 @@ export default function ExerciseSession() {
   const savedRef      = useRef(false);
   const latestDataRef = useRef(null);
   const audioRef      = useRef(null);
-  const ttsQueueRef   = useRef([]);   // [{text, id}] — 직렬 재생용
-  const ttsPlayingRef = useRef(false);
+  const sessionIdRef  = useRef(0);    // 다음 운동 이동 시 증가 → stale callback 무시용
+  const rehabSessionIdRef = useRef(null); // saveExerciseSession 완료 후 채워짐(GIF 업로드용)
+  const gifsUploadedRef   = useRef(false); // capture_gifs 업로드 중복 방지
 
   const updatePhase = (p) => { phaseRef.current = p; setPhase(p); };
 
-  /* ── TTS 직렬 재생 ──────────────────────────────────────────────── */
-  const playNextTts = useCallback(() => {
-    if (ttsPlayingRef.current || ttsQueueRef.current.length === 0) return;
-    const { text } = ttsQueueRef.current.shift();
-    ttsPlayingRef.current = true;
+  const gifToFile = (value, fileName) => {
+    if (!value || typeof value !== 'string') return null;
+    const dataUrl = value.startsWith('data:') ? value : `data:image/gif;base64,${value}`;
+    const [meta, base64] = dataUrl.split(',');
+    if (!base64) return null;
+    const mime = meta.match(/data:(.*?);base64/)?.[1] ?? 'image/gif';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], fileName, { type: mime });
+  };
 
-    chatApi.tts(text)
-      .then(({ audio_base64 }) => {
-        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
-        audioRef.current = audio;
-        audio.onended = () => {
-          ttsPlayingRef.current = false;
-          playNextTts();
-        };
-        audio.onerror = () => {
-          ttsPlayingRef.current = false;
-          playNextTts();
-        };
-        audio.play();
-      })
-      .catch(() => {
-        ttsPlayingRef.current = false;
-        playNextTts();
-      });
-  }, []);
+  const uploadCaptureGifs = async (rehabSessionId, latest) => {
+    const gifs = latest?.capture_gifs ?? latest?.captureGifs;
+    if (!rehabSessionId || !gifs) return null;
 
-  /* ── 피드백 메시지 처리 ─────────────────────────────────────────── */
-  const handleFeedbackMessages = useCallback((messages) => {
-    if (!messages || messages.length === 0) return;
-    messages.forEach((msg) => {
-      const id = `${Date.now()}-${Math.random()}`;
-      setFeedbackQueue((prev) => [...prev, { ...msg, id }]);
-      ttsQueueRef.current.push({ text: msg.message, id });
-      playNextTts();
-    });
-  }, [playNextTts]);
+    const firstGif = gifs.set_first ?? gifs.first ?? gifs.setFirst;
+    const lastGif = gifs.set_last ?? gifs.last ?? gifs.setLast;
+    const overloadGif = gifs.overload_before ?? gifs.overload ?? gifs.overloadBefore;
+    if (!firstGif && !lastGif && !overloadGif) return null;
+
+    const formData = new FormData();
+    formData.append('set_number', String(gifs.set_number ?? gifs.setNumber ?? latest?.set ?? 1));
+
+    const firstFile = gifToFile(firstGif, 'set-first.gif');
+    const lastFile = gifToFile(lastGif, 'set-last.gif');
+    const overloadFile = gifToFile(overloadGif, 'overload-before.gif');
+    if (firstFile) formData.append('set_first_gif', firstFile);
+    if (lastFile) formData.append('set_last_gif', lastFile);
+    if (overloadFile) formData.append('overload_before_gif', overloadFile);
+
+    return patientApi.uploadExerciseCapture(rehabSessionId, formData);
+  };
 
   /* ── 운동 결과 저장 ─────────────────────────────────────────────── */
   const saveExerciseResult = useCallback((endType = '완료') => {
     if (savedRef.current || !exerciseInfo?.schedule_id) return Promise.resolve();
     savedRef.current = true;
-    const latest   = latestDataRef.current ?? {};
-    const progress = latest.similarity == null ? null : Number(latest.similarity.toFixed(2));
+    const latest    = latestDataRef.current ?? {};
+    const totalReps = (latest.total_sets ?? exerciseInfo?.sets ?? 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1);
 
-    return patientApi.saveExerciseSession({
+    // AI는 마지막 세트의 목표 횟수를 채운 그 프레임에서 count/set을 곧바로 다음
+    // 사이클용으로 리셋한 뒤 session_end를 보낸다 — 그래서 정상 완료 시점의
+    // latest.count/latest.set은 "완료 직후" 값이 아니라 "리셋된 0"이다. 정상 완료
+    // (end_type==='완료' && !overload)는 정의상 전체 목표를 다 채운 경우이므로
+    // doneReps를 totalReps로 둔다. 과부하로 강제 종료된 경우는 이 리셋이 일어나지
+    // 않으므로 실시간 카운트를 그대로 써서, 조기 종료를 그대로 진행률에 반영한다.
+    const isNormalCompletion = endType === '완료' && !latest.overload;
+    const doneReps = isNormalCompletion
+      ? totalReps
+      : ((latest.set ?? 1) - 1) * (latest.target_count ?? exerciseInfo?.reps ?? 1) + (latest.count ?? 0);
+    const progress = totalReps > 0 ? Math.min(100, Math.round(doneReps / totalReps * 100)) : null;
+
+    const payload = {
       schedule_id:    exerciseInfo.schedule_id,
       performed_reps: latest.count ?? 0,
       performed_sets: latest.set   ?? exerciseInfo.sets ?? 1,
       progress_rate:  progress,
       end_type:       endType,
       finger_accuracy: latest.finger_accuracy ?? [],
-    })
+    };
+    return patientApi.saveExerciseSession(payload)
+      .then((result) => {
+        rehabSessionIdRef.current = result?.rehab_session_id ?? null;
+        // GIF 인코딩은 AI 서버에서 백그라운드로 진행되어 session_end 시점에
+        // 아직 준비 안 됐을 수 있다. 이 시점에 이미 도착해 있으면 바로 업로드하고,
+        // 아니면 ws.onmessage가 capture_gifs 도착 시점에 한 번만 업로드한다.
+        const latestNow = latestDataRef.current;
+        if (latestNow?.capture_gifs && rehabSessionIdRef.current && !gifsUploadedRef.current) {
+          gifsUploadedRef.current = true;
+          uploadCaptureGifs(rehabSessionIdRef.current, latestNow).catch((err) => {
+            console.error('[Capture GIF upload failed]', err);
+          });
+        }
+        return result;
+      })
       .then(()  => setSaveMessage('운동 결과가 저장되었습니다.'))
-      .catch((err) => { savedRef.current = false; setSaveMessage(err.message); });
+      .catch((err) => {
+        savedRef.current = false;
+        setSaveMessage(err.message);
+        throw err;
+      });
   }, [exerciseInfo]);
 
   /* ── WebSocket 연결 ─────────────────────────────────────────────── */
@@ -167,25 +159,78 @@ export default function ExerciseSession() {
     ws.onopen = () => {
       const { hand, exerciseName } = parseExerciseName(exerciseInfo?.name);
       setSelectedHand(hand);
-      ws.send(JSON.stringify({ action: 'start', hand, exercise_name: exerciseName }));
+      ws.send(JSON.stringify({
+        action: 'start',
+        hand,
+        exercise_name: exerciseName,
+        target_count: exerciseInfo?.reps,
+        target_set: exerciseInfo?.sets,
+      }));
     };
 
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.status === 'tracking_started') { updatePhase('running'); return; }
+      if (msg.status === 'tracking_stopped') return;
       if (msg.frame)   setFrame(msg.frame);
       setWsData(msg);
       latestDataRef.current = msg;
-      if (msg.feedback_messages?.length) handleFeedbackMessages(msg.feedback_messages);
-      if (msg.session_end) saveExerciseResult('완료').finally(() => updatePhase('ended'));
+
+      // capture_gifs는 AI 서버에서 백그라운드로 인코딩되어 session_end 첫 메시지
+      // 이후에 도착할 수 있다 — 그 시점에 한 번만 업로드를 시도한다.
+      if (msg.capture_gifs && rehabSessionIdRef.current && !gifsUploadedRef.current) {
+        gifsUploadedRef.current = true;
+        uploadCaptureGifs(rehabSessionIdRef.current, msg).catch((err) => {
+          console.error('[Capture GIF upload failed]', err);
+        });
+      }
+
+      if (msg.session_end) {
+        const sid = sessionIdRef.current;
+        saveExerciseResult('완료').finally(() => {
+          if (sessionIdRef.current === sid) updatePhase('ended');
+        });
+      }
     };
 
 
-    ws.onerror  = () => updatePhase('idle');
-    ws.onclose  = () => { if (phaseRef.current !== 'ended') updatePhase('idle'); };
-  }, [saveExerciseResult, handleFeedbackMessages, exerciseInfo]);
+    ws.onerror  = (e) => {
+      console.error('[WS] connection error', e);
+      setConnectError('AI 서버(포트 8000)에 연결할 수 없습니다. AI 서버가 실행 중인지 확인하세요.');
+      updatePhase('idle');
+    };
+    ws.onclose  = (e) => {
+      if (phaseRef.current === 'ended') return;
+      if (e.code === 4001) {
+        setConnectError('인증 오류: 로그인 상태를 확인하고 다시 시도하세요.');
+      } else if (e.code !== 1000 && phaseRef.current === 'connecting') {
+        setConnectError(`AI 서버 연결 실패 (code: ${e.code}). AI 서버가 실행 중인지 확인하세요.`);
+      }
+      updatePhase('idle');
+    };
+  }, [saveExerciseResult, exerciseInfo]);
 
   useEffect(() => () => wsRef.current?.close(), []);
+
+  /* ── 다음 운동으로 이동 시 상태 리셋 ─────────────────────────────── */
+  useLayoutEffect(() => {
+    sessionIdRef.current += 1;    // 이전 session_end .finally 콜백 무효화
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    savedRef.current      = false;
+    latestDataRef.current = null;
+    rehabSessionIdRef.current = null;
+    gifsUploadedRef.current   = false;
+    updatePhase('idle');
+    setShowModal(false);
+    setModalError('');
+    setShowPreExam(false);
+    setFrame(null);
+    setWsData(null);
+    setSaveMessage('');
+    setConnectError('');
+    setSelectedHand(null);
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+  }, [location.key]);
 
   /* ── 파생 표시 값 ───────────────────────────────────────────────── */
   const similarity    = wsData?.similarity ?? null;
@@ -204,6 +249,26 @@ export default function ExerciseSession() {
   const accuracyLabel = similarity == null ? '—' : similarity >= 80 ? 'Excellent' : similarity >= 50 ? 'Good' : 'Keep Going';
   const signalClass   = signal === 'green' ? 'text-teal-300' : signal === 'yellow' ? 'text-yellow-300' : 'text-red-400';
   const barClass      = signal === 'green' ? 'bg-teal-400'   : signal === 'yellow' ? 'bg-yellow-400'   : 'bg-red-400';
+  const orientAngle   = wsData?.orient_angle ?? null;
+  const isTilted      = orientAngle !== null && orientAngle > 30;
+
+  /* ── 손 방향 틀어짐 TTS (isTilted 변화 시에만 실행) ────────────── */
+  useEffect(() => {
+    if (!isTilted) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      return;
+    }
+    chatApi.tts('손을 가이드 방향에 맞게 돌려주세요')
+      .then(({ audio_base64 }) => {
+        const audio = new Audio(`data:audio/mp3;base64,${audio_base64}`);
+        audioRef.current = audio;
+        audio.play();
+      })
+      .catch(() => {});
+  }, [isTilted]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0c1a1a]">
@@ -231,13 +296,27 @@ export default function ExerciseSession() {
             <p className="text-white text-2xl font-bold mb-2">운동을 시작할 준비가 됐나요?</p>
             <p className="text-gray-400 text-sm">AI 서버(포트 8000)에 연결 후 카메라가 켜집니다</p>
           </div>
+          {connectError && (
+            <div className="flex items-center gap-2 bg-red-500/80 text-white text-sm px-5 py-3 rounded-xl max-w-sm text-center">
+              <span className="material-symbols-outlined text-base shrink-0">error</span>
+              {connectError}
+            </div>
+          )}
           <button
-            onClick={connect}
+            onClick={() => { setConnectError(''); isNextExercise ? setShowPreExam(true) : connect(); }}
             className="px-10 py-4 bg-teal-500 hover:bg-teal-400 text-white font-bold text-lg rounded-2xl shadow-xl shadow-teal-500/30 active:scale-95 transition-all"
           >
             운동 시작하기
           </button>
         </div>
+      )}
+
+      {showPreExam && (
+        <NextExamModal
+          onConfirm={() => { setShowPreExam(false); connect(); }}
+          onClose={() => setShowPreExam(false)}
+          onBlocked={() => { setShowPreExam(false); navigate('/patient/exercise'); }}
+        />
       )}
 
       {/* connecting */}
@@ -258,12 +337,28 @@ export default function ExerciseSession() {
             <p className="text-white text-3xl font-bold mb-2">운동 완료!</p>
             <p className="text-gray-300 text-sm mb-2">수고하셨습니다</p>
             {saveMessage && <p className="text-teal-300 text-sm mb-6">{saveMessage}</p>}
-            <button
-              onClick={() => { stopSession(); navigate('/patient/exercise'); }}
-              className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all"
-            >
-              돌아가기
-            </button>
+            <div className="flex items-center justify-center gap-3 mt-6">
+              <button
+                onClick={() => { stopSession(); navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } }); }}
+                className="px-8 py-3 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl transition-all"
+              >
+                돌아가기
+              </button>
+              {nextExercise && (
+                <button
+                  onClick={() => {
+                    stopSession();
+                    navigate('/patient/exercise/session', {
+                      state: { exercise: nextExercise, queue, queueIndex: queueIndex + 1, isNextExercise: true },
+                    });
+                  }}
+                  className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all flex items-center gap-2"
+                >
+                  다음 운동
+                  <span className="material-symbols-outlined text-base">arrow_forward</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -365,18 +460,17 @@ export default function ExerciseSession() {
         </div>
       )}
 
-      {/* ── 피드백 팝업 (한 번에 1개만) ── */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
-        {feedbackQueue.slice(0, 1).map((item) => (
-          <FeedbackPopup
-            key={item.id}
-            item={item}
-            onDone={() => setFeedbackQueue((prev) => prev.filter((f) => f.id !== item.id))}
-          />
-        ))}
-      </div>
+      {/* ── 손 방향 틀어짐 경고 배너 ── */}
+      {phase === 'running' && isTilted && (
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+          <div className="flex items-center gap-2 bg-yellow-400/90 backdrop-blur-sm text-black font-semibold text-sm px-5 py-2.5 rounded-full shadow-lg">
+            <span className="material-symbols-outlined text-base">rotate_right</span>
+            손을 가이드 방향에 맞게 돌려주세요
+          </div>
+        </div>
+      )}
 
-      <VoiceChatBot />
+      <VoiceChatBot isDisabled={phase === 'ended'} />
 
       {/* 종료 확인 모달 */}
       {showModal && (
@@ -388,18 +482,28 @@ export default function ExerciseSession() {
               </div>
             </div>
             <h3 className="text-lg font-bold text-center text-on-surface mb-2">운동을 종료하시겠습니까?</h3>
-            <p className="text-sm text-on-surface-variant text-center mb-6 leading-relaxed">
+            <p className="text-sm text-on-surface-variant text-center mb-4 leading-relaxed">
               현재까지의 운동 기록이 저장됩니다.
             </p>
+            {modalError && (
+              <p className="text-xs text-red-500 text-center mb-3 bg-red-50 rounded-lg px-3 py-2">
+                저장 오류: {modalError}
+              </p>
+            )}
             <div className="flex gap-3">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => { setShowModal(false); setModalError(''); }}
                 className="flex-1 h-12 border border-outline-variant rounded-xl text-on-surface font-medium hover:bg-surface-container-low transition-colors"
               >
                 취소
               </button>
               <button
-                onClick={() => { saveExerciseResult('안전종료').finally(() => { stopSession(); navigate('/patient/exercise'); }); }}
+                onClick={() => {
+                  setModalError('');
+                  saveExerciseResult('안전종료')
+                    .then(() => { stopSession(); navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } }); })
+                    .catch((err) => setModalError(err.message ?? '알 수 없는 오류'));
+                }}
                 className="flex-1 h-12 bg-red-500 text-white rounded-xl font-semibold hover:brightness-110 transition-all"
               >
                 확인

@@ -3,51 +3,16 @@ import PatientNavBar from '../../components/PatientNavBar';
 import { useAuth } from '../../context/AuthContext';
 import { reportApi } from '../../api';
 
-const fallbackRecords = [
-  {
-    id: 1,
-    date: '2026.03.28',
-    doctor: '김나연 원장',
-    specialty: '재활의학과 전문의',
-    status: '진료 완료',
-    statusColor: 'bg-primary-fixed text-on-primary-fixed',
-    feedback: '"손가락 움직임과 악력이 전반적으로 향상되어 매우 긍정적이에요. 특히 엄지와 검지의 협응력이 눈에 띄게 좋아졌습니다. 지속적인 스트레칭과 강화 운동을 통해 더 안정적인 기능 회복을 기대할 수 있어요. 꾸준히 잘 따라오고 계십니다! 👍"',
-    exercises: [
-      { name: '오른손 두드리기', sets: 2, reps: 5, achievement: 85, icon: 'back_hand', badgeColor: 'bg-surface-container-high text-primary' },
-      { name: '오른손 쥐었다펴기', sets: 3, reps: 5, achievement: 100, icon: 'adjust', badgeColor: 'bg-secondary-fixed text-on-secondary-fixed' },
-    ],
-    featured: true,
-  },
-  {
-    id: 2,
-    date: '2026.03.25',
-    doctor: '김나연 원장',
-    specialty: '재활의학과 전문의',
-    status: '진료 완료',
-    statusColor: 'bg-surface-container-high text-on-surface-variant',
-    feedback: '손가락 가동성과 근력이 전반적으로 향상되고 있어요. 특히 쥐는 동작이 훨씬 안정적으로 개선되었으며, 손가락 각 마디의 독립적인 움직임도 눈에 띄게 좋아졌습니다. 태핑 훈련을 통해 반응 속도와 리듬감이 개선되고 있고, 그립 강화 운동으로 일상적인 쥐기 동작에서의 안정성도 높아졌습니다. 앞으로도 꾸준히 운동 루틴을 유지해 주시면 더욱 빠른 기능 회복을 기대할 수 있습니다.',
-    exercises: [
-      { name: '왼손 두드리기', sets: 2, reps: 5, achievement: 75, icon: 'pan_tool_alt', badgeColor: 'bg-surface-container-high text-primary' },
-      { name: '왼손 쥐었다펴기', sets: 3, reps: 10, achievement: 68, icon: 'back_hand', badgeColor: 'bg-surface-container-high text-primary' },
-    ],
-    featured: false,
-  },
-  {
-    id: 3,
-    date: '2026.03.22',
-    doctor: '김나연 원장',
-    specialty: '재활의학과 전문의',
-    status: '처방 대기',
-    statusColor: 'bg-tertiary-fixed text-on-tertiary-fixed',
-    feedback: '처방 대기 중',
-    exercises: [{ name: '오른손 쥐었다펴기 / 3세트 / 5회', icon: 'brightness_7', achievement: 60 }],
-    featured: false,
-  },
-];
 
 function formatRecordDate(dateStr) {
   if (!dateStr) return '';
   return dateStr.replace(/-/g, '.');
+}
+
+function getExerciseImage(name) {
+  if (!name) return '/grip.png';
+  if (/태핑|두드리기|tapping/i.test(name)) return '/tapping.png';
+  return '/grip.png';
 }
 
 function mapReportToRecord(report, index) {
@@ -56,7 +21,7 @@ function mapReportToRecord(report, index) {
     sets: exercise.sets,
     reps: exercise.reps,
     achievement: exercise.achievement ?? null,
-    icon: 'fitness_center',
+    image: getExerciseImage(exercise.name),
     badgeColor: 'bg-surface-container-high text-primary',
   }));
 
@@ -68,16 +33,7 @@ function mapReportToRecord(report, index) {
     status: '진료 완료',
     statusColor: index === 0 ? 'bg-primary-fixed text-on-primary-fixed' : 'bg-surface-container-high text-on-surface-variant',
     feedback: report.content ?? report.edited_content ?? '',
-    exercises: exercises.length > 0
-      ? exercises
-      : [{
-          name: 'LLM 재활 리포트',
-          sets: null,
-          reps: null,
-          achievement: null,
-          icon: 'description',
-          badgeColor: 'bg-surface-container-high text-primary',
-        }],
+    exercises,
     featured: index === 0,
   };
 }
@@ -108,7 +64,7 @@ function SmallRecordCard({ record }) {
         {(expanded ? record.exercises : record.exercises.slice(0, 1)).map((ex, i) => (
           <div key={i} className="flex items-center justify-between p-2 rounded-lg">
             <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-primary text-xl">{ex.icon}</span>
+              <img src={ex.image} alt={ex.name} className="w-8 h-8 rounded object-cover" />
               <div>
                 <span className="text-sm text-on-surface">{ex.name}</span>
                 {expanded && ex.sets && <p className="text-[12px] text-on-surface-variant">{ex.sets}세트 / {ex.reps}회</p>}
@@ -157,7 +113,7 @@ export default function MedicalRecords() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background pb-24 md:pb-0">
+    <div className="min-h-screen bg-background pb-24 md:pb-0" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <PatientNavBar />
 
       <main className="pt-12 pb-stack-lg px-container-padding-mobile md:px-container-padding-desktop max-w-[1280px] mx-auto">
@@ -222,11 +178,13 @@ export default function MedicalRecords() {
                     <h4 className="text-label-md font-semibold text-primary uppercase tracking-wider">처방 운동</h4>
                   </div>
                   <div className="space-y-3">
-                    {record.exercises.map((ex, i) => (
+                    {record.exercises.length === 0 ? (
+                      <p className="text-label-sm text-on-surface-variant py-2">처방된 운동 정보가 없습니다.</p>
+                    ) : record.exercises.map((ex, i) => (
                       <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-outline-variant">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
-                            <span className="material-symbols-outlined">{ex.icon}</span>
+                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-primary/5">
+                            <img src={ex.image} alt={ex.name} className="w-full h-full object-cover" />
                           </div>
                           <div>
                             <p className="text-label-md font-medium text-on-surface">{ex.name}</p>

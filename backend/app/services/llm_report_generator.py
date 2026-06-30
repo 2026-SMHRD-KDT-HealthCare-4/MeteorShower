@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import os
 from datetime import date
 from pathlib import Path
 from statistics import mean
@@ -9,7 +10,20 @@ from typing import Any
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+def _resolve_project_root() -> Path:
+    env_root = os.getenv("PROJECT_ROOT")
+    if env_root:
+        return Path(env_root).resolve()
+
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "backend").exists() and (parent / "ai").exists():
+            return parent
+
+    return current.parent
+
+
+PROJECT_ROOT = _resolve_project_root()
 AI_DIR = PROJECT_ROOT / "ai"
 
 load_dotenv(PROJECT_ROOT / "backend" / ".env")
@@ -36,6 +50,7 @@ FINGER_LABEL_BY_KEY = {value: key for key, value in FINGER_KEY_BY_LABEL.items()}
 
 
 def _date_text(value: Any) -> str:
+    # date/datetime 객체면 ISO 포맷으로, 없으면 "미입력"으로 변환
     if not value:
         return "미입력"
     if hasattr(value, "isoformat"):
@@ -48,6 +63,7 @@ def _average(values: list[float]) -> float:
 
 
 def _fallback_report_text(data: dict, error: str | None = None) -> str:
+    # LLM 호출 실패 시 수집된 운동 데이터로 텍스트 리포트를 대체 생성
     blocked_text = (
         f"운동 차단 사유: {data.get('block_reason') or '사전 문진에서 운동 차단으로 기록되었습니다.'}"
         if data.get("is_blocked")
@@ -75,6 +91,7 @@ def build_daily_report_data(
     report_date: date,
     exercise_blocked: bool = False,
 ) -> dict:
+    # 해당 날짜의 운동 스케줄을 조회해 수행률·정확도·ROM 값을 집계하여 LLM 입력용 데이터 딕셔너리로 반환
     schedules = (
         db.query(ExerciseSchedule)
         .join(
@@ -111,7 +128,7 @@ def build_daily_report_data(
         "pinky_pip": [],
         "pinky_dip": [],
     }
-    done_count = 0
+    recorded_count = 0
     duration_minutes = 0
     overload_notes: list[str] = []
 
@@ -125,13 +142,21 @@ def build_daily_report_data(
         if not log:
             continue
 
-        done_count += 1
+        recorded_count += 1
         if log.progress_rate is not None:
             progress_values.append(float(log.progress_rate))
+        else:
+            progress_values.append(0)
         if session.start_time and log.end_time:
             duration_minutes += max(0, round((log.end_time - session.start_time).total_seconds() / 60))
         if log.end_type and log.end_type != "완료":
-            overload_notes.append(f"{exercise_name}: {log.end_type}")
+            _END_TYPE_LABELS = {
+                "안전종료": "환자 수동 종료",
+                "목표조정": "과부하로 인한 목표 조정",
+                "운동차단": "운동 차단",
+            }
+            label = _END_TYPE_LABELS.get(log.end_type, log.end_type)
+            overload_notes.append(f"{exercise_name}: {label}")
 
         for accuracy in log.finger_accuracies:
             finger_key = FINGER_KEY_BY_LABEL.get(accuracy.finger_type)
@@ -151,7 +176,7 @@ def build_daily_report_data(
                         rom_values[key].append(float(accuracy.max_angle))
 
     total_count = len(schedules)
-    overall_compliance = round(done_count / total_count * 100) if total_count else 0
+    overall_compliance = round(sum(progress_values) / total_count) if total_count else 0
     accuracy_average = _average(match_values) or _average(progress_values)
     exercise_list = ", ".join(dict.fromkeys(exercise_names)) if exercise_names else "저장된 운동 없음"
 
@@ -164,7 +189,14 @@ def build_daily_report_data(
         "rehab_start_date": _date_text(patient.rehab_start_date),
         "rehab_stage": patient.current_rehab_phase or "미지정",
         "session_date": report_date.isoformat(),
-        "session_status": "운동차단" if exercise_blocked else ("정상종료" if done_count else "운동기록 없음"),
+        "session_status": (
+            "운동차단(문진)"
+            if exercise_blocked
+            else "수동종료(조기종료)" if any("수동 종료" in n for n in overload_notes)
+            else "조기종료(과부하)" if any("목표 조정" in n for n in overload_notes)
+            else "정상완료" if recorded_count
+            else "운동기록 없음"
+        ),
         "is_blocked": exercise_blocked,
         "block_reason": "사전 문진에서 운동 차단으로 기록되었습니다." if exercise_blocked else "",
         "exercise_duration": duration_minutes,
@@ -190,6 +222,7 @@ def generate_daily_report_content(
     report_date: date,
     exercise_blocked: bool = False,
 ) -> str:
+    # LLM 클라이언트 로드 실패 또는 생성 오류 시 폴백 텍스트로 대체
     data = build_daily_report_data(db, patient, report_date, exercise_blocked)
 
     try:
@@ -202,3 +235,90 @@ def generate_daily_report_content(
         return result["report_text"]
 
     return _fallback_report_text(data, result.get("error"))
+
+
+def generate_monthly_report_summary(patient: Patient, weeks: list[dict]) -> dict:
+    # 주차별 운동 수행 데이터를 정리해 LLM으로 월간 요약(summary)과 키워드(keywords)를 생성
+    weekly_data = [
+        {
+            "week": index + 1,
+            "achievement": week.get("overallCompliance") or 0,
+            "compliance": week.get("accuracyAvg") or 0,
+            "block_count": 0,
+            "overload_count": sum(
+                1
+                for exercise in week.get("exercises", [])
+                if exercise.get("accuracy") is not None and exercise.get("accuracy") < 70
+            ),
+        }
+        for index, week in enumerate(weeks)
+    ]
+    exercise_data = []
+    exercise_names = sorted(
+        {
+            exercise.get("name")
+            for week in weeks
+            for exercise in week.get("exercises", [])
+            if exercise.get("name")
+        }
+    )
+    for name in exercise_names:
+        compliances = [
+            exercise.get("compliance")
+            for week in weeks
+            for exercise in week.get("exercises", [])
+            if exercise.get("name") == name and exercise.get("compliance") is not None
+        ]
+        accuracies = [
+            exercise.get("accuracy")
+            for week in weeks
+            for exercise in week.get("exercises", [])
+            if exercise.get("name") == name and exercise.get("accuracy") is not None
+        ]
+        exercise_data.append(
+            {
+                "name": name,
+                "achievement": _average([float(value) for value in compliances]),
+                "compliance": _average([float(value) for value in accuracies]),
+            }
+        )
+
+    rom_data = []
+    for week in weeks:
+        for exercise in week.get("rom", []):
+            for finger in exercise.get("fingers", []):
+                for joint in finger.get("joints", []):
+                    rom_data.append(
+                        {
+                            "finger": finger.get("label") or finger.get("key") or "",
+                            "joint": joint.get("name") or "",
+                            "target": joint.get("ref") or 0,
+                            "min": joint.get("min") or 0,
+                            "max": joint.get("max") or 0,
+                            "achievement": joint.get("achievement") or 0,
+                        }
+                    )
+
+    data = {
+        "patient_name": patient.name,
+        "surgery_name": patient.surgery_name or "미입력",
+        "rehab_duration": len(weeks),
+        "exercise_count": len(exercise_names),
+        "weekly_data": weekly_data,
+        "exercise_data": exercise_data,
+        "rom_data": rom_data,
+    }
+
+    try:
+        from llm_client import generate_monthly_report
+    except Exception:
+        return {"summary": None, "keywords": []}
+
+    result = generate_monthly_report(data)
+    if result.get("success"):
+        return {
+            "summary": result.get("summary"),
+            "keywords": result.get("keywords") or [],
+        }
+
+    return {"summary": None, "keywords": []}

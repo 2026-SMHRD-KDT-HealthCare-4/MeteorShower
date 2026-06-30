@@ -1,8 +1,9 @@
 import os
+import uuid
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timedelta
 
@@ -20,6 +21,7 @@ from models.llm_report import LlmReport
 from models.patient_rom_setting import PatientRomSetting
 from models.prescription_finger_setting import PrescriptionFingerSetting
 from models.rehab_exercise_session import RehabExerciseSession
+from models.rehab_exercise_capture import RehabExerciseCapture
 from models.rehab_exercise_log import RehabExerciseLog
 from models.finger_accuracy import FingerAccuracy
 from schemas.patient import (
@@ -30,7 +32,8 @@ from schemas.patient import (
     PatientUpdateRequest,
 )
 from schemas.prescription import PrescriptionSaveRequest
-from services.llm_report_generator import generate_daily_report_content
+from services.llm_report_generator import generate_daily_report_content, generate_monthly_report_summary
+from services.firebase_storage import upload_bytes_to_firebase
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -45,7 +48,8 @@ FINGER_LABELS = {
 }
 
 
-def _hand_type_from_exercise_name(name: str):
+def _hand_type_from_exercise_name(name: str) -> str:
+    # 운동명에 "왼손" 포함 여부로 손 구분, 명시 없으면 오른손 기본값
     if "왼손" in name:
         return "왼손"
     if "오른손" in name:
@@ -60,7 +64,102 @@ def _video_time_for_exercise(name: str) -> str:
     return "00:14"
 
 
-def _parse_rom_key(key: str):
+def _avg_or_none(values) -> float | None:
+    values = [float(value) for value in values if value is not None]
+    return round(sum(values) / len(values), 1) if values else None
+
+
+def _round_or_none(value) -> float | None:
+    return round(float(value), 1) if value is not None else None
+
+
+def _collect_active_schedule_maps(db: Session, patient_id: int) -> tuple[dict, dict]:
+    # 적용중인 처방의 스케줄을 완료(세션 있음)와 미완료(재사용 가능)로 분류하여 반환
+    reusable_schedules = {}
+    completed_schedules = {}
+    active_prescriptions = (
+        db.query(Prescription)
+        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
+        .all()
+    )
+    for prescription in active_prescriptions:
+        for prescription_exercise in prescription.prescription_exercises:
+            exercise_name = prescription_exercise.exercise.exercise_name
+            for schedule in prescription_exercise.schedules:
+                key = (exercise_name, schedule.exercise_date)
+                target = completed_schedules if schedule.sessions else reusable_schedules
+                target.setdefault(key, []).append(schedule)
+    return reusable_schedules, completed_schedules
+
+
+def _pop_reusable_schedule(schedule_map: dict, exercise_name: str, exercise_date: date) -> ExerciseSchedule | None:
+    schedules = schedule_map.get((exercise_name, exercise_date))
+    if not schedules:
+        return None
+    schedule = schedules.pop(0)
+    if not schedules:
+        schedule_map.pop((exercise_name, exercise_date), None)
+    return schedule
+
+
+def _first_schedule_log(schedule: ExerciseSchedule) -> RehabExerciseLog | None:
+    session = schedule.sessions[0] if schedule.sessions else None
+    return session.logs[0] if session and session.logs else None
+
+
+def _progress_from_log(log) -> int:
+    if not log or log.progress_rate is None:
+        return 0
+    return min(100, max(0, round(float(log.progress_rate))))
+
+
+def _exercise_status_from_log(log) -> str:
+    if not log:
+        return "waiting"
+    return "done"
+
+
+async def _upload_capture_photo(
+    file: UploadFile | None,
+    patient_id: int,
+    rehab_session_id: int,
+    set_number: int,
+    photo_type: str,
+) -> str | None:
+    if file is None:
+        return None
+
+    content_type = file.content_type or "application/octet-stream"
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail=f"{photo_type} must be an image file")
+
+    data = await file.read()
+    if not data:
+        return None
+
+    extension = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+    }.get(content_type, "jpg")
+    file_path = (
+        f"rehab-captures/patient-{patient_id}/session-{rehab_session_id}/"
+        f"set-{set_number}/{photo_type}-{uuid.uuid4().hex}.{extension}"
+    )
+
+    try:
+        return upload_bytes_to_firebase(data, file_path, content_type)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _finger_key(label: str) -> str:
+    return next((key for key, value in FINGER_LABELS.items() if value == label), label)
+
+
+def _parse_rom_key(key: str) -> tuple[str, str, str] | None:
+    # "{finger_key}_{joint_type}_{hand_type}" 형식의 ROM 키를 파싱, 유효하지 않으면 None 반환
     # format: {finger_key}_{joint_type}_{hand_type}  e.g. thumb_MCP_왼손
     parts = key.split("_", 2)
     if len(parts) != 3:
@@ -72,7 +171,7 @@ def _parse_rom_key(key: str):
     return finger_type, joint_type, hand_type
 
 
-def _rom_settings_to_dict(settings):
+def _rom_settings_to_dict(settings) -> dict[str, float]:
     rom = {}
     for setting in settings:
         finger_key = next(
@@ -84,7 +183,7 @@ def _rom_settings_to_dict(settings):
     return rom
 
 
-def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip'):
+def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip') -> list[PatientRomSetting]:
     return (
         db.query(PatientRomSetting)
         .filter(
@@ -95,7 +194,8 @@ def _get_patient_rom(db: Session, patient_id: int, exercise_type: str = 'grip'):
     )
 
 
-def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dict):
+def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dict) -> dict[str, float]:
+    # 기존 ROM 설정을 전부 삭제하고 새 값으로 교체 후 저장된 결과를 반환 (replace all)
     db.query(PatientRomSetting).filter(
         PatientRomSetting.patient_id == patient_id,
         PatientRomSetting.exercise_type == exercise_type,
@@ -119,7 +219,7 @@ def _save_patient_rom(db: Session, patient_id: int, exercise_type: str, rom: dic
     return _rom_settings_to_dict(_get_patient_rom(db, patient_id, exercise_type))
 
 
-def _patient_to_dict(patient):
+def _patient_to_dict(patient) -> dict:
     return {
         "patient_id": patient.patient_id,
         "doctor_id": patient.doctor_id,
@@ -140,10 +240,11 @@ def _patient_to_dict(patient):
         "ai_difficulty_enabled": patient.ai_difficulty_enabled,
         "appointment_date": patient.appointment_date,
         "doctor_name": patient.doctor.name if patient.doctor else None,
+        "approval_status": patient.approval_status,
     }
 
 
-def _require_role(payload: dict, role: str):
+def _require_role(payload: dict, role: str) -> None:
     if payload["role"] != role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -151,7 +252,16 @@ def _require_role(payload: dict, role: str):
         )
 
 
-def _ensure_pending_report_for_exercise(db: Session, patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None):
+def _require_patient_approved(patient) -> None:
+    if patient.approval_status != "승인":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="환자가 아직 등록 정보에 동의하지 않았습니다.",
+        )
+
+
+def _ensure_pending_report_for_exercise(db: Session, patient, schedule: ExerciseSchedule, log: RehabExerciseLog | None = None) -> LlmReport | None:
+    # 운동 세션 저장 후 해당 날짜 리포트가 없으면 생성, 있으면 draft 갱신 (upsert)
     if not patient.doctor_id:
         return None
 
@@ -171,10 +281,9 @@ def _ensure_pending_report_for_exercise(db: Session, patient, schedule: Exercise
         .first()
     )
     if report:
-        if report.approval_status != "승인":
-            report.doctor_id = patient.doctor_id
-            report.draft_content = draft_content
-            report.approval_status = "대기"
+        report.doctor_id = patient.doctor_id
+        report.draft_content = draft_content
+        report.approval_status = "대기"
         return report
 
     report = LlmReport(
@@ -190,7 +299,8 @@ def _ensure_pending_report_for_exercise(db: Session, patient, schedule: Exercise
     return report
 
 
-def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items):
+def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items) -> None:
+    # 손가락별 정확도를 upsert (같은 finger_type+joint_type이면 덮어쓰고, 없으면 새로 추가)
     for item in items:
         joint_type = item.joint_type
         existing = (
@@ -225,7 +335,7 @@ def _save_finger_accuracy_items(db: Session, log: RehabExerciseLog, items):
 def get_my_patient_profile(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient = patient_crud.get_patient_by_id(db, int(payload["sub"]))
     if not patient:
@@ -233,12 +343,26 @@ def get_my_patient_profile(
     return _patient_to_dict(patient)
 
 
+@router.patch("/me/approve")
+def approve_my_registration(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> dict:
+    _require_role(payload, "patient")
+    patient = patient_crud.get_patient_by_id(db, int(payload["sub"]))
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    patient.approval_status = "승인"
+    db.commit()
+    return {"approval_status": "승인"}
+
+
 @router.patch("/me")
 def update_my_patient_profile(
     body: PatientUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient = patient_crud.get_patient_by_id(db, int(payload["sub"]))
     if not patient:
@@ -256,7 +380,7 @@ def update_my_patient_profile(
 def list_my_patients(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     patients = patient_crud.get_patients_by_doctor_id(db, int(payload["sub"]))
     return [_patient_to_dict(patient) for patient in patients]
@@ -267,7 +391,7 @@ def search_patients(
     q: str,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     if not q or not q.strip():
         return []
@@ -279,7 +403,7 @@ def search_patients(
 def list_all_exercises(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "doctor")
     exercises = db.query(Exercise).order_by(Exercise.exercise_name).all()
     return [
@@ -298,7 +422,7 @@ def assign_patient(
     body: PatientAssignRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -309,6 +433,7 @@ def assign_patient(
     doctor = doctor_crud.get_doctor_by_id(db, int(payload["sub"]))
     values = body.model_dump(exclude_unset=True)
     values["doctor_id"] = int(payload["sub"])
+    values["approval_status"] = "대기"
     if doctor:
         values["hospital_name"] = doctor.hospital_name
 
@@ -322,13 +447,14 @@ def update_patient_medical(
     body: PatientMedicalUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
     updated = patient_crud.update_patient(db, patient, body.model_dump(exclude_unset=True))
     return _patient_to_dict(updated)
 
@@ -339,13 +465,14 @@ def get_patient_rom(
     exercise_type: str = 'grip',
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
     return {"rom": _rom_settings_to_dict(_get_patient_rom(db, patient_id, exercise_type))}
 
 
@@ -355,13 +482,14 @@ def update_patient_rom(
     body: PatientRomUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
     return {"rom": _save_patient_rom(db, patient_id, body.exercise_type, body.rom)}
 
 
@@ -369,7 +497,7 @@ def update_patient_rom(
 def report_exercise_blocked(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
 
@@ -396,7 +524,7 @@ def get_nearby_hospitals(
     lng: float,
     radius: int = 2000,
     payload: dict = Depends(get_token_payload),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     if not KAKAO_REST_KEY:
         raise HTTPException(status_code=503, detail="카카오 API 키가 설정되지 않았습니다.")
@@ -435,7 +563,7 @@ def get_nearby_hospitals(
 def get_my_schedule(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     today = date.today()
@@ -458,6 +586,8 @@ def get_my_schedule(
                 ex_date = schedule.exercise_date
                 if ex_date < today:
                     status = "done" if schedule.sessions else "missed"
+                elif ex_date == today:
+                    status = "done" if schedule.sessions else "upcoming"
                 else:
                     status = "upcoming"
                 result.append({
@@ -483,36 +613,82 @@ def get_my_schedule(
 def get_my_today_exercises(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     today = date.today()
 
-    prescriptions = (
-        db.query(Prescription)
-        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
-        .order_by(Prescription.prescription_date.desc())
+    active_schedules = (
+        db.query(ExerciseSchedule)
+        .join(
+            PrescriptionExercise,
+            PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id,
+        )
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(
+            Prescription.patient_id == patient_id,
+            Prescription.status == "적용중",
+            ExerciseSchedule.exercise_date == today,
+        )
+        .order_by(Prescription.prescription_date.desc(), PrescriptionExercise.exercise_order)
+        .all()
+    )
+    completed_schedules = (
+        db.query(ExerciseSchedule)
+        .join(
+            PrescriptionExercise,
+            PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id,
+        )
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(
+            Prescription.patient_id == patient_id,
+            ExerciseSchedule.exercise_date == today,
+        )
+        .order_by(Prescription.prescription_date.desc(), PrescriptionExercise.exercise_order)
         .all()
     )
 
     exercises = []
-    for prescription in prescriptions:
-        for pe in sorted(prescription.prescription_exercises, key=lambda x: x.exercise_order):
-            today_schedule = next((s for s in pe.schedules if s.exercise_date == today), None)
-            scheduled_today = today_schedule is not None
-            if not scheduled_today:
-                continue
-            exercises.append({
-                "id": pe.prescription_exercise_id,
-                "schedule_id": today_schedule.schedule_id if today_schedule else None,
-                "exercise_id": pe.exercise_id,
-                "name": pe.exercise.exercise_name,
-                "sets": pe.target_sets,
-                "reps": pe.target_reps,
-                "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
-                "status": "done" if today_schedule and today_schedule.sessions else "waiting",
-                "videoTime": _video_time_for_exercise(pe.exercise.exercise_name),
-            })
+    added_keys = set()
+    attempted_schedules = [schedule for schedule in completed_schedules if schedule.sessions]
+    attempted_by_key = {
+        (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date): schedule
+        for schedule in attempted_schedules
+    }
+    schedules = list(active_schedules)
+    active_keys = {
+        (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date)
+        for schedule in schedules
+    }
+    schedules.extend(
+        schedule
+        for schedule in attempted_schedules
+        if (schedule.prescription_exercise.exercise.exercise_name, schedule.exercise_date) not in active_keys
+    )
+    for schedule in schedules:
+        pe = schedule.prescription_exercise
+        exercise_name = pe.exercise.exercise_name
+        schedule_key = (exercise_name, schedule.exercise_date)
+        log_source = schedule if schedule.sessions else attempted_by_key.get(schedule_key, schedule)
+        log = _first_schedule_log(log_source)
+        progress_rate = _progress_from_log(log)
+        status_text = _exercise_status_from_log(log)
+        key = (exercise_name, schedule.exercise_date, status_text)
+        if key in added_keys:
+            continue
+        added_keys.add(key)
+        exercises.append({
+            "id": pe.prescription_exercise_id,
+            "schedule_id": schedule.schedule_id,
+            "exercise_id": pe.exercise_id,
+            "name": exercise_name,
+            "sets": pe.target_sets,
+            "reps": pe.target_reps,
+            "duration": f"{max(1, pe.target_sets * pe.target_reps * 3 // 60)}분",
+            "status": status_text,
+            "videoTime": _video_time_for_exercise(exercise_name),
+            "progress_rate": progress_rate,
+        })
 
     return exercises
 
@@ -521,7 +697,7 @@ def get_my_today_exercises(
 def get_my_weekly_stats(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> list[dict]:
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
     today = date.today()
@@ -545,14 +721,26 @@ def get_my_weekly_stats(
             .all()
         )
         total = len(schedules)
-        done = sum(1 for s in schedules if s.sessions)
-        rate = round(done / total * 100) if total > 0 else 0
+        progress_values = [_progress_from_log(_first_schedule_log(s)) for s in schedules]
+        done = sum(1 for value in progress_values if value >= 100)
+        rate = round(sum(progress_values) / total) if total > 0 else 0
+
+        match_rates: list[float] = []
+        for schedule in schedules:
+            log = _first_schedule_log(schedule)
+            if log:
+                for acc in log.finger_accuracies:
+                    if acc.avg_match_rate is not None:
+                        match_rates.append(float(acc.avg_match_rate))
+        accuracy = round(sum(match_rates) / len(match_rates), 1) if match_rates else None
+
         result.append({
             "day": day_labels[i],
             "date": day_date.isoformat(),
             "total": total,
             "done": done,
             "rate": rate,
+            "accuracy": accuracy,
             "is_today": day_date == today,
         })
 
@@ -564,7 +752,8 @@ def create_my_exercise_session(
     body: ExerciseSessionCreateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
+    # 운동 세션과 로그를 저장하고, 이미 존재하면 수치를 업데이트한 뒤 리포트 초안을 갱신
     _require_role(payload, "patient")
     patient_id = int(payload["sub"])
 
@@ -584,7 +773,26 @@ def create_my_exercise_session(
     )
     if existing:
         log = existing.logs[0] if existing.logs else None
+        now = datetime.now()
         if log:
+            log.performed_reps = body.performed_reps
+            log.performed_sets = body.performed_sets
+            log.progress_rate = body.progress_rate
+            log.end_time = now
+            log.end_type = body.end_type
+            _save_finger_accuracy_items(db, log, body.finger_accuracy)
+            db.flush()
+        else:
+            log = RehabExerciseLog(
+                rehab_session_id=existing.rehab_session_id,
+                performed_reps=body.performed_reps,
+                performed_sets=body.performed_sets,
+                progress_rate=body.progress_rate,
+                end_time=now,
+                end_type=body.end_type,
+            )
+            db.add(log)
+            db.flush()
             _save_finger_accuracy_items(db, log, body.finger_accuracy)
             db.flush()
         _ensure_pending_report_for_exercise(db, patient, schedule, log)
@@ -624,37 +832,108 @@ def create_my_exercise_session(
     }
 
 
+@router.post("/me/exercise-sessions/{rehab_session_id}/captures", status_code=201)
+async def upload_my_exercise_capture(
+    rehab_session_id: int,
+    set_number: int = Form(...),
+    set_first_gif: UploadFile | None = File(None),
+    set_last_gif: UploadFile | None = File(None),
+    overload_before_gif: UploadFile | None = File(None),
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> dict:
+    # 운동 중 촬영된 사진을 Firebase에 업로드하고 URL을 세션/세트 단위로 저장
+    _require_role(payload, "patient")
+    _require_role(payload, "patient")
+    patient_id = int(payload["sub"])
+    if set_number < 1:
+        raise HTTPException(status_code=422, detail="set_number must be greater than 0")
+    if not any([set_first_gif, set_last_gif, overload_before_gif]):
+        raise HTTPException(status_code=422, detail="At least one gif is required")
+
+    session = (
+        db.query(RehabExerciseSession)
+        .filter(RehabExerciseSession.rehab_session_id == rehab_session_id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Exercise session not found")
+
+    prescription = session.schedule.prescription_exercise.prescription
+    if prescription.patient_id != patient_id:
+        raise HTTPException(status_code=403, detail="Cannot access this session")
+
+    first_url = await _upload_capture_photo(
+        set_first_gif, patient_id, rehab_session_id, set_number, "set-first"
+    )
+    last_url = await _upload_capture_photo(
+        set_last_gif, patient_id, rehab_session_id, set_number, "set-last"
+    )
+    overload_url = await _upload_capture_photo(
+        overload_before_gif, patient_id, rehab_session_id, set_number, "overload-before"
+    )
+
+    capture = (
+        db.query(RehabExerciseCapture)
+        .filter(
+            RehabExerciseCapture.rehab_session_id == rehab_session_id,
+            RehabExerciseCapture.set_number == set_number,
+        )
+        .first()
+    )
+    if not capture:
+        if not first_url:
+            raise HTTPException(status_code=422, detail="set_first_gif is required for a new capture")
+        capture = RehabExerciseCapture(
+            rehab_session_id=rehab_session_id,
+            set_number=set_number,
+            set_first_gif_url=first_url,
+        )
+        db.add(capture)
+
+    if first_url:
+        capture.set_first_gif_url = first_url
+    if last_url:
+        capture.set_last_gif_url = last_url
+        capture.overload_before_gif_url = None
+    if overload_url:
+        capture.overload_before_gif_url = overload_url
+        capture.set_last_gif_url = None
+    capture.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(capture)
+    return {
+        "capture_id": capture.capture_id,
+        "rehab_session_id": capture.rehab_session_id,
+        "set_number": capture.set_number,
+        "set_first_gif_url": capture.set_first_gif_url,
+        "set_last_gif_url": capture.set_last_gif_url,
+        "overload_before_gif_url": capture.overload_before_gif_url,
+    }
+
+
 @router.post("/{patient_id}/prescriptions", status_code=201)
 def save_patient_prescription(
     patient_id: int,
     body: PrescriptionSaveRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
+    # 기존 적용중 처방을 종료하고 새 처방을 생성하며, 재사용 가능한 스케줄은 이전 것을 그대로 활용
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     enabled_exercises = [ex for ex in body.exercises if ex.enabled]
     if not enabled_exercises:
         raise HTTPException(status_code=422, detail="At least one exercise is required")
 
-    # 기존 완료 세션 보존: (운동이름, 날짜) → 세션 목록
-    old_sessions_map: dict = {}
-    old_prescriptions = (
-        db.query(Prescription)
-        .filter(Prescription.patient_id == patient_id, Prescription.status == "적용중")
-        .all()
-    )
-    for old_p in old_prescriptions:
-        for pe in old_p.prescription_exercises:
-            ex_name = pe.exercise.exercise_name
-            for sched in pe.schedules:
-                if sched.sessions:
-                    old_sessions_map[(ex_name, sched.exercise_date)] = sched.sessions
+    reusable_schedules, completed_schedules = _collect_active_schedule_maps(db, patient_id)
 
     (
         db.query(Prescription)
@@ -700,17 +979,20 @@ def save_patient_prescription(
             if name != ex.name or not date_text:
                 continue
             sched_date = date.fromisoformat(date_text)
-            new_schedule = ExerciseSchedule(
-                prescription_exercise_id=prescription_exercise.prescription_exercise_id,
-                exercise_date=sched_date,
-            )
-            db.add(new_schedule)
-            db.flush()
-            # 기존 완료 세션을 새 스케줄로 이전
-            old_sessions = old_sessions_map.get((ex.name, sched_date))
-            if old_sessions:
-                for session in old_sessions:
-                    session.schedule_id = new_schedule.schedule_id
+            if sched_date < date.today():
+                continue
+            if completed_schedules.get((ex.name, sched_date)):
+                continue
+            existing_schedule = _pop_reusable_schedule(reusable_schedules, ex.name, sched_date)
+            if existing_schedule:
+                existing_schedule.prescription_exercise_id = prescription_exercise.prescription_exercise_id
+            else:
+                db.add(
+                    ExerciseSchedule(
+                        prescription_exercise_id=prescription_exercise.prescription_exercise_id,
+                        exercise_date=sched_date,
+                    )
+                )
 
         for key, target_rom in body.rom.items():
             parsed = _parse_rom_key(key)
@@ -744,13 +1026,14 @@ def get_patient_prescriptions(
     patient_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict | None:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     prescriptions = (
         db.query(Prescription)
@@ -803,13 +1086,14 @@ def get_patient_daily_exercise_result(
     target_date: Optional[date] = Query(None, alias="date"),
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     result_date = target_date or date.today()
     schedules = (
@@ -825,9 +1109,10 @@ def get_patient_daily_exercise_result(
     )
 
     exercise_results = []
+    capture_gifs = []
     total_logs = 0
-    done_count = 0
     progress_values = []
+    schedule_progress_values = []
     match_values = []
 
     for schedule in schedules:
@@ -847,11 +1132,48 @@ def get_patient_daily_exercise_result(
 
         session = schedule.sessions[0] if schedule.sessions else None
         log = session.logs[0] if session and session.logs else None
+        if session:
+            for capture in session.captures:
+                captured_at = capture.updated_at or capture.created_at
+                common = {
+                    "capture_id": capture.capture_id,
+                    "rehab_session_id": capture.rehab_session_id,
+                    "set_number": capture.set_number,
+                    "exercise_name": exercise_name,
+                    "captured_at": captured_at.isoformat() if captured_at else None,
+                    "time": captured_at.strftime("%H:%M") if captured_at else None,
+                }
+                if capture.set_first_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-first",
+                        "url": capture.set_first_gif_url,
+                        "type": "시작 동작",
+                    })
+                if capture.set_last_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-last",
+                        "url": capture.set_last_gif_url,
+                        "type": "운동 완료",
+                    })
+                if capture.overload_before_gif_url:
+                    capture_gifs.append({
+                        **common,
+                        "id": f"{capture.capture_id}-overload",
+                        "url": capture.overload_before_gif_url,
+                        "type": "과부하 직전",
+                    })
         total_logs += 1
         if log:
-            done_count += 1
             if log.progress_rate is not None:
-                progress_values.append(float(log.progress_rate))
+                progress = float(log.progress_rate)
+                progress_values.append(progress)
+                schedule_progress_values.append(progress)
+            else:
+                schedule_progress_values.append(0)
+        else:
+            schedule_progress_values.append(0)
 
         finger_accuracy = []
         if log:
@@ -886,10 +1208,11 @@ def get_patient_daily_exercise_result(
             "finger_accuracy": finger_accuracy,
         })
 
-    overall_compliance = round(done_count / total_logs * 100) if total_logs else 0
+    overall_compliance = round(sum(schedule_progress_values) / total_logs) if total_logs else 0
     accuracy_average = round(sum(match_values) / len(match_values), 1) if match_values else (
         round(sum(progress_values) / len(progress_values), 1) if progress_values else 0
     )
+    capture_gifs.sort(key=lambda item: item.get("captured_at") or "", reverse=True)
 
     return {
         "patient_id": patient.patient_id,
@@ -897,7 +1220,76 @@ def get_patient_daily_exercise_result(
         "overall_compliance": overall_compliance,
         "accuracy_average": accuracy_average,
         "exercises": exercise_results,
+        "capture_gifs": capture_gifs,
     }
+
+
+@router.get("/{patient_id}/exercise-captures")
+def get_patient_exercise_captures(
+    patient_id: int,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
+
+    captures = (
+        db.query(RehabExerciseCapture)
+        .join(RehabExerciseSession, RehabExerciseSession.rehab_session_id == RehabExerciseCapture.rehab_session_id)
+        .join(ExerciseSchedule, ExerciseSchedule.schedule_id == RehabExerciseSession.schedule_id)
+        .join(PrescriptionExercise, PrescriptionExercise.prescription_exercise_id == ExerciseSchedule.prescription_exercise_id)
+        .join(Prescription, Prescription.prescription_id == PrescriptionExercise.prescription_id)
+        .filter(Prescription.patient_id == patient_id)
+        .order_by(ExerciseSchedule.exercise_date.desc(), RehabExerciseCapture.updated_at.desc(), RehabExerciseCapture.capture_id.desc())
+        .all()
+    )
+
+    result = []
+    for capture in captures:
+        session = capture.session
+        schedule = session.schedule
+        exercise_name = schedule.prescription_exercise.exercise.exercise_name
+        captured_at = capture.updated_at or capture.created_at
+        common = {
+            "capture_id": capture.capture_id,
+            "rehab_session_id": capture.rehab_session_id,
+            "schedule_id": schedule.schedule_id,
+            "exercise_name": exercise_name,
+            "exercise_date": schedule.exercise_date.isoformat(),
+            "set_number": capture.set_number,
+            "captured_at": captured_at.isoformat() if captured_at else None,
+            "time": captured_at.strftime("%H:%M") if captured_at else None,
+        }
+        if capture.set_first_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-first",
+                "url": capture.set_first_gif_url,
+                "type": "시작 동작",
+                "group": "start",
+            })
+        if capture.set_last_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-last",
+                "url": capture.set_last_gif_url,
+                "type": "운동 완료",
+                "group": "other",
+            })
+        if capture.overload_before_gif_url:
+            result.append({
+                **common,
+                "id": f"{capture.capture_id}-overload",
+                "url": capture.overload_before_gif_url,
+                "type": "과부하 직전",
+                "group": "other",
+            })
+    return result
 
 
 @router.get("/{patient_id}/weekly-progress")
@@ -905,20 +1297,22 @@ def get_patient_weekly_progress(
     patient_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
+    # 재활 시작일부터 최대 12주치 운동 수행률·정확도·ROM을 집계하고 LLM 월간 요약을 함께 반환
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     if patient.doctor_id is not None and patient.doctor_id != int(payload["sub"]):
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     today = date.today()
     rehab_start = patient.rehab_start_date or today
     days_since = (today - rehab_start).days
     total_weeks = min(max(1, days_since // 7 + 1), 12)
 
-    result = []
+    weeks = []
     for week_num in range(1, total_weeks + 1):
         week_start = rehab_start + timedelta(weeks=week_num - 1)
         week_end = week_start + timedelta(days=6)
@@ -939,49 +1333,175 @@ def get_patient_weekly_progress(
         done_schedules = [s for s in schedules if s.sessions]
         done = len(done_schedules)
 
-        all_progress = [
-            float(log.progress_rate)
-            for s in done_schedules
-            for session in s.sessions
-            for log in session.logs
-            if log.progress_rate is not None
-        ]
-
-        compliance = round(done / total * 100) if total > 0 else 0
-        accuracy_avg = round(sum(all_progress) / len(all_progress)) if all_progress else 0
+        progress_values = []
+        match_values = []
 
         exercise_map: dict = {}
+        rom_map: dict = {}
         for s in schedules:
-            name = s.prescription_exercise.exercise.exercise_name
+            pe = s.prescription_exercise
+            name = pe.exercise.exercise_name
             if name not in exercise_map:
-                exercise_map[name] = {"total": 0, "done": 0, "progress": []}
+                exercise_map[name] = {"total": 0, "done": 0, "progress": [], "match": []}
             exercise_map[name]["total"] += 1
+
+            hand_type = _hand_type_from_exercise_name(name)
+            exercise_type = "tapping" if any(word in name for word in ["태핑", "Tapping", "두드리기"]) else "grip"
+            patient_rom_map = {
+                (setting.hand_type, setting.finger_type, setting.joint_type): float(setting.target_rom)
+                for setting in _get_patient_rom(db, patient_id, exercise_type)
+            }
+            prescription_rom_map = {
+                (setting.hand_type, setting.finger_type, setting.joint_type): float(setting.target_rom)
+                for setting in pe.finger_settings
+            }
+            target_rom_map = {**patient_rom_map, **prescription_rom_map}
+            exercise_rom = rom_map.setdefault(name, {})
+            for (target_hand, finger_type, joint_type), target_rom in target_rom_map.items():
+                if target_hand != hand_type:
+                    continue
+                exercise_rom.setdefault(
+                    (finger_type, joint_type),
+                    {
+                        "finger_type": finger_type,
+                        "joint_type": joint_type,
+                        "target_rom": target_rom,
+                        "min_values": [],
+                        "max_values": [],
+                        "match_values": [],
+                    },
+                )
+
             if s.sessions:
                 exercise_map[name]["done"] += 1
                 for session in s.sessions:
                     for log in session.logs:
                         if log.progress_rate is not None:
-                            exercise_map[name]["progress"].append(float(log.progress_rate))
+                            progress = float(log.progress_rate)
+                            progress_values.append(progress)
+                            exercise_map[name]["progress"].append(progress)
+                        for accuracy in log.finger_accuracies:
+                            target_rom = (
+                                prescription_rom_map.get((hand_type, accuracy.finger_type, accuracy.joint_type))
+                                or patient_rom_map.get((hand_type, accuracy.finger_type, accuracy.joint_type))
+                            )
+                            rom_item = exercise_rom.setdefault(
+                                (accuracy.finger_type, accuracy.joint_type),
+                                {
+                                    "finger_type": accuracy.finger_type,
+                                    "joint_type": accuracy.joint_type,
+                                    "target_rom": target_rom,
+                                    "min_values": [],
+                                    "max_values": [],
+                                    "match_values": [],
+                                },
+                            )
+                            if rom_item["target_rom"] is None:
+                                rom_item["target_rom"] = target_rom
+                            if accuracy.min_angle is not None:
+                                rom_item["min_values"].append(float(accuracy.min_angle))
+                            if accuracy.max_angle is not None:
+                                rom_item["max_values"].append(float(accuracy.max_angle))
+                            if accuracy.avg_match_rate is not None:
+                                match = float(accuracy.avg_match_rate)
+                                match_values.append(match)
+                                exercise_map[name]["match"].append(match)
+                                rom_item["match_values"].append(match)
+
+        compliance = round(done / total * 100) if total > 0 else None
+        accuracy_avg = _avg_or_none(match_values) or _avg_or_none(progress_values)
 
         exercises = [
             {
                 "name": name,
-                "compliance": round(v["done"] / v["total"] * 100) if v["total"] > 0 else 0,
-                "accuracy": round(sum(v["progress"]) / len(v["progress"])) if v["progress"] else 0,
+                "compliance": round(v["done"] / v["total"] * 100) if v["total"] > 0 else None,
+                "accuracy": _avg_or_none(v["match"]) or _avg_or_none(v["progress"]),
             }
             for name, v in exercise_map.items()
         ]
 
-        result.append({
+        rom = []
+        for exercise_name, items in rom_map.items():
+            fingers = []
+            for finger_type in ["엄지", "검지", "중지", "약지", "소지"]:
+                joints = []
+                for joint_type in ["MCP", "IP", "PIP", "DIP"]:
+                    item = items.get((finger_type, joint_type))
+                    if not item:
+                        continue
+                    max_angle = max(item["max_values"]) if item["max_values"] else None
+                    target_rom = item["target_rom"]
+                    achievement = (
+                        min(round(float(max_angle) / float(target_rom) * 100), 100)
+                        if max_angle is not None and target_rom
+                        else None
+                    )
+                    joints.append(
+                        {
+                            "name": joint_type,
+                            "ref": _round_or_none(target_rom),
+                            "max": _round_or_none(max_angle),
+                            "min": _round_or_none(min(item["min_values"]) if item["min_values"] else None),
+                            "avg": _avg_or_none(item["match_values"]),
+                            "achievement": achievement,
+                        }
+                    )
+                if joints:
+                    fingers.append(
+                        {
+                            "key": _finger_key(finger_type),
+                            "label": finger_type,
+                            "joints": joints,
+                        }
+                    )
+            rom.append(
+                {
+                    "key": exercise_name,
+                    "label": exercise_name,
+                    "fingers": fingers,
+                }
+            )
+
+        weeks.append({
             "week": f"{week_num}주차",
             "dates": f"{week_start.strftime('%Y.%m.%d')} ~ {week_end.strftime('%Y.%m.%d')}",
             "sessionCount": done,
             "overallCompliance": compliance,
             "accuracyAvg": accuracy_avg,
             "exercises": exercises,
+            "rom": rom,
         })
 
-    return result
+    if patient.overall_evaluation:
+        return {
+            "weeks": weeks,
+            "summary": patient.overall_evaluation,
+            "keywords": [],
+        }
+    llm_summary = generate_monthly_report_summary(patient, weeks)
+    return {
+        "weeks": weeks,
+        "summary": llm_summary.get("summary"),
+        "keywords": llm_summary.get("keywords") or [],
+    }
+
+
+@router.patch("/{patient_id}/overall-evaluation")
+def save_overall_evaluation(
+    patient_id: int,
+    body: dict,
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> dict:
+    _require_role(payload, "doctor")
+    patient = patient_crud.get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if patient.doctor_id != int(payload["sub"]):
+        raise HTTPException(status_code=403, detail="Cannot access this patient")
+    patient.overall_evaluation = body.get("summary", "")
+    db.commit()
+    return {"summary": patient.overall_evaluation}
 
 
 @router.get("/{patient_id}")
@@ -989,7 +1509,7 @@ def get_patient_detail(
     patient_id: int,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     _require_role(payload, "doctor")
     patient = patient_crud.get_patient_by_id(db, patient_id)
     if not patient:
@@ -998,5 +1518,6 @@ def get_patient_detail(
     doctor_id = int(payload["sub"])
     if patient.doctor_id is not None and patient.doctor_id != doctor_id:
         raise HTTPException(status_code=403, detail="Cannot access this patient")
+    _require_patient_approved(patient)
 
     return _patient_to_dict(patient)

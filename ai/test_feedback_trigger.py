@@ -21,14 +21,16 @@ def _joint_signals(finger_levels: dict) -> dict:
     return signals
 
 
-def test_reduce_to_finger_signals_basic():
+def test_reduce_to_finger_signals_basic() -> None:
+    """정수 키 joint_signals를 손가락 이름 키로 올바르게 축약하는지 검증."""
     js = _joint_signals({"index": "yellow", "ring": "red"})
     reduced = reduce_to_finger_signals(js)
     assert reduced == {"thumb": "green", "index": "yellow", "middle": "green", "ring": "red", "pinky": "green"}
     print("[PASS] reduce_to_finger_signals (기본 케이스)")
 
 
-def test_reduce_to_finger_signals_string_keys():
+def test_reduce_to_finger_signals_string_keys() -> None:
+    """JSON 직렬화 후 문자열이 된 키도 올바르게 처리하는지 검증."""
     js = {str(k): v for k, v in _joint_signals({"middle": "red"}).items()}
     reduced = reduce_to_finger_signals(js)
     assert reduced["middle"] == "red"
@@ -36,13 +38,15 @@ def test_reduce_to_finger_signals_string_keys():
     print("[PASS] reduce_to_finger_signals (문자열 키 / JSON 직렬화 케이스)")
 
 
-def test_reduce_to_finger_signals_none():
+def test_reduce_to_finger_signals_none() -> None:
+    """joint_signals가 None이면 모두 green을 반환하는지 검증."""
     reduced = reduce_to_finger_signals(None)
     assert all(v == "green" for v in reduced.values())
     print("[PASS] reduce_to_finger_signals (None 입력 케이스)")
 
 
-def test_yellow_fires_after_duration_threshold():
+def test_yellow_fires_after_duration_threshold() -> None:
+    """yellow 신호가 3초 지속 후 처음 1회만 피드백을 발생시키는지 검증."""
     tracker = FeedbackTracker()
     js = _joint_signals({"index": "yellow"})
 
@@ -57,7 +61,8 @@ def test_yellow_fires_after_duration_threshold():
     print("[PASS] yellow 3초 지속 → 1회 발생")
 
 
-def test_yellow_cooldown_blocks_repeat():
+def test_yellow_cooldown_blocks_repeat() -> None:
+    """yellow 피드백이 쿨다운(5초) 이내에는 재발생하지 않는지 검증."""
     tracker = FeedbackTracker()
     js = _joint_signals({"index": "yellow"})
 
@@ -73,7 +78,8 @@ def test_yellow_cooldown_blocks_repeat():
     print("[PASS] yellow cooldown(5초) 적용")
 
 
-def test_red_fires_after_shorter_duration_with_shorter_cooldown():
+def test_red_fires_after_shorter_duration_with_shorter_cooldown() -> None:
+    """red 신호는 1.5초 지속·3초 쿨다운으로 yellow보다 더 빨리/자주 피드백을 내는지 검증."""
     tracker = FeedbackTracker()
     js = _joint_signals({"ring": "red"})
 
@@ -93,7 +99,8 @@ def test_red_fires_after_shorter_duration_with_shorter_cooldown():
     print("[PASS] red 1.5초 지속 → 발생, cooldown(3초) 적용")
 
 
-def test_green_resets_duration_timer():
+def test_green_resets_duration_timer() -> None:
+    """green 신호가 중간에 끼면 지속 타이머가 0으로 리셋되는지 검증."""
     tracker = FeedbackTracker()
     yellow = _joint_signals({"index": "yellow"})
     green = _joint_signals({"index": "green"})
@@ -117,7 +124,8 @@ def test_green_resets_duration_timer():
     print("[PASS] green 복귀 시 지속 시간 타이머 초기화")
 
 
-def test_level_switch_restarts_duration_timer():
+def test_level_switch_restarts_duration_timer() -> None:
+    """yellow→red로 레벨이 바뀌면 red의 새 기준으로 타이머가 재시작되는지 검증."""
     tracker = FeedbackTracker()
     yellow = _joint_signals({"middle": "yellow"})
     red = _joint_signals({"middle": "red"})
@@ -133,7 +141,8 @@ def test_level_switch_restarts_duration_timer():
     print("[PASS] yellow→red 전환 시 red 기준으로 타이머 재시작")
 
 
-def test_reset_clears_duration_and_cooldown():
+def test_reset_clears_duration_and_cooldown() -> None:
+    """reset() 호출이 지속시간과 쿨다운을 모두 초기화하는지 검증."""
     tracker = FeedbackTracker()
     yellow = _joint_signals({"index": "yellow"})
 
@@ -156,7 +165,8 @@ def test_reset_clears_duration_and_cooldown():
     print("[PASS] reset() 호출 시 지속시간·쿨다운 모두 초기화")
 
 
-def test_multiple_fingers_independent():
+def test_multiple_fingers_independent() -> None:
+    """서로 다른 손가락의 피드백이 독립적으로 추적되는지 검증."""
     tracker = FeedbackTracker()
     js = _joint_signals({"index": "yellow", "pinky": "red"})
 

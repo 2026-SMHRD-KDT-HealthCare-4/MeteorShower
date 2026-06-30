@@ -128,7 +128,7 @@ export default function PatientRegister() {
   /* ── 완료 화면 ── */
   if (done && patient) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
         <DoctorNavBar />
         <main className="max-w-[560px] mx-auto px-4 py-20 flex flex-col items-center gap-6 text-center">
           <div className="w-20 h-20 bg-[#e8f0fe] rounded-full flex items-center justify-center">
@@ -139,13 +139,16 @@ export default function PatientRegister() {
             <p className="text-body-md text-on-surface-variant mt-2">
               <span className="font-semibold text-doctor-primary">{patient.name}</span> 환자가 담당 환자로 등록되었습니다.
             </p>
+            <p className="text-label-sm text-on-surface-variant mt-1">
+              환자가 앱에 처음 로그인하면 등록 정보 확인 후 동의를 완료할 수 있습니다.
+            </p>
           </div>
           <div className="w-full bg-white border border-outline-variant rounded-2xl p-5 text-left space-y-2 shadow-card">
             {[
-              { label: '환자명', value: patient.name },
-              { label: '코드',   value: patient.patient_code },
+              { label: '환자명',    value: patient.name },
+              { label: '코드',      value: patient.patient_code },
               { label: '수술 부위', value: area },
-              { label: '수술명', value: surgery },
+              { label: '수술명',    value: surgery },
               { label: '수술 시기', value: surgeryDate },
               { label: '재활 시작', value: rehabStart },
               { label: '진행 단계', value: stage },
@@ -177,7 +180,7 @@ export default function PatientRegister() {
 
   /* ── 메인 폼 ── */
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       <main className="max-w-[860px] mx-auto px-4 md:px-8 py-8 space-y-6">

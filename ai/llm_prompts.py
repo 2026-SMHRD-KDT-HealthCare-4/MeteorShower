@@ -1,3 +1,4 @@
+"""LLM(OpenAI) 호출용 system/user 프롬프트를 조립하는 함수 모음."""
 from typing import Tuple
 
 
@@ -42,8 +43,9 @@ def build_daily_report_prompt(data: dict) -> Tuple[str, str]:
     questionnaire_section = f"""[사전 문진 결과]
 - {data['questionnaire_result']}"""
 
-    overload_section = f"""[과부하 발생 여부]
-- {data['overload_occurred']} (발생 시 해당 운동명 및 시점 포함)"""
+    overload_section = f"""[조기종료 / 과부하 발생 여부]
+- {data['overload_occurred']}
+- '환자 수동 종료'는 환자가 운동 중 직접 중단 버튼을 눌러 조기 종료한 것을 의미합니다."""
 
     instruction = """위 데이터를 바탕으로 주치의를 위한 임상 소견을 작성하십시오.
 운동이 차단된 경우 차단 사실과 사유를 첫 번째 항목에 명시하고,

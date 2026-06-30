@@ -31,6 +31,7 @@ FRONTEND_URL       = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
 async def _get_kakao_user_info(code: str, redirect_uri: str) -> dict:
+    # 카카오 인가 코드로 액세스 토큰을 발급받고 사용자 정보(id, name, email)를 반환
     async with httpx.AsyncClient() as client:
         token_res = await client.post(
             "https://kauth.kakao.com/oauth/token",
@@ -62,6 +63,7 @@ async def _get_kakao_user_info(code: str, redirect_uri: str) -> dict:
 
 
 async def _get_google_user_info(code: str, redirect_uri: str) -> dict:
+    # 구글 인가 코드로 액세스 토큰을 발급받고 사용자 정보(id, name, email)를 반환
     async with httpx.AsyncClient() as client:
         token_res = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -87,6 +89,7 @@ async def _get_google_user_info(code: str, redirect_uri: str) -> dict:
 
 
 async def _get_naver_user_info(code: str, redirect_uri: str, state: str) -> dict:
+    # 네이버 인가 코드로 액세스 토큰을 발급받고 사용자 정보(id, name, email, phone)를 반환
     async with httpx.AsyncClient() as client:
         token_res = await client.get(
             "https://nid.naver.com/oauth2.0/token",
@@ -112,6 +115,7 @@ async def _get_naver_user_info(code: str, redirect_uri: str, state: str) -> dict
         }
 
 def _generate_patient_code(db: Session) -> str:
+    # 충돌이 없을 때까지 F + 12자리 숫자 형식의 고유 환자 코드를 반복 생성
     while True:
         code = "F" + "".join(random.choices(string.digits, k=12))
         if not patient_crud.get_patient_by_code(db, code):
@@ -122,7 +126,7 @@ def _generate_patient_code(db: Session) -> str:
 def get_me(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     user_id = int(payload["sub"])
     role = payload["role"]
 
@@ -160,7 +164,7 @@ def update_doctor_profile(
     body: DoctorProfileUpdateRequest,
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
     if payload["role"] != "doctor":
         raise HTTPException(status_code=403, detail="doctor role required")
     doctor = doctor_crud.get_doctor_by_id(db, int(payload["sub"]))
@@ -182,13 +186,13 @@ def update_doctor_profile(
 # ── 아이디 중복 확인 ─────────────────────────────────────────────────────────
 
 @router.get("/doctor/check-id")
-def doctor_check_id(login_id: str, db: Session = Depends(get_db)):
+def doctor_check_id(login_id: str, db: Session = Depends(get_db)) -> dict:
     exists = doctor_crud.get_doctor_by_login_id(db, login_id) is not None
     return {"available": not exists}
 
 
 @router.get("/patient/check-id")
-def patient_check_id(login_id: str, db: Session = Depends(get_db)):
+def patient_check_id(login_id: str, db: Session = Depends(get_db)) -> dict:
     exists = patient_crud.get_patient_by_login_id(db, login_id) is not None
     return {"available": not exists}
 
@@ -196,7 +200,7 @@ def patient_check_id(login_id: str, db: Session = Depends(get_db)):
 # ── 의사 회원가입 ────────────────────────────────────────────────────────────
 
 @router.post("/doctor/signup", status_code=201)
-def doctor_signup(body: DoctorSignupRequest, db: Session = Depends(get_db)):
+def doctor_signup(body: DoctorSignupRequest, db: Session = Depends(get_db)) -> dict:
     if doctor_crud.get_doctor_by_login_id(db, body.login_id):
         raise HTTPException(status_code=400, detail="이미 사용 중인 아이디입니다.")
     if doctor_crud.get_doctor_by_email(db, body.email):
@@ -211,7 +215,7 @@ def doctor_signup(body: DoctorSignupRequest, db: Session = Depends(get_db)):
 # ── 의사 로그인 ──────────────────────────────────────────────────────────────
 
 @router.post("/doctor/login")
-def doctor_login(body: LoginRequest, db: Session = Depends(get_db)):
+def doctor_login(body: LoginRequest, db: Session = Depends(get_db)) -> dict:
     doctor = doctor_crud.get_doctor_by_login_id(db, body.login_id)
     if not doctor or not verify_password(body.password, doctor.password):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
@@ -228,7 +232,7 @@ def doctor_login(body: LoginRequest, db: Session = Depends(get_db)):
 # ── 환자 회원가입 ────────────────────────────────────────────────────────────
 
 @router.post("/patient/signup", status_code=201)
-def patient_signup(body: PatientSignupRequest, db: Session = Depends(get_db)):
+def patient_signup(body: PatientSignupRequest, db: Session = Depends(get_db)) -> dict:
     if patient_crud.get_patient_by_login_id(db, body.login_id):
         raise HTTPException(status_code=400, detail="이미 사용 중인 아이디입니다.")
 
@@ -244,7 +248,7 @@ def patient_signup(body: PatientSignupRequest, db: Session = Depends(get_db)):
 # ── 환자 로그인 ──────────────────────────────────────────────────────────────
 
 @router.post("/patient/login")
-def patient_login(body: LoginRequest, db: Session = Depends(get_db)):
+def patient_login(body: LoginRequest, db: Session = Depends(get_db)) -> dict:
     patient = patient_crud.get_patient_by_login_id(db, body.login_id)
     if not patient or not verify_password(body.password, patient.password):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
@@ -254,13 +258,15 @@ def patient_login(body: LoginRequest, db: Session = Depends(get_db)):
         "token": token,
         "name": patient.name,
         "role": "patient",
+        "approval_status": patient.approval_status,
     }
 
 
 # ── 소셜 로그인 ──────────────────────────────────────────────────────────────
 
 @router.get("/social/{provider}/url")
-def get_social_login_url(provider: str, redirect_uri: str):
+def get_social_login_url(provider: str, redirect_uri: str) -> dict:
+    # CSRF 방지를 위해 JWT state 토큰을 생성하여 소셜 로그인 URL과 함께 반환
     if provider not in ("kakao", "google", "naver"):
         raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
 
@@ -299,7 +305,8 @@ def get_social_login_url(provider: str, redirect_uri: str):
 
 
 @router.post("/social/{provider}")
-async def social_login(provider: str, request: Request, db: Session = Depends(get_db)):
+async def social_login(provider: str, request: Request, db: Session = Depends(get_db)) -> dict:
+    # state JWT를 검증해 CSRF를 방지하고, 기존 연동 계정이면 로그인 / 없으면 회원가입 토큰 반환
     if provider not in ("kakao", "google", "naver"):
         raise HTTPException(status_code=400, detail="지원하지 않는 소셜 플랫폼입니다.")
 
@@ -335,7 +342,7 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
     if social_account:
         patient = social_account.patient
         token = create_token(str(patient.patient_id), "patient")
-        return {"token": token, "name": patient.name, "role": "patient"}
+        return {"token": token, "name": patient.name, "role": "patient", "approval_status": patient.approval_status}
 
     signup_payload = {
         "type": "social_signup",
@@ -355,7 +362,8 @@ async def social_login(provider: str, request: Request, db: Session = Depends(ge
 
 
 @router.post("/social-signup", status_code=201)
-async def social_signup(request: Request, db: Session = Depends(get_db)):
+async def social_signup(request: Request, db: Session = Depends(get_db)) -> dict:
+    # signup_token을 검증하여 소셜 계정을 신규 환자와 연동하고 JWT를 발급
     body = await request.json()
     signup_token = body.get("signup_token")
     name       = body.get("name")
@@ -410,4 +418,4 @@ async def social_signup(request: Request, db: Session = Depends(get_db)):
     db.refresh(patient)
 
     token = create_token(str(patient.patient_id), "patient")
-    return {"token": token, "name": patient.name, "role": "patient"}
+    return {"token": token, "name": patient.name, "role": "patient", "approval_status": patient.approval_status}

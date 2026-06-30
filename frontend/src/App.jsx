@@ -10,6 +10,7 @@ import PatientSignup from './pages/patient/PatientSignup';
 import SocialCallback from './pages/patient/SocialCallback';
 import SocialSignup from './pages/patient/SocialSignup';
 import TodayExercise from './pages/patient/TodayExercise';
+import PatientApproval from './pages/patient/PatientApproval';
 import ExerciseSession from './pages/patient/ExerciseSession';
 import MedicalRecords from './pages/patient/MedicalRecords';
 import PatientProfile from './pages/patient/PatientProfile';
@@ -35,6 +36,9 @@ export default function App() {
           <Route path="/patient/signup" element={<PublicOnlyRoute><PatientSignup /></PublicOnlyRoute>} />
           <Route path="/patient/auth/callback/:provider" element={<SocialCallback />} />
           <Route path="/patient/auth/social-signup" element={<SocialSignup />} />
+
+          {/* 환자 등록 동의 (로그인 후 approval_status === '대기' 시 리다이렉트) */}
+          <Route path="/patient/approval" element={<PatientApproval />} />
 
           {/* Patient protected routes */}
           <Route path="/patient/exercise" element={<ProtectedRoute role="patient"><TodayExercise /></ProtectedRoute>} />

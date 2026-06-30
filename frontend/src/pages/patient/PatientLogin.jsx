@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Footer from '../../components/Footer';
-import logo from '../../assets/logo.png';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../api';
 
@@ -43,21 +42,21 @@ export default function PatientLogin() {
 
     setLoading(true);
     authApi.patientLogin(id, password)
-      .then(({ token, name }) => {
-        login({ name, role: 'patient' }, token, remember);
-        navigate('/patient/exercise', { replace: true });
+      .then(({ token, name, approval_status }) => {
+        login({ name, role: 'patient', approval_status }, token, remember);
+        navigate(approval_status === '대기' ? '/patient/approval' : '/patient/exercise', { replace: true });
       })
       .catch((err) => setLoginError(err.message))
       .finally(() => setLoading(false));
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" style={{ backgroundImage: "url('/patient-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       {/* Header */}
       <header className="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-sm h-16 flex items-center px-container-padding-mobile md:px-margin-desktop">
         <div className="flex justify-between items-center w-full max-w-7xl mx-auto">
           <Link to="/">
-            <img src={logo} alt="Fine Rehabilitation" className="h-12 w-auto" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-12 w-auto" />
           </Link>
         </div>
       </header>
@@ -67,7 +66,7 @@ export default function PatientLogin() {
         <div className="w-full max-w-[420px] bg-surface-container-lowest rounded-xl p-8 md:p-10 shadow-card transition-all duration-300">
           {/* Brand */}
           <div className="text-center mb-10">
-            <img src={logo} alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
+            <img src="/logo.png" alt="Fine Rehabilitation" className="h-20 w-auto mx-auto mb-5" />
             <h1 className="font-display text-headline-xl text-on-surface mb-2">환자 로그인</h1>
             <p className="text-body-md text-on-surface-variant">손 재활의 새로운 시작, 피네와 함께하세요.</p>
           </div>

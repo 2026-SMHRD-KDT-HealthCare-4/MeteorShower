@@ -30,37 +30,53 @@ function toKey(date) {
 }
 
 /* ── 처방 일정 컴포넌트 ── */
-function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = false }) {
+function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = false, minEditableDate = null }) {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
 
   const enabled = prescription.filter((ex) => ex.enabled);
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const toggle = (name, dateStr) =>
+  const canEditDate = (dateStr) => !readOnly && (!minEditableDate || dateStr > minEditableDate);
+
+  const toggle = (name, dateStr) => {
+    if (!canEditDate(dateStr)) return;
     setSchedule((prev) => ({ ...prev, [`${name}|${dateStr}`]: !prev[`${name}|${dateStr}`] }));
+  };
 
   const isOn = (name, dateStr) => !!schedule[`${name}|${dateStr}`];
 
   const assignWeekdays = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.slice(0, 5).forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.slice(0, 5).forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const assignAll = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { next[`${name}|${toKey(d)}`] = true; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) next[`${name}|${dateStr}`] = true;
+      })
     );
     setSchedule(next);
   };
 
   const clearWeek = () => {
+    if (readOnly) return;
     const next = { ...schedule };
     enabled.forEach(({ name }) =>
-      weekDates.forEach((d) => { delete next[`${name}|${toKey(d)}`]; })
+      weekDates.forEach((d) => {
+        const dateStr = toKey(d);
+        if (canEditDate(dateStr)) delete next[`${name}|${dateStr}`];
+      })
     );
     setSchedule(next);
   };
@@ -129,22 +145,21 @@ function PrescriptionSchedule({ prescription, schedule, setSchedule, readOnly = 
                 {weekDates.map((d, j) => {
                   const dateStr = toKey(d);
                   const on = isOn(ex.name, dateStr);
+                  const disabled = !canEditDate(dateStr);
                   return (
                     <td key={j} className="text-center px-2 py-3">
                       <button
-                        onClick={() => !readOnly && toggle(ex.name, dateStr)}
-                        className={`w-8 h-8 rounded-full text-label-sm font-bold transition-all
-                          ${readOnly ? 'cursor-default' : 'active:scale-90'}
+                        onClick={() => toggle(ex.name, dateStr)}
+                        disabled={disabled}
+                        className={`w-8 h-8 rounded-full text-label-sm font-bold transition-all active:scale-90
                           ${on
                             ? 'bg-doctor-primary text-white shadow-sm'
-                            : readOnly
-                              ? 'bg-surface-container text-on-surface-variant'
-                              : 'bg-surface-container text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
-                          }`}
+                            : 'bg-surface-container text-on-surface-variant hover:bg-[#e8f0fe] hover:text-doctor-primary'
+                          } ${disabled ? 'cursor-not-allowed opacity-50 active:scale-100' : ''}`}
                       >
                         {on
                           ? <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1, 'wght' 700" }}>check</span>
-                          : <span className="text-xs">{readOnly ? '' : '+'}</span>
+                          : <span className="text-xs">{disabled ? '' : '+'}</span>
                         }
                       </button>
                     </td>
@@ -224,7 +239,8 @@ export default function PatientInfo() {
   const [aiAdjust, setAiAdjust] = useState(true);
   const [aiJustSaved, setAiJustSaved] = useState(false);
   const [schedule, setSchedule] = useState({});
-  const [justSaved, setJustSaved] = useState(false);
+  const [justSaved,  setJustSaved]  = useState(false);
+  const [isSaving,   setIsSaving]   = useState(false);
   const [selectedSession, setSelectedSession] = useState(0);
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
   const [isEditing, setIsEditing] = useState(true);
@@ -233,6 +249,7 @@ export default function PatientInfo() {
   const [activeRomTab, setActiveRomTab] = useState('basic');
   const [tappingRom, setTappingRom]     = useState({});
   const [prescriptionLoaded, setPrescriptionLoaded] = useState(false);
+  const [exerciseCaptures, setExerciseCaptures] = useState([]);
 
   useEffect(() => {
     if (!patientId) return;
@@ -273,6 +290,9 @@ export default function PatientInfo() {
     patientApi.getPatientRom(patientId, 'tapping')
       .then((data) => setTappingRom(data.rom ?? {}))
       .catch(() => {});
+    patientApi.getPatientExerciseCaptures(patientId)
+      .then(setExerciseCaptures)
+      .catch(() => setExerciseCaptures([]));
   }, [patientId]);
 
   const handleMedicalSave = () => {
@@ -328,7 +348,8 @@ export default function PatientInfo() {
   const canSave = hasChecked && hasSchedule;
 
   const handleSave = () => {
-    if (!canSave) return;
+    if (!canSave || isSaving) return;
+    setIsSaving(true);
     patientApi.savePatientPrescription(patientId, {
       rehab_phase: patient?.current_rehab_phase || undefined,
       exercises: prescription,
@@ -340,7 +361,8 @@ export default function PatientInfo() {
         setIsEditing(false);
         setTimeout(() => setJustSaved(false), 2000);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsSaving(false));
   };
 
   const handleEditStart = () => {
@@ -367,11 +389,16 @@ export default function PatientInfo() {
     ].join(' ');
   };
 
-  const sessionGallery = [];
+  const startCaptures = exerciseCaptures.filter((capture) => capture.group === 'start');
+  const otherCaptures = exerciseCaptures.filter((capture) => capture.group !== 'start');
+  const sessionGallery = [
+    { label: '시작 GIF', date: '전체 기록', photos: startCaptures },
+    { label: '운동 완료 / 과부하 GIF', date: '전체 기록', photos: otherCaptures },
+  ];
   const currentPhotos = sessionGallery[selectedSession]?.photos ?? [];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       {/* 라이트박스 */}
@@ -384,12 +411,12 @@ export default function PatientInfo() {
             className="relative max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`w-full aspect-[4/3] bg-gradient-to-br ${lightboxPhoto.gradient} flex items-center justify-center`}>
-              <span className="material-symbols-outlined text-white/40 text-[120px]" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
+            <div className="w-full aspect-video max-h-[72vh] bg-black flex items-center justify-center">
+              <img src={lightboxPhoto.url} alt={lightboxPhoto.exercise_name} className="w-full h-full object-cover" />
             </div>
             <div className="bg-white px-5 py-4 flex items-center justify-between">
               <div>
-                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.label}</p>
+                <p className="text-title-sm font-bold text-on-surface">{lightboxPhoto.exercise_name}</p>
                 <p className="text-label-sm text-on-surface-variant mt-0.5">
                   {sessionGallery[selectedSession]?.label} · {sessionGallery[selectedSession]?.date} · {lightboxPhoto.time}
                 </p>
@@ -588,21 +615,23 @@ export default function PatientInfo() {
           </div>
 
           {/* 사진 그리드 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {currentPhotos.length === 0 && (
+              <div className="sm:col-span-2 aspect-video rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex items-center justify-center text-label-md text-on-surface-variant">
+                촬영된 GIF가 없습니다
+              </div>
+            )}
             {currentPhotos.map((photo) => (
               <button
                 key={photo.id}
                 onClick={() => setLightboxPhoto(photo)}
                 className="relative aspect-square rounded-xl overflow-hidden group shadow-sm hover:shadow-md transition-all active:scale-95"
               >
-                <div className={`absolute inset-0 bg-gradient-to-br ${photo.gradient}`} />
-                <div className="absolute inset-0 flex items-center justify-center opacity-30 group-hover:opacity-20 transition-opacity">
-                  <span className="material-symbols-outlined text-white text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>image</span>
-                </div>
+                <img src={photo.url} alt={photo.exercise_name} className="absolute inset-0 w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                 <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-2 py-1.5 flex items-center justify-between">
-                  <span className="text-white text-[11px] font-semibold truncate">{photo.label}</span>
-                  <span className="text-white/80 text-[10px] flex-shrink-0 ml-1">{photo.time}</span>
+                  <span className="text-white text-[11px] font-semibold truncate">{photo.exercise_name}</span>
+                  <span className="text-white/80 text-[10px] flex-shrink-0 ml-1">{photo.type}</span>
                 </div>
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <span className="material-symbols-outlined text-white text-base drop-shadow">open_in_full</span>
@@ -1003,41 +1032,45 @@ export default function PatientInfo() {
                   처방 일정 설정
                 </h3>
               </div>
-              <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} />
+              <PrescriptionSchedule prescription={prescription} schedule={schedule} setSchedule={setSchedule} minEditableDate={(() => { const d = new Date(); d.setDate(d.getDate() - 1); return toKey(d); })()} />
             </>
           )}
         </section>
 
         {/* 저장 / 취소 */}
         {isEditing && (
-        <div className="flex justify-end gap-3 pb-4">
-          {!isEditing && (
+          <div className="flex justify-end gap-3 pb-4">
             <button
               onClick={handleEditCancel}
-              className="px-6 py-3 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md"
+              disabled={isSaving}
+              className="px-6 py-3 border-2 border-outline-variant text-on-surface-variant font-semibold rounded-xl hover:border-doctor-primary hover:text-doctor-primary transition-colors text-label-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               취소
             </button>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!canSave}
-            className={`flex items-center gap-2 px-6 sm:px-8 py-3 font-semibold rounded-xl transition-opacity shadow-md text-label-md
-              ${canSave ? 'bg-doctor-primary text-white hover:opacity-90' : 'bg-surface-container text-on-surface-variant cursor-not-allowed opacity-50'}`}
-          >
-            {justSaved ? (
-              <>
-                <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                저장 완료
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-base">save</span>
-                저장 (Save)
-              </>
-            )}
-          </button>
-        </div>
+            <button
+              onClick={handleSave}
+              disabled={!canSave || isSaving}
+              className={`flex items-center gap-2 px-6 sm:px-8 py-3 font-semibold rounded-xl transition-opacity shadow-md text-label-md
+                ${canSave && !isSaving ? 'bg-doctor-primary text-white hover:opacity-90' : 'bg-surface-container text-on-surface-variant cursor-not-allowed opacity-50'}`}
+            >
+              {isSaving ? (
+                <>
+                  <span className="material-symbols-outlined text-base animate-spin">progress_activity</span>
+                  저장 중...
+                </>
+              ) : justSaved ? (
+                <>
+                  <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                  저장 완료
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-base">save</span>
+                  저장 (Save)
+                </>
+              )}
+            </button>
+          </div>
         )}
 
       </main>

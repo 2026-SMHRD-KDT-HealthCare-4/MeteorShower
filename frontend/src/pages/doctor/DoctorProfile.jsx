@@ -71,7 +71,7 @@ export default function DoctorProfile() {
   const errCls = 'w-full px-4 py-2.5 border border-error rounded-xl text-body-md text-on-surface bg-surface-container-lowest focus:outline-none focus:ring-2 focus:ring-error transition-all';
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={{ backgroundImage: "url('/doctor-bg-pattern.svg')", backgroundSize: 'cover', backgroundRepeat: 'no-repeat' }}>
       <DoctorNavBar />
 
       <main className="max-w-2xl mx-auto px-4 md:px-0 py-10">

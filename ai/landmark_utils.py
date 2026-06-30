@@ -1,3 +1,4 @@
+"""손 랜드마크 좌표 정규화·특징 추출·관절 각도 계산·손바닥 방향 감지 유틸리티."""
 import numpy as np
 
 # index/middle/ring/pinky MCP joints: rigid base of the palm. Their distance
@@ -10,7 +11,7 @@ _PALM_REF_INDICES = (5, 9, 13, 17)
 _MIN_SCALE = 0.02
 
 
-def translate_to_wrist(landmarks):
+def translate_to_wrist(landmarks) -> np.ndarray:
     """Wrist-center 21 hand landmarks to (21, 3) float32.
 
     This is the only normalization guide JSON files use: it removes camera
@@ -35,7 +36,7 @@ def palm_scale(coords):
     return np.sqrt((palm_xy ** 2).sum(axis=-1)).mean(axis=-1)
 
 
-def compute_guide_scale(guide_np):
+def compute_guide_scale(guide_np) -> float:
     """Mean palm-size reference across all frames of a guide sequence.
 
     Used as the target scale that live patient landmarks get rescaled to,
@@ -47,7 +48,7 @@ def compute_guide_scale(guide_np):
     return float(palm_scale(guide_np).mean())
 
 
-def normalize_to_guide_scale(landmarks, guide_scale):
+def normalize_to_guide_scale(landmarks, guide_scale) -> np.ndarray:
     """Wrist-center live landmarks, then rescale so this hand's palm size
     matches `guide_scale`.
 
@@ -61,7 +62,7 @@ def normalize_to_guide_scale(landmarks, guide_scale):
     return coords * ratio
 
 
-def extract_features_full_fist(coords):
+def extract_features_full_fist(coords) -> np.ndarray:
     """(21, 3) wrist-relative coords → (5,) feature vector.
 
     손목(0) 기준 각 손가락 끝까지의 3D 거리.
@@ -75,7 +76,7 @@ def extract_features_full_fist(coords):
     )
 
 
-def extract_features_tapping(coords):
+def extract_features_tapping(coords) -> np.ndarray:
     """(21, 3) wrist-relative coords → (8,) feature vector.
 
     앞 4개: 엄지끝(4) 기준 각 손가락끝(8,12,16,20)까지의 3D 거리.
@@ -91,7 +92,7 @@ def extract_features_tapping(coords):
     return np.array(thumb_dists + wrist_dists, dtype=np.float32)
 
 
-def calculate_joint_angle(p1, p2, p3):
+def calculate_joint_angle(p1, p2, p3) -> float:
     """세 점(p1, p2, p3)으로 p2를 꼭짓점으로 하는 내부 각도(0~180도)를 계산.
 
     v1 = p1-p2, v2 = p3-p2 사이의 각도. 곧게 펴졌을 때 180°에 가깝고,
@@ -122,7 +123,12 @@ _FINGER_JOINT_INDICES = {
 }
 
 
-def compute_finger_angles(coords):
+def compute_finger_angles(coords) -> dict[str, dict[str, float]]:
+    """(21, 3) coords(wrist-relative) → 손가락별 관절 각도 dict.
+
+    반환 구조: {"thumb": {"MCP": float, "IP": float}, "index": {"MCP": float, ...}, ...}.
+    각 값은 0~180도이며, 180°에 가까울수록 곧게 펴진 상태를 의미한다.
+    """
     # 이 구조로 반환되는지 확인하세요
     return {
         finger: {
@@ -133,7 +139,7 @@ def compute_finger_angles(coords):
     }
 
 
-def mirror_guide_to_right_hand(guide_np):
+def mirror_guide_to_right_hand(guide_np) -> np.ndarray | None:
     """왼손 기준 가이드 (N, 21, 3)을 오른손용으로 좌우 반전.
 
     손목 기준 상대좌표에서 x축만 부호 반전하면 거울 대칭이 된다.
@@ -146,7 +152,7 @@ def mirror_guide_to_right_hand(guide_np):
     return mirrored
 
 
-def compute_palm_normal(coords):
+def compute_palm_normal(coords) -> np.ndarray | None:
     """(21,3) wrist-relative coords → 손바닥 평면의 단위 법선 벡터 (3,).
 
     손목(0), 검지MCP(5), 새끼MCP(17) 세 점으로 평면을 정의하고
@@ -169,7 +175,7 @@ def compute_palm_normal(coords):
     return n / norm
 
 
-def compute_guide_palm_normal(guide_np):
+def compute_guide_palm_normal(guide_np) -> np.ndarray | None:
     """가이드 (N,21,3) 전체 프레임의 손바닥 법선을 평균해 단위벡터로 반환.
 
     프레임마다 법선이 들쭉날쭉(특히 주먹을 쥐는 구간 등)할 때 특정 프레임
@@ -191,7 +197,7 @@ def compute_guide_palm_normal(guide_np):
     return mean_normal / norm
 
 
-def angle_between_vectors(a, b):
+def angle_between_vectors(a, b) -> float | None:
     """두 단위 벡터 사이각(0~180도). a 또는 b가 None이면 None."""
     if a is None or b is None:
         return None
@@ -201,7 +207,7 @@ def angle_between_vectors(a, b):
     return float(np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0))))
 
 
-def palm_normal_delta(patient_normal, guide_normal):
+def palm_normal_delta(patient_normal, guide_normal) -> tuple[float, float, float] | None:
     """두 단위 법선의 차이를 환자-가이드 로 분해해 (dx, dy, dz) 반환.
 
     둘 중 하나가 None이면 None. 추가 변환/정규화 없이 patient_normal -

@@ -1,5 +1,6 @@
 import os
 import logging
+from typing import AsyncIterator
 from dotenv import load_dotenv
 from pathlib import Path
 load_dotenv(Path(__file__).parent.parent / '.env')
@@ -8,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from routers import auth, chat, doctor_dashboard, doctor_notifications, health, notifications, patients, reports, ws
+from routers import auth, chat, doctor_dashboard, doctor_notifications, health, notifications, patients, reports
 from database import SessionLocal
 from models.exercise import Exercise
 import rag
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 서버 시작 시 운동 데이터를 RAG 벡터 DB에 색인
     try:
         db = SessionLocal()
@@ -37,7 +38,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "내부 서버 오류가 발생했습니다."})
 
@@ -56,5 +57,4 @@ app.include_router(notifications.router)
 app.include_router(doctor_notifications.router)
 app.include_router(doctor_dashboard.router)
 app.include_router(reports.router)
-app.include_router(ws.router)
 app.include_router(chat.router)

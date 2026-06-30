@@ -14,7 +14,7 @@ from models.prescription_exercise import PrescriptionExercise
 router = APIRouter(prefix="/doctor/me", tags=["doctor-dashboard"])
 
 
-def _require_doctor(payload: dict):
+def _require_doctor(payload: dict) -> None:
     if payload["role"] != "doctor":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -33,7 +33,8 @@ def _patient_card(patient: Patient) -> dict:
     }
 
 
-def _week_range(today: date):
+def _week_range(today: date) -> tuple[date, date]:
+    # 주어진 날짜가 속한 주의 월요일과 일요일을 반환
     start = today - timedelta(days=today.weekday())
     end = start + timedelta(days=6)
     return start, end
@@ -43,7 +44,8 @@ def _week_range(today: date):
 def get_doctor_dashboard(
     payload: dict = Depends(get_token_payload),
     db: Session = Depends(get_db),
-):
+) -> dict:
+    # 오늘 리포트 대기 환자, 이번 주 처방별 수행 현황, 오늘 리포트 작성 환자 ID 목록을 반환
     _require_doctor(payload)
     doctor_id = int(payload["sub"])
     week_start, week_end = _week_range(date.today())
@@ -54,6 +56,7 @@ def get_doctor_dashboard(
         .filter(
             Patient.doctor_id == doctor_id,
             LlmReport.doctor_id == doctor_id,
+            LlmReport.report_date == date.today(),
             LlmReport.approval_status.in_(["대기", "수정"]),
         )
         .distinct()
@@ -104,7 +107,20 @@ def get_doctor_dashboard(
             }
         )
 
+    today_report_rows = (
+        db.query(LlmReport.patient_id)
+        .join(Patient, Patient.patient_id == LlmReport.patient_id)
+        .filter(
+            Patient.doctor_id == doctor_id,
+            LlmReport.doctor_id == doctor_id,
+            LlmReport.report_date == date.today(),
+        )
+        .all()
+    )
+    today_report_patient_ids = [row[0] for row in today_report_rows]
+
     return {
         "waiting_patients": waiting_patients,
         "weekly_prescriptions": weekly_prescriptions,
+        "today_report_patient_ids": today_report_patient_ids,
     }

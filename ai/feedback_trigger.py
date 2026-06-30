@@ -1,3 +1,4 @@
+"""손가락 신호등(green/yellow/red) 지속시간을 추적해 실시간 재활 피드백 메시지를 생성한다."""
 import time
 
 # 추후 조정 가능하도록 상수로 분리
@@ -40,12 +41,12 @@ class FeedbackTracker:
     인스턴스를 하나씩 만들어 사용한다.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._level_started_at = {}   # finger_name -> 현재 레벨(yellow/red) 진입 시각
         self._current_level    = {}   # finger_name -> 마지막으로 본 레벨
         self._last_feedback_at = {}   # (finger_name, level) -> 마지막 피드백 발생 시각
 
-    def reset(self):
+    def reset(self) -> None:
         """지속시간·쿨다운 상태를 모두 초기화한다.
 
         운동/세트 전환처럼 맥락이 완전히 바뀌는 시점에 호출한다. 단순히 green
@@ -57,6 +58,11 @@ class FeedbackTracker:
         self._last_feedback_at.clear()
 
     def update(self, joint_signals: dict, now: float = None) -> list:
+        """joint_signals를 받아 이번 호출에서 새로 발생한 피드백 메시지 목록을 반환한다.
+
+        joint_signals는 랜드마크 인덱스(int) 또는 문자열 키 → "green"/"yellow"/"red" dict.
+        임계시간·쿨다운을 통과한 항목만 {"finger", "level", "message"} 형식으로 포함된다.
+        """
         now = now if now is not None else time.time()
         finger_signals = reduce_to_finger_signals(joint_signals)
         messages = []

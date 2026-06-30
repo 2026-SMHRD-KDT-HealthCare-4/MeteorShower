@@ -29,6 +29,7 @@ class Patient(Base):
     ai_difficulty_enabled = Column(Boolean, nullable=False, default=False)
     appointment_date = Column(Date)  # ✏️ 신규 추가
     overall_evaluation = Column(Text)  # ✏️ 신규 추가: 누적 리포트 승인 후 전달되는 종합 소견
+    approval_status = Column(String(10), nullable=False, server_default='승인')
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
@@ -37,6 +38,10 @@ class Patient(Base):
         CheckConstraint(
             "current_rehab_phase IN ('초기', '중기', '후기')",
             name="ck_patient_phase",
+        ),
+        CheckConstraint(
+            "approval_status IN ('대기', '승인')",
+            name="ck_patient_approval_status",
         ),
     )
 
