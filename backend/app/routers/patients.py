@@ -116,7 +116,7 @@ def _progress_from_log(log) -> int:
 def _exercise_status_from_log(log) -> str:
     if not log:
         return "waiting"
-    return "done" if _progress_from_log(log) >= 100 else "partial"
+    return "done"
 
 
 async def _upload_capture_photo(
@@ -722,12 +722,23 @@ def get_my_weekly_stats(
         progress_values = [_progress_from_log(_first_schedule_log(s)) for s in schedules]
         done = sum(1 for value in progress_values if value >= 100)
         rate = round(sum(progress_values) / total) if total > 0 else 0
+
+        match_rates: list[float] = []
+        for schedule in schedules:
+            log = _first_schedule_log(schedule)
+            if log:
+                for acc in log.finger_accuracies:
+                    if acc.avg_match_rate is not None:
+                        match_rates.append(float(acc.avg_match_rate))
+        accuracy = round(sum(match_rates) / len(match_rates), 1) if match_rates else None
+
         result.append({
             "day": day_labels[i],
             "date": day_date.isoformat(),
             "total": total,
             "done": done,
             "rate": rate,
+            "accuracy": accuracy,
             "is_today": day_date == today,
         })
 
