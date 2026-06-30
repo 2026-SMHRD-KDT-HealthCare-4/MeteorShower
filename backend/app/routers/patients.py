@@ -721,9 +721,9 @@ def get_my_weekly_stats(
             .all()
         )
         total = len(schedules)
-        progress_values = [_progress_from_log(_first_schedule_log(s)) for s in schedules]
-        done = sum(1 for value in progress_values if value >= 100)
-        rate = round(sum(progress_values) / total) if total > 0 else 0
+        logs = [_first_schedule_log(s) for s in schedules]
+        done = sum(1 for log in logs if log is not None)
+        rate = round(done / total * 100) if total > 0 else 0
 
         match_rates: list[float] = []
         for schedule in schedules:

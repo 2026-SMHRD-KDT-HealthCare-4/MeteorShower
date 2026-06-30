@@ -321,7 +321,7 @@ export default function TodayExercise() {
   const completedCount = exercises.filter((e) => e.status === 'done').length;
   const totalCount = exercises.length;
   const totalProgress = exercises.reduce(
-    (sum, exercise) => sum + Number(exercise.progress_rate ?? (exercise.status === 'done' ? 100 : 0)),
+    (sum, exercise) => sum + (exercise.status === 'done' ? 100 : Math.round(exercise.progress_rate ?? 0)),
     0,
   );
   const completionPercent = totalCount > 0 ? Math.round(totalProgress / totalCount) : 0;
