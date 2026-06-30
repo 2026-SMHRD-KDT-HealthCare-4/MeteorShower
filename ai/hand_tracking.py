@@ -514,6 +514,9 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
 
     with vision.HandLandmarker.create_from_options(_options) as landmarker:
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap.release()
+            cap = cv2.VideoCapture(0)
         loop_start          = time.time()
         guide_elapsed_start = loop_start
 
