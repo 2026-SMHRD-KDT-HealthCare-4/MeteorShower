@@ -150,7 +150,13 @@ def build_daily_report_data(
         if session.start_time and log.end_time:
             duration_minutes += max(0, round((log.end_time - session.start_time).total_seconds() / 60))
         if log.end_type and log.end_type != "완료":
-            overload_notes.append(f"{exercise_name}: {log.end_type}")
+            _END_TYPE_LABELS = {
+                "안전종료": "환자 수동 종료",
+                "목표조정": "과부하로 인한 목표 조정",
+                "운동차단": "운동 차단",
+            }
+            label = _END_TYPE_LABELS.get(log.end_type, log.end_type)
+            overload_notes.append(f"{exercise_name}: {label}")
 
         for accuracy in log.finger_accuracies:
             finger_key = FINGER_KEY_BY_LABEL.get(accuracy.finger_type)
@@ -183,7 +189,14 @@ def build_daily_report_data(
         "rehab_start_date": _date_text(patient.rehab_start_date),
         "rehab_stage": patient.current_rehab_phase or "미지정",
         "session_date": report_date.isoformat(),
-        "session_status": "운동차단" if exercise_blocked else ("운동기록 있음" if recorded_count else "운동기록 없음"),
+        "session_status": (
+            "운동차단(문진)"
+            if exercise_blocked
+            else "수동종료(조기종료)" if any("수동 종료" in n for n in overload_notes)
+            else "조기종료(과부하)" if any("목표 조정" in n for n in overload_notes)
+            else "정상완료" if recorded_count
+            else "운동기록 없음"
+        ),
         "is_blocked": exercise_blocked,
         "block_reason": "사전 문진에서 운동 차단으로 기록되었습니다." if exercise_blocked else "",
         "exercise_duration": duration_minutes,
