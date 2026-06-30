@@ -44,6 +44,11 @@ HOLOGRAM_VAL_MAX                = 1.05
 
 
 def draw_animated_guide(frame, guide_frame_idx, guide_np) -> None:
+    """guide_np의 guide_frame_idx번째 프레임을 홀로그램 스타일로 frame 위에 합성(인플레이스).
+
+    guide_np가 None이면 아무것도 그리지 않는다. 배경 밝기를 측정해 채도·명도·불투명도를
+    자동 조절하므로 어두운/밝은 환경 모두에서 가이드가 또렷하게 보인다.
+    """
     if guide_np is None: return
 
     h, w = frame.shape[:2]
