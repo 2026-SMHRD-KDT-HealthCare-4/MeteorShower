@@ -1,4 +1,4 @@
-"""MediaPipe 기반 손 재활 트래킹 루프와 보조 함수 모음. run_tracking()이 메인 진입점이다."""
+﻿"""MediaPipe 기반 손 재활 트래킹 루프와 보조 함수 모음. run_tracking()이 메인 진입점이다."""
 import base64
 import json
 import math
@@ -552,7 +552,7 @@ class QueueVideoCapture:
         return None
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None, frame_queue: queue.Queue | None = None) -> None:
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None, frame_queue: queue.Queue | None = None, session_complete_event: threading.Event | None = None) -> None:
     """웹캠을 열어 MediaPipe로 손 트래킹을 실행하고, 매 프레임 결과를 q(Queue)에 넣는다.
 
     stop_event가 set되거나 세션이 완료/과부하 종료될 때까지 루프를 계속 돈다.
@@ -936,6 +936,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                                 if current_exercise_idx >= len(active_exercises):
                                     session_complete    = True
                                     session_complete_at = time.time()
+                                    if session_complete_event is not None:
+                                        session_complete_event.set()
                                     print(f"[SessionEnd] reason=set_done, count={_completed_count}, target_count={ex['target_count']}, current_set={_completed_set}, target_set={ex['target_set']}")
                                     pending_last_capture = True
                                     capture_set_number = _completed_set
@@ -1114,6 +1116,8 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
                 pending_overload_capture = True
                 capture_set_number = current_set
                 overload_stage = 2
+                if session_complete_event is not None:
+                    session_complete_event.set()
                 print(f"[Overload] stage=1->2, cause={overload_cause}, count={count}, current_set={current_set}")
                 print(f"[SessionEnd] reason=overload, cause={overload_cause}, count={count}, target_count={ex['target_count']}, current_set={current_set}, target_set={ex['target_set']}")
 

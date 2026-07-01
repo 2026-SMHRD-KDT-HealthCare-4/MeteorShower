@@ -13,7 +13,7 @@ class RehabExerciseCapture(Base):
         Integer, ForeignKey("rehab_exercise_session.rehab_session_id"), nullable=False
     )
     set_number = Column(Integer, nullable=False)
-    set_first_gif_url = Column(String(500), nullable=False)
+    set_first_gif_url = Column(String(500), nullable=True)
     set_last_gif_url = Column(String(500))
     overload_before_gif_url = Column(String(500))
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())

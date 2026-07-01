@@ -882,8 +882,6 @@ async def upload_my_exercise_capture(
         .first()
     )
     if not capture:
-        if not first_url:
-            raise HTTPException(status_code=422, detail="set_first_gif is required for a new capture")
         capture = RehabExerciseCapture(
             rehab_session_id=rehab_session_id,
             set_number=set_number,
