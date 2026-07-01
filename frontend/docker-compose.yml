@@ -1,8 +1,12 @@
 services:
   frontend:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_API_URL: "https://fine123.site/api"
+        VITE_WS_URL: "wss://fine123.site/ws"
     ports:
-      - "5173:5173"
+      - "5173:80"
     volumes:
       - .:/app
       - /app/node_modules

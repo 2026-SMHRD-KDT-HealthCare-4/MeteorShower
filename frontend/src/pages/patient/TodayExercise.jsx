@@ -213,7 +213,7 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
   const videoRef = useRef(null);
   const guideVideoSrc = getGuideVideoSrc(ex.name);
 
-  const progress = isDone ? 100 : Math.round(ex.progress_rate ?? 0);
+  const progress = Math.round(ex.progress_rate ?? (isDone ? 100 : 0));
 
   const handleStart = () => {
     onStart(ex.id);
@@ -378,7 +378,7 @@ export default function TodayExercise() {
   const completedCount = exercises.filter((e) => e.status === 'done').length;
   const totalCount = exercises.length;
   const totalProgress = exercises.reduce(
-    (sum, exercise) => sum + (exercise.status === 'done' ? 100 : Math.round(exercise.progress_rate ?? 0)),
+    (sum, exercise) => sum + Math.round(exercise.progress_rate ?? (exercise.status === 'done' ? 100 : 0)),
     0,
   );
   const completionPercent = totalCount > 0 ? Math.round(totalProgress / totalCount) : 0;
