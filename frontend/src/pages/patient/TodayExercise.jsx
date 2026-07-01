@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PatientNavBar from '../../components/PatientNavBar';
 import { useAuth } from '../../context/AuthContext';
@@ -13,6 +13,31 @@ const INITIAL_EXERCISES = [
 ];
 
 const STATUS_ORDER = { in_progress: 0, waiting: 1, done: 2 };
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 백엔드가 막 기동돼 아직 listen 전이거나(ERR_CONNECTION_REFUSED) 일시적으로
+// 응답이 없을 때를 대비한 재시도. retries회 더 시도(총 1+retries회), 매 시도 사이 delayMs 대기.
+async function fetchWithRetry(fn, { retries = 2, delayMs = 1500 } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) await delay(delayMs);
+    }
+  }
+  throw lastError;
+}
+
+// 운동명 → 가이드 미리보기 영상 경로. 매칭되는 영상이 없으면 null(기존 회색 썸네일 유지).
+function getGuideVideoSrc(name = '') {
+  const type = name.includes('태핑') ? 'tapping' : name.includes('그립') ? 'grip' : null;
+  const side = name.includes('왼손') ? 'left' : name.includes('오른손') ? 'right' : null;
+  if (!type || !side) return null;
+  return `/videos/${type}_${side}.mp4`;
+}
 
 
 function TrendChart({ fromVal, toVal, delta, isUp }) {
@@ -185,12 +210,25 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
   const isDone = ex.status === 'done';
 
   const [showModal, setShowModal] = useState(false);
+  const videoRef = useRef(null);
+  const guideVideoSrc = getGuideVideoSrc(ex.name);
 
-  const progress = isDone ? 100 : Math.round(ex.progress_rate ?? 0);
+  const progress = Math.round(ex.progress_rate ?? (isDone ? 100 : 0));
 
   const handleStart = () => {
     onStart(ex.id);
     navigate('/patient/exercise/session', { state: { exercise: ex, queue, queueIndex } });
+  };
+
+  const handleThumbnailEnter = () => {
+    videoRef.current?.play().catch(() => {});
+  };
+
+  const handleThumbnailLeave = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.pause();
+    video.currentTime = 0;
   };
 
   return (
@@ -202,13 +240,29 @@ function ExerciseCard({ ex, onStart, isBlocked, onBlocked, queue, queueIndex }) 
     >
       {isInProgress && <div className="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-xl" />}
 
-      {/* 비디오 썸네일 */}
-      <div className="relative w-full md:w-48 aspect-video rounded-lg overflow-hidden flex-shrink-0 bg-surface-container-high flex items-center justify-center">
-        <span className="material-symbols-outlined text-primary text-5xl">fitness_center</span>
-        <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-          <span className="material-symbols-outlined text-white text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>play_circle</span>
-        </div>
-        <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">{ex.videoTime}</div>
+      {/* 비디오 썸네일 — export 영상이 640x480(4:3)이라 컨테이너도 4:3으로 맞춰 찌그러짐/잘림 방지 */}
+      <div
+        className="group relative w-full md:w-48 aspect-[4/3] rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+        onMouseEnter={handleThumbnailEnter}
+        onMouseLeave={handleThumbnailLeave}
+      >
+        {guideVideoSrc ? (
+          <video
+            ref={videoRef}
+            src={guideVideoSrc}
+            muted
+            loop
+            playsInline
+            preload="auto"
+            disablePictureInPicture
+            controlsList="nodownload nofullscreen noremoteplayback"
+            className="absolute inset-0 w-full h-full object-cover transition-[filter] duration-300 ease-out saturate-75 group-hover:saturate-200 group-hover:contrast-150 group-hover:brightness-95"
+          />
+        ) : (
+          <div className="absolute inset-0 bg-surface-container-high flex items-center justify-center">
+            <span className="material-symbols-outlined text-primary text-5xl">fitness_center</span>
+          </div>
+        )}
       </div>
 
       {/* 정보 */}
@@ -298,19 +352,22 @@ export default function TodayExercise() {
   const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     setIsBlocked(localStorage.getItem(getBlockedKey(token)) === today);
 
-    patientApi.getTodayExercises()
-      .then((data) => setExercises(data))
-      .catch(() => setExercises(INITIAL_EXERCISES))
-      .finally(() => setLoading(false));
+    fetchWithRetry(() => patientApi.getTodayExercises())
+      .then((data) => { if (!cancelled) setExercises(data); })
+      .catch(() => { if (!cancelled) setExercises(INITIAL_EXERCISES); })
+      .finally(() => { if (!cancelled) setLoading(false); });
 
-    patientApi.getWeeklyStats()
-      .then((data) => setWeeklyStats(data))
+    fetchWithRetry(() => patientApi.getWeeklyStats())
+      .then((data) => { if (!cancelled) setWeeklyStats(data); })
       .catch(() => {});
+
+    return () => { cancelled = true; };
   }, [locationKey]);
 
   const sortedExercises = useMemo(
@@ -321,18 +378,21 @@ export default function TodayExercise() {
   const completedCount = exercises.filter((e) => e.status === 'done').length;
   const totalCount = exercises.length;
   const totalProgress = exercises.reduce(
-    (sum, exercise) => sum + Number(exercise.progress_rate ?? (exercise.status === 'done' ? 100 : 0)),
+    (sum, exercise) => sum + Math.round(exercise.progress_rate ?? (exercise.status === 'done' ? 100 : 0)),
     0,
   );
   const completionPercent = totalCount > 0 ? Math.round(totalProgress / totalCount) : 0;
   const completionRatio = completionPercent / 100;
 
   // 운동 변화 추세 계산
-  const daysWithData = weeklyStats.filter((d) => d.total > 0);
-  const fromRate = daysWithData.length >= 2
-    ? Math.round(daysWithData.slice(0, -1).reduce((s, d) => s + d.rate, 0) / (daysWithData.length - 1))
+  const todayStat    = weeklyStats.find((d) => d.is_today);
+  const hasTodayData = (todayStat?.total ?? 0) > 0;
+  const daysWithData = weeklyStats.filter((d) => d.total > 0 && !d.is_today);
+  const fromRate = daysWithData.length >= 1
+    ? Math.round(daysWithData.reduce((s, d) => s + d.rate, 0) / daysWithData.length)
     : null;
-  const toRate   = daysWithData.length >= 1 ? daysWithData[daysWithData.length - 1].rate : null;
+  // 오늘 일정이 있으면 실시간 completionPercent를 현재값으로 사용
+  const toRate   = hasTodayData ? completionPercent : (daysWithData.length >= 1 ? daysWithData[daysWithData.length - 1].rate : null);
   const delta    = fromRate !== null && toRate !== null ? toRate - fromRate : null;
   const hasTrend = delta !== null;
   const isUp     = hasTrend && delta >= 0;

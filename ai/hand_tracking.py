@@ -532,7 +532,27 @@ def _resolve_prescribed_target(raw_value, exercise_default, label) -> int:
     return value
 
 
-def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None) -> None:
+class QueueVideoCapture:
+    def __init__(self, frame_queue: queue.Queue, stop_event: threading.Event | None = None):
+        self.frame_queue = frame_queue
+        self.stop_event = stop_event
+
+    def isOpened(self) -> bool:
+        return not (self.stop_event is not None and self.stop_event.is_set())
+
+    def read(self):
+        while self.isOpened():
+            try:
+                return True, self.frame_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+        return False, None
+
+    def release(self) -> None:
+        return None
+
+
+def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None, doctor_id=None, hand="left", stop_event: threading.Event = None, show_window: bool = False, exercise_name=None, target_count=None, target_set=None, frame_queue: queue.Queue | None = None) -> None:
     """웹캠을 열어 MediaPipe로 손 트래킹을 실행하고, 매 프레임 결과를 q(Queue)에 넣는다.
 
     stop_event가 set되거나 세션이 완료/과부하 종료될 때까지 루프를 계속 돈다.
@@ -571,10 +591,13 @@ def run_tracking(q: queue.Queue = None, finger_rom_targets=None, patient_id=None
         target_angles = TAP_FINGER_ROM_TARGETS if ex0["count_type"] == "tap" else DEFAULT_FINGER_ROM_TARGETS
 
     with vision.HandLandmarker.create_from_options(_options) as landmarker:
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            cap.release()
-            cap = cv2.VideoCapture(0)
+        if frame_queue is not None:
+            cap = QueueVideoCapture(frame_queue, stop_event)
+        else:
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap.release()
+                cap = cv2.VideoCapture(0)
         loop_start          = time.time()
         guide_elapsed_start = loop_start
 

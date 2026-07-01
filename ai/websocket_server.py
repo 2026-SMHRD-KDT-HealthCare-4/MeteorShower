@@ -1,5 +1,6 @@
 """MediaPipe 손 트래킹 데이터를 WebSocket으로 실시간 스트리밍하는 FastAPI 서버(AI 서버 포트 8000)."""
 import asyncio
+import base64
 import os
 import queue as stdlib_queue
 import sys
@@ -7,9 +8,11 @@ import threading
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, List, Optional
 
+import cv2
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
+import numpy as np
 import uvicorn
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'), override=True)
@@ -24,6 +27,7 @@ data_queue: stdlib_queue.Queue = stdlib_queue.Queue(maxsize=10)
 
 _tracking_thread: Optional[threading.Thread] = None
 _stop_event: Optional[threading.Event] = None
+_frame_input_queue: Optional[stdlib_queue.Queue] = None
 _tracking_lock = threading.Lock()
 
 
@@ -64,13 +68,14 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None, target_count=None, target_set=None) -> None:
+def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None, target_count=None, target_set=None, use_client_frames=False) -> None:
     """run_tracking을 백그라운드 스레드로 시작한다. 이미 실행 중이면 중복 실행하지 않는다."""
-    global _tracking_thread, _stop_event
+    global _tracking_thread, _stop_event, _frame_input_queue
     with _tracking_lock:
         if _tracking_thread is not None and _tracking_thread.is_alive():
             return
         _stop_event = threading.Event()
+        _frame_input_queue = stdlib_queue.Queue(maxsize=3) if use_client_frames else None
         _tracking_thread = threading.Thread(
             target=run_tracking,
             kwargs={
@@ -84,6 +89,7 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
                 "exercise_name": exercise_name,
                 "target_count": target_count,
                 "target_set": target_set,
+                "frame_queue": _frame_input_queue,
             },
             daemon=True,
             name="hand_tracking",
@@ -94,16 +100,46 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
 
 def stop_tracking() -> None:
     """실행 중인 트래킹 스레드에 stop 신호를 보내고 내부 참조를 정리한다."""
-    global _tracking_thread, _stop_event
+    global _tracking_thread, _stop_event, _frame_input_queue
     with _tracking_lock:
         if _stop_event is not None:
             _stop_event.set()
         _tracking_thread = None
         _stop_event = None
+        _frame_input_queue = None
         print("[Server] hand_tracking stop requested")
 
 
 _frame_log_counter = 0
+
+
+def decode_client_frame(image_data: str):
+    """브라우저가 보낸 data URL/base64 JPEG를 OpenCV BGR 프레임으로 변환한다."""
+    if not image_data:
+        return None
+    if "," in image_data:
+        image_data = image_data.split(",", 1)[1]
+    frame_bytes = base64.b64decode(image_data)
+    np_arr = np.frombuffer(frame_bytes, dtype=np.uint8)
+    return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+
+def enqueue_client_frame(frame) -> None:
+    """분석 스레드가 최신 프레임을 우선 쓰도록 오래된 프레임을 버리고 넣는다."""
+    if _frame_input_queue is None or frame is None:
+        return
+    try:
+        _frame_input_queue.put_nowait(frame)
+    except stdlib_queue.Full:
+        try:
+            _frame_input_queue.get_nowait()
+        except stdlib_queue.Empty:
+            pass
+        try:
+            _frame_input_queue.put_nowait(frame)
+        except stdlib_queue.Full:
+            pass
+
 
 async def broadcast_loop() -> None:
     """data_queue에 쌓인 트래킹 결과를 꺼내 모든 활성 WebSocket에 지속적으로 브로드캐스트한다."""
@@ -169,8 +205,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)) -> N
                     exercise_name=msg.get("exercise_name"),
                     target_count=msg.get("target_count"),
                     target_set=msg.get("target_set"),
+                    use_client_frames=msg.get("use_client_frames", False),
                 )
                 await websocket.send_json({"status": "tracking_started"})
+            elif action == "frame":
+                try:
+                    enqueue_client_frame(decode_client_frame(msg.get("image", "")))
+                except Exception as e:
+                    print(f"[Frame Decode Error] {e}")
             elif action == "stop":
                 stop_tracking()
                 await websocket.send_json({"status": "tracking_stopped"})
