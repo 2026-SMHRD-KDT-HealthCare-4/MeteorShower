@@ -40,7 +40,8 @@ export default function ExerciseSession() {
   const [frame,        setFrame]        = useState(null);
   const [wsData,       setWsData]       = useState(null);
   const [saveMessage,  setSaveMessage]  = useState('');
-  const [selectedHand, setSelectedHand] = useState(null); // 세션 시작 시 보낸 hand('left'/'right')
+  const [selectedHand, setSelectedHand] = useState(null);
+  const [saveReady,    setSaveReady]    = useState(false); // 저장 완료 후 버튼 활성화
 
   const wsRef         = useRef(null);
   const phaseRef      = useRef('idle');
@@ -171,9 +172,8 @@ export default function ExerciseSession() {
         const latestNow = latestDataRef.current;
         if (latestNow?.capture_gifs && rehabSessionIdRef.current && !gifsUploadedRef.current) {
           gifsUploadedRef.current = true;
-          uploadCaptureGifs(rehabSessionIdRef.current, latestNow).catch((err) => {
-            console.error('[Capture GIF upload failed]', err);
-          });
+          uploadCaptureGifs(rehabSessionIdRef.current, latestNow)
+            .catch((err) => { console.error('[Capture GIF upload failed]', err); });
         }
         return result;
       })
@@ -236,19 +236,23 @@ export default function ExerciseSession() {
       setWsData(msg);
       latestDataRef.current = msg;
 
-      // capture_gifs는 AI 서버에서 백그라운드로 인코딩되어 session_end 첫 메시지
-      // 이후에 도착할 수 있다 — 그 시점에 한 번만 업로드를 시도한다.
+      // capture_gifs는 AI 서버에서 백그라운드로 인코딩되어 session_end 이후
+      // 2~2.5초 뒤에 도착한다 — 도착하면 한 번만 백그라운드 업로드를 시도한다.
       if (msg.capture_gifs && rehabSessionIdRef.current && !gifsUploadedRef.current) {
         gifsUploadedRef.current = true;
-        uploadCaptureGifs(rehabSessionIdRef.current, msg).catch((err) => {
-          console.error('[Capture GIF upload failed]', err);
-        });
+        uploadCaptureGifs(rehabSessionIdRef.current, msg)
+          .catch((err) => { console.error('[Capture GIF upload failed]', err); });
       }
 
-      if (msg.session_end) {
+      // session_end는 매 프레임(~30fps)마다 반복 전송된다.
+      // savedRef.current 가드로 첫 번째 메시지에서만 저장을 시작한다.
+      // 완료 화면은 즉시 표시하고, 버튼은 HTTP 저장 완료 후에 활성화한다.
+      if (msg.session_end && !savedRef.current) {
+        updatePhase('ended');
         const sid = sessionIdRef.current;
         saveExerciseResult('완료').finally(() => {
-          if (sessionIdRef.current === sid) updatePhase('ended');
+          if (sessionIdRef.current !== sid) return;
+          setSaveReady(true);
         });
       }
     };
@@ -280,12 +284,44 @@ export default function ExerciseSession() {
   useLayoutEffect(() => {
     sessionIdRef.current += 1;    // 이전 session_end .finally 콜백 무효화
     stopClientFrameStream();
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-    savedRef.current      = false;
-    latestDataRef.current = null;
+
+    // 이전 WS와 GIF 상태를 클로저에 저장 후 ref를 즉시 새 운동용으로 초기화.
+    const prevWs             = wsRef.current;
+    const prevRehabSessionId = rehabSessionIdRef.current;
+    const prevGifsUploaded   = gifsUploadedRef.current;
+
+    wsRef.current             = null;
+    savedRef.current          = false;
+    latestDataRef.current     = null;
     rehabSessionIdRef.current = null;
     gifsUploadedRef.current   = false;
     updatePhase('idle');
+
+    // AI 서버는 session_end 이후 최대 2.5초 뒤 capture_gifs를 보낸다.
+    // WS를 3.5초 더 열어두고 받으면 GIF 업로드 가능.
+    // action:stop은 보내지 않는다 — 서버의 _session_complete_event를 통해
+    // 다음 운동 action:start 수신 시 자동으로 이전 스레드를 교체한다.
+    if (prevWs && prevRehabSessionId && !prevGifsUploaded) {
+      let done = false;
+      const closeWs = () => { try { prevWs.close(); } catch {} };
+      const timer = setTimeout(closeWs, 3500);
+      prevWs.onmessage = (e) => {
+        if (done) return;
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.capture_gifs) {
+            done = true;
+            clearTimeout(timer);
+            uploadCaptureGifs(prevRehabSessionId, msg)
+              .catch((err) => { console.error('[Prev GIF upload failed]', err); })
+              .finally(closeWs);
+          }
+        } catch {}
+      };
+      prevWs.onclose = () => { done = true; clearTimeout(timer); };
+    } else if (prevWs) {
+      try { prevWs.close(); } catch {}
+    }
     setShowModal(false);
     setModalError('');
     setShowPreExam(false);
@@ -294,6 +330,7 @@ export default function ExerciseSession() {
     setSaveMessage('');
     setConnectError('');
     setSelectedHand(null);
+    setSaveReady(false);
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
   }, [location.key, stopClientFrameStream]);
 
@@ -403,23 +440,36 @@ export default function ExerciseSession() {
             <span className="material-symbols-outlined text-teal-400 text-6xl mb-4 block">check_circle</span>
             <p className="text-white text-3xl font-bold mb-2">운동 완료!</p>
             <p className="text-gray-300 text-sm mb-2">수고하셨습니다</p>
-            {saveMessage && <p className="text-teal-300 text-sm mb-6">{saveMessage}</p>}
+            {saveReady
+              ? saveMessage && <p className="text-teal-300 text-sm mb-6">{saveMessage}</p>
+              : <p className="text-gray-400 text-sm mb-6 flex items-center justify-center gap-1">
+                  <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+                  결과 저장 중...
+                </p>
+            }
             <div className="flex items-center justify-center gap-3 mt-6">
               <button
-                onClick={() => { stopSession(); navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } }); }}
-                className="px-8 py-3 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl transition-all"
+                disabled={!saveReady}
+                onClick={() => navigate('/patient/exercise', { state: { doneId: exerciseInfo?.id } })}
+                className={`px-8 py-3 font-semibold rounded-xl transition-all
+                  ${saveReady
+                    ? 'bg-white/20 hover:bg-white/30 text-white cursor-pointer'
+                    : 'bg-white/10 text-white/40 cursor-not-allowed'}`}
               >
                 돌아가기
               </button>
               {nextExercise && (
                 <button
+                  disabled={!saveReady}
                   onClick={() => {
-                    stopSession();
                     navigate('/patient/exercise/session', {
                       state: { exercise: nextExercise, queue, queueIndex: queueIndex + 1, isNextExercise: true },
                     });
                   }}
-                  className="px-8 py-3 bg-teal-500 hover:bg-teal-400 text-white font-semibold rounded-xl transition-all flex items-center gap-2"
+                  className={`px-8 py-3 font-semibold rounded-xl transition-all flex items-center gap-2
+                    ${saveReady
+                      ? 'bg-teal-500 hover:bg-teal-400 text-white cursor-pointer'
+                      : 'bg-teal-500/30 text-white/40 cursor-not-allowed'}`}
                 >
                   다음 운동
                   <span className="material-symbols-outlined text-base">arrow_forward</span>

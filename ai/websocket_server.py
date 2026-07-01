@@ -29,6 +29,7 @@ _tracking_thread: Optional[threading.Thread] = None
 _stop_event: Optional[threading.Event] = None
 _frame_input_queue: Optional[stdlib_queue.Queue] = None
 _tracking_lock = threading.Lock()
+_session_complete_event = threading.Event()  # 세션 완료(session_end) 여부 — 연속 운동 판단용
 
 
 class ConnectionManager:
@@ -69,11 +70,26 @@ manager = ConnectionManager()
 
 
 def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targets=None, exercise_name=None, target_count=None, target_set=None, use_client_frames=False) -> None:
-    """run_tracking을 백그라운드 스레드로 시작한다. 이미 실행 중이면 중복 실행하지 않는다."""
-    global _tracking_thread, _stop_event, _frame_input_queue
+    """run_tracking을 백그라운드 스레드로 시작한다.
+
+    이미 실행 중인 스레드가 있을 때:
+    - 세션 완료(_session_complete_event) 상태면 이전 스레드에 stop 신호만 보내고 새 스레드를 시작.
+    - 운동 진행 중이면 중복 실행하지 않는다.
+    """
+    global _tracking_thread, _stop_event, _frame_input_queue, _session_complete_event
     with _tracking_lock:
         if _tracking_thread is not None and _tracking_thread.is_alive():
-            return
+            if not _session_complete_event.is_set():
+                # 운동 진행 중 — 중복 시작 방지
+                return
+            # 이전 세션 완료 상태 — stop 신호 후 새 스레드 시작
+            if _stop_event is not None:
+                _stop_event.set()
+            _tracking_thread = None
+            _stop_event = None
+            _frame_input_queue = None
+            print("[Server] previous session complete, restarting tracking for next exercise")
+        _session_complete_event.clear()
         _stop_event = threading.Event()
         _frame_input_queue = stdlib_queue.Queue(maxsize=3) if use_client_frames else None
         _tracking_thread = threading.Thread(
@@ -90,6 +106,7 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
                 "target_count": target_count,
                 "target_set": target_set,
                 "frame_queue": _frame_input_queue,
+                "session_complete_event": _session_complete_event,
             },
             daemon=True,
             name="hand_tracking",
@@ -100,13 +117,14 @@ def start_tracking(patient_id=None, doctor_id=None, hand="left", finger_rom_targ
 
 def stop_tracking() -> None:
     """실행 중인 트래킹 스레드에 stop 신호를 보내고 내부 참조를 정리한다."""
-    global _tracking_thread, _stop_event, _frame_input_queue
+    global _tracking_thread, _stop_event, _frame_input_queue, _session_complete_event
     with _tracking_lock:
         if _stop_event is not None:
             _stop_event.set()
         _tracking_thread = None
         _stop_event = None
         _frame_input_queue = None
+        _session_complete_event.clear()
         print("[Server] hand_tracking stop requested")
 
 
