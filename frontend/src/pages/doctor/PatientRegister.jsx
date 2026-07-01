@@ -4,40 +4,7 @@ import DoctorNavBar from '../../components/DoctorNavBar';
 import { patientApi } from '../../api';
 
 
-const inputCls = 'w-full px-3 py-2.5 border border-outline-variant rounded-xl text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary transition-all placeholder:text-outline bg-white';
-const roCls    = 'w-full px-3 py-2.5 border border-outline-variant rounded-xl text-body-md text-on-surface bg-surface-container-low cursor-default select-none';
-
-const ROM_FINGERS = [
-  { key: 'thumb',  label: '엄지 (Thumb)'  },
-  { key: 'index',  label: '검지 (Index)'  },
-  { key: 'middle', label: '중지 (Middle)' },
-  { key: 'ring',   label: '약지 (Ring)'   },
-  { key: 'pinky',  label: '소지 (Pinky)'  },
-];
-const ROM_ROWS = [
-  { label: 'MCP (왼손)',   joint: 'MCP', hand: '왼손'  },
-  { label: 'MCP (오른손)', joint: 'MCP', hand: '오른손' },
-  { label: 'PIP / IP (왼손)',   joint: 'PIP', hand: '왼손'  },
-  { label: 'PIP / IP (오른손)', joint: 'PIP', hand: '오른손' },
-  { label: 'DIP (왼손, 엄지 제외)',   joint: 'DIP', hand: '왼손'  },
-  { label: 'DIP (오른손, 엄지 제외)', joint: 'DIP', hand: '오른손' },
-];
-const romJointForFinger = (fingerKey, joint) => (fingerKey === 'thumb' && joint === 'PIP' ? 'IP' : joint);
-const romLabelForFinger = (fingerKey, joint, hand) => `${fingerKey === 'thumb' && joint === 'PIP' ? 'IP' : joint} (${hand})`;
-const ROM_EXERCISE_TABS = [
-  { key: 'basic',   label: 'Grip'    },
-  { key: 'tapping', label: 'Tapping' },
-];
-
-function Field({ label, children }) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-label-sm font-semibold text-on-surface-variant">{label}</label>
-      {children}
-      <div className="h-4" />
-    </div>
-  );
-}
+const roCls = 'w-full px-3 py-2.5 border border-outline-variant rounded-xl text-body-md text-on-surface bg-surface-container-low cursor-default select-none';
 
 export default function PatientRegister() {
   const navigate = useNavigate();
@@ -49,24 +16,9 @@ export default function PatientRegister() {
   const [searchError, setSearchError] = useState('');
   const [patient, setPatient]     = useState(null);
 
-  /* 의사 입력 */
-  const [area, setArea]           = useState('');
-  const [surgery, setSurgery]     = useState('');
-  const [surgeryDate, setSurgeryDate] = useState('');
-  const [rehabStart, setRehabStart]   = useState('');
-  const [stage, setStage]         = useState('');
-  const [appointmentDate, setAppointmentDate] = useState('');
-  const [done, setDone]           = useState(false);
+  const [done, setDone]             = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const [rom, setRom]                   = useState({});
-  const [activeRomTab, setActiveRomTab] = useState('basic');
-  const [tappingRom, setTappingRom]     = useState({});
-
-  const romByTab    = { basic: rom,    tapping: tappingRom    };
-  const setRomByTab = { basic: setRom, tapping: setTappingRom };
-  const currentRom    = romByTab[activeRomTab]    ?? {};
-  const setCurrentRom = setRomByTab[activeRomTab];
 
   /* 검색 결과 목록 */
   const [results, setResults] = useState([]);
@@ -78,7 +30,6 @@ export default function PatientRegister() {
     setSearching(true);
     setSearchError('');
     setPatient(null);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({}); setTappingRom({}); setActiveRomTab('basic');
     patientApi.searchPatients(query.trim())
       .then((data) => { setResults(data); })
       .catch((err) => { setResults([]); setSearchError(err.message); })
@@ -88,7 +39,6 @@ export default function PatientRegister() {
   /* 목록에서 환자 선택 */
   const handleSelect = (p) => {
     setPatient(p);
-    setArea(''); setSurgery(''); setSurgeryDate(''); setRehabStart(''); setStage(''); setAppointmentDate(''); setRom({}); setTappingRom({}); setActiveRomTab('basic');
   };
 
   /* 제출 */
@@ -96,30 +46,7 @@ export default function PatientRegister() {
     if (!patient) return;
     setSubmitting(true);
     setSubmitError('');
-    const romBody = {};
-    Object.entries(rom).forEach(([k, v]) => {
-      if (v !== '' && v !== null && v !== undefined) romBody[k] = parseFloat(v);
-    });
-    patientApi.assignPatient(patient.patient_id, {
-      surgery_area: area || undefined,
-      surgery_name: surgery || undefined,
-      surgery_date: surgeryDate || undefined,
-      rehab_start_date: rehabStart || undefined,
-      current_rehab_phase: stage || undefined,
-      appointment_date: appointmentDate || undefined,
-    })
-      .then(async () => {
-        if (Object.keys(romBody).length > 0) {
-          await patientApi.updatePatientRom(patient.patient_id, { exercise_type: 'grip', rom: romBody });
-        }
-        const tappingBody = {};
-        Object.entries(tappingRom).forEach(([k, v]) => {
-          if (v !== '' && v !== null && v !== undefined) tappingBody[k] = parseFloat(v);
-        });
-        if (Object.keys(tappingBody).length > 0) {
-          await patientApi.updatePatientRom(patient.patient_id, { exercise_type: 'tapping', rom: tappingBody });
-        }
-      })
+    patientApi.assignPatient(patient.patient_id, {})
       .then(() => setDone(true))
       .catch((err) => setSubmitError(err.message))
       .finally(() => setSubmitting(false));
@@ -147,11 +74,9 @@ export default function PatientRegister() {
             {[
               { label: '환자명',    value: patient.name },
               { label: '코드',      value: patient.patient_code },
-              { label: '수술 부위', value: area },
-              { label: '수술명',    value: surgery },
-              { label: '수술 시기', value: surgeryDate },
-              { label: '재활 시작', value: rehabStart },
-              { label: '진행 단계', value: stage },
+              { label: '성별',      value: patient.gender },
+              { label: '생년월일',  value: String(patient.birth_date).replace(/-/g, '.') },
+              { label: '연락처',    value: patient.phone },
             ].map((r) => (
               <div key={r.label} className="flex justify-between text-label-md border-b border-outline-variant pb-1.5 last:border-0">
                 <span className="text-on-surface-variant">{r.label}</span>
@@ -201,7 +126,7 @@ export default function PatientRegister() {
             환자 등록
           </h1>
           <p className="text-body-md text-on-surface-variant mt-1">
-            회원가입된 환자를 검색한 후 수술 및 재활 정보를 입력해주세요.
+            회원가입된 환자를 검색하여 담당 환자로 등록해주세요.
           </p>
         </div>
 
@@ -364,155 +289,6 @@ export default function PatientRegister() {
                   </div>
                   <div className="h-4" />
                 </div>
-              </div>
-            </section>
-
-            {/* ── STEP 3: 의사 입력 (수술/재활 정보) ── */}
-            <section className="bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-5">
-              <div className="flex items-center gap-2 pb-3 border-b border-outline-variant">
-                <span className="w-6 h-6 bg-doctor-primary text-white text-label-sm font-bold rounded-full flex items-center justify-center flex-shrink-0">3</span>
-                <h2 className="text-title-md font-bold text-doctor-primary">수술 및 재활 정보 입력</h2>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-                <Field label="수술 부위">
-                  <input
-                    value={area}
-                    onChange={(e) => setArea(e.target.value)}
-                    placeholder="예: 손가락, 어깨, 무릎"
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="수술명">
-                  <input
-                    value={surgery}
-                    onChange={(e) => setSurgery(e.target.value)}
-                    placeholder="예: 손가락 골절 수술"
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="수술 시기">
-                  <input
-                    type="date"
-                    value={surgeryDate}
-                    onChange={(e) => setSurgeryDate(e.target.value)}
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="재활 시작 시기">
-                  <input
-                    type="date"
-                    value={rehabStart}
-                    onChange={(e) => setRehabStart(e.target.value)}
-                    className={inputCls}
-                  />
-                </Field>
-
-                <Field label="진행 단계">
-                  <select
-                    value={stage}
-                    onChange={(e) => setStage(e.target.value)}
-                    className={inputCls}
-                  >
-                    <option value="">선택 안함</option>
-                    <option value="초기">초기</option>
-                    <option value="중기">중기</option>
-                    <option value="후기">후기</option>
-                  </select>
-                </Field>
-
-                <Field label="진료 예정일">
-                  <input
-                    type="date"
-                    value={appointmentDate}
-                    onChange={(e) => setAppointmentDate(e.target.value)}
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
-            </section>
-
-            {/* ── STEP 4: 관절 가동 범위 (ROM) ── */}
-            <section className="bg-white border border-outline-variant rounded-2xl p-6 shadow-card space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-outline-variant">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 bg-doctor-primary text-white text-label-sm font-bold rounded-full flex items-center justify-center flex-shrink-0">4</span>
-                  <h2 className="text-title-md font-bold text-doctor-primary">관절 가동 범위 (ROM)</h2>
-                </div>
-                <div className="flex gap-1.5">
-                  {ROM_EXERCISE_TABS.map(({ key, label }) => (
-                    <button
-                      key={key}
-                      onClick={() => setActiveRomTab(key)}
-                      className={`px-3 py-1.5 rounded-lg text-label-sm font-semibold transition-colors
-                        ${activeRomTab === key
-                          ? 'bg-doctor-primary text-white shadow-sm'
-                          : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
-                        }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="text-label-sm text-on-surface-variant">
-                각 관절의 가동 범위를 입력해주세요. 단위: 도(°), 소수점 1자리까지 입력 가능합니다.
-              </p>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[580px] border-collapse">
-                  <thead>
-                    <tr className="bg-[#f0f6ff]">
-                      <th className="px-2 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center w-36 whitespace-nowrap">관절</th>
-                      {ROM_FINGERS.map((f) => (
-                        <th key={f.key} className="px-1 py-2.5 text-label-sm font-bold text-doctor-primary border border-outline-variant text-center">
-                          {f.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ROM_ROWS.map(({ label, joint, hand }) => (
-                      <tr key={`${joint}_${hand}`} className="hover:bg-surface-container-lowest transition-colors">
-                        <td className="px-2 py-2.5 text-label-sm font-semibold text-on-surface-variant border border-outline-variant text-center bg-surface-container-low whitespace-nowrap">
-                          {label}
-                        </td>
-                        {ROM_FINGERS.map((f) => {
-                          const displayLabel = romLabelForFinger(f.key, joint, hand);
-                          const actualJoint = romJointForFinger(f.key, joint);
-                          const stateKey = `${f.key}_${actualJoint}_${hand}`;
-                          if (f.key === 'thumb' && joint === 'DIP') {
-                            return (
-                              <td key={f.key} className="px-1 py-2 border border-outline-variant text-center text-outline">
-                                —
-                              </td>
-                            );
-                          }
-                          return (
-                            <td key={f.key} className="px-1 py-2 border border-outline-variant text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <input
-                                  type="number"
-                                  step="0.1"
-                                  min="0"
-                                  max="180"
-                                  value={currentRom[stateKey] ?? ''}
-                                  onChange={(e) => setCurrentRom((prev) => ({ ...prev, [stateKey]: e.target.value }))}
-                                  placeholder="—"
-                                  className="w-14 text-center border border-outline-variant rounded-lg py-1.5 text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-doctor-primary placeholder:text-outline"
-                                  aria-label={`${f.label} ${displayLabel}`}
-                                />
-                                <span className="text-label-sm text-on-surface-variant">°</span>
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </section>
 
